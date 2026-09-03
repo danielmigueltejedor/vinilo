@@ -1,0 +1,160 @@
+name: CI
+
+# Every push and every pull request. The Flatpak job is deliberately not on
+# pull requests — see the comment on it.
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  # So the packaging can be exercised on demand without waiting for a tag.
+  workflow_dispatch:
+
+# Read-only by default. The one job that needs more says so itself, rather
+# than every job in the file carrying the rights to publish a release.
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: fmt · clippy · tests
+    runs-on: ubuntu-latest
+    # **In a container, because the runner cannot build this.** Vinilo needs
+    # libadwaita >= 1.8 and GTK >= 4.20 (relm4's `gnome_49`), and
+    # `ubuntu-latest` ships neither. Arch is what the app is developed against
+    # and tracks both closely.
+    container: archlinux:base-devel
+    steps:
+      # Verified by running this exact list in a clean `archlinux:base-devel`
+      # container: rustc 1.97.1, GTK 4.22.4, libadwaita 1.9.2, `make check`
+      # green from scratch. No openssl — reqwest is built on rustls.
+      - name: Install the build floor
+        run: |
+          # `libpulse` is a build dependency now, not only a runtime one:
+          # aguja's visualiser reads a monitor source and the daemon sets the
+          # stream's volume, so both link against it. Without it the compile is
+          # fine and the *link* fails, which reads as a mystery until you scroll
+          # to `unable to find library -l:libpulse.so.0`.
+          pacman -Syu --needed --noconfirm \
+            git pkgconf rust gtk4 libadwaita librsvg libpulse
+          rustc --version
+
+      - uses: actions/checkout@v4
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: cargo-${{ runner.os }}-
+
+      # `make check` is the project's own bar: the size ratchet, then fmt,
+      # clippy as an error, and the tests. Running the same target rather than
+      # its parts means CI cannot drift from what a developer runs.
+      - name: make check
+        run: make check
+
+  packaging-changed:
+    name: Did the packaging move?
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.filter.outputs.any }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      # Deliberately a plain `git diff` rather than an action: the question is
+      # small, and one fewer third-party step in the release path is worth more
+      # than the convenience.
+      - id: filter
+        run: |
+          if [ "${{ github.event_name }}" != "push" ] || [ -z "${{ github.event.before }}" ]; then
+            echo "any=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          changed=$(git diff --name-only "${{ github.event.before }}" "${{ github.sha }}" || echo ALL)
+          # `Makefile` is in this list because CI runs `make flatpak-bundle`
+          # — the build command itself lives there, so a change to it that
+          # skipped this job would ship a bundle nobody had built. That is not
+          # hypothetical: the `--runtime-repo` fix was a one-line Makefile
+          # change, and its build only ran because a README under packaging/
+          # happened to move in the same PR.
+          if echo "$changed" | grep -qE '^(packaging/|sidecar/|Cargo\.lock|Cargo\.toml|\.github/workflows/|Makefile|vinilo-launcher)'; then
+            echo "any=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "any=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "changed files:"; echo "$changed"
+
+  flatpak:
+    name: Flatpak bundle
+    runs-on: ubuntu-latest
+    # Creating a release needs this, and the default token does not have it:
+    # the first tag build produced a perfectly good bundle and then failed with
+    # `403 Resource not accessible by integration`. Scoped to this job because
+    # it is the only one that publishes anything.
+    permissions:
+      contents: write
+    # Not on pull requests, and not on every merge either. The build fetches a
+    # ~1.5GB SDK and 120MB of Electron and takes far longer than the checks —
+    # too slow to sit in front of every review, and wasteful on a day when six
+    # PRs land and none of them touch packaging.
+    #
+    # So: always on a tag, on demand, and on a merge **only when something that
+    # could break the build moved**. `check` is what guards a PR; this guards
+    # the packaging.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      startsWith(github.ref, 'refs/tags/v') ||
+      (github.event_name == 'push' && needs.packaging-changed.outputs.changed == 'true')
+    needs: [packaging-changed]
+    steps:
+      - uses: actions/checkout@v4
+
+      # **No prebuilt Flatpak image.** The usual one
+      # (`bilelmoussaoui/flatpak-github-actions`) stops at `gnome-47`, and this
+      # app needs the GNOME 49 runtime — that is the whole reason the Flatpak
+      # exists. Rather than wait on someone else's image to catch up, CI does
+      # exactly what `make flatpak-bundle` does on a developer's machine:
+      # install `org.flatpak.Builder` from Flathub and run it. One fewer thing
+      # that can drift from what is tested locally.
+      - name: Install flatpak and the toolchain
+        run: |
+          sudo apt-get update -qq
+          # `flatpak-builder` natively, not the Flathub app: the sandboxed
+          # one cannot see runtimes in the user installation from a runner.
+          sudo apt-get install -y -qq flatpak flatpak-builder
+          flatpak remote-add --user --if-not-exists flathub \
+            https://dl.flathub.org/repo/flathub.flatpakrepo
+          flatpak install -y --user --noninteractive flathub \
+            org.gnome.Platform//49 \
+            org.gnome.Sdk//49 \
+            org.freedesktop.Sdk.Extension.rust-stable//25.08 \
+            org.electronjs.Electron2.BaseApp//25.08
+
+      # The same target a developer runs, so CI cannot quietly diverge from it.
+      - name: make flatpak-bundle
+        run: make flatpak-bundle
+
+      - name: Keep the bundle for a while
+        uses: actions/upload-artifact@v4
+        with:
+          name: Vinilo.flatpak
+          path: Vinilo.flatpak
+          retention-days: 14
+
+      # Attached to the release on a tag, so `v0.2.0` carries something
+      # installable rather than only source that most distributions cannot
+      # build.
+      - name: Attach to the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: Vinilo.flatpak
+          fail_on_unmatched_files: true

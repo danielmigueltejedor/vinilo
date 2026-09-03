@@ -1,0 +1,27 @@
+/target
+/sidecar/node_modules
+
+# makepkg build output. The PKGBUILDs are source; everything makepkg creates
+# beside them is not — including the ~330 MB it downloads.
+/packaging/aur/*/src/
+/packaging/aur/*/pkg/
+/packaging/aur/*/*.pkg.tar.*
+/packaging/aur/*/*.tar.gz
+/packaging/aur/*/.SRCINFO
+# The bare clone a -git PKGBUILD's source=('git+…') leaves behind. Named after
+# the package rather than living under src/, so the rules above miss it.
+/packaging/aur/*/vinilo/
+
+# Flatpak build output
+build-dir/
+flatpak-repo/
+.flatpak-builder/
+
+# fetched on demand by packaging/flatpak/generate-sources.sh
+packaging/flatpak/.flatpak-cargo-generator.py
+# Any bundle, not one spelled-out name. A named entry was renamed along with
+# the app once, which un-ignored the 94 MB artefact it had been protecting and
+# a `git add -A` committed it on the spot.
+*.flatpak
+
+CLAUDE.local.md

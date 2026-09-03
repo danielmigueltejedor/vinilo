@@ -1,0 +1,204 @@
+#!/usr/bin/env bash
+# SPDX-FileCopyrightText: 2026 Miguel Rincon
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# What Vinilo costs the machine it runs on: memory, CPU, and disk.
+#
+# There is no single number, and the obvious one is wrong. Vinilo is a Rust
+# process supervising a Chromium, and Chromium is six or seven processes that
+# share most of their pages. Adding up RSS counts that shared memory once per
+# process and roughly doubles the answer, which is how a browser engine gets
+# reported as costing a gigabyte it is not using.
+#
+# So this reports **PSS** — proportional set size, where a page shared by four
+# processes counts a quarter in each. It is the number that answers "how much
+# would I get back if this quit", which is the question being asked.
+#
+# CPU matters here for a specific reason rather than a general one: two bugs in
+# this app's history pinned a core (#37's runaway reducer, and the `#[watch]`
+# animation that had to be diagnosed from a core dump). Both would have shown up
+# here instantly.
+#
+# Idle should now read near zero. It did not when this script was written — the
+# backdrop drifted on an `infinite` CSS animation, so the frame clock never
+# stopped and a fifth of a core went into repainting a still window. That was
+# the first thing this script found (#126, fixed in #128), which is the argument
+# for having it.
+#
+#   scripts/footprint.sh          # measure a running Vinilo
+#   scripts/footprint.sh --disk   # disk only, no instance needed
+#
+# Start Vinilo first. Play something before measuring if you want the playing
+# figure — a decoder that has never decoded is not the working set.
+
+set -uo pipefail
+cd "$(dirname "$0")/.."
+
+# Two names, because there are now two processes worth measuring. The GTK client
+# owns its GApplication name; whichever process is exporting the player owns the
+# MPRIS one — the client when it runs alone, the daemon otherwise. Asking for
+# both and de-duplicating is what makes this work before *and* after the client
+# becomes a client of the daemon, when both will be running at once.
+APP_BUS=dev.danielmiguelt.Vinilo
+MPRIS_BUS=org.mpris.MediaPlayer2.Vinilo
+SAMPLE=${SAMPLE:-3} # seconds of CPU sampling
+
+human() { # KB -> human
+	awk -v k="$1" 'BEGIN { if (k > 1048576) printf "%.1f GB", k/1048576;
+	                       else if (k > 1024) printf "%.0f MB", k/1024;
+	                       else printf "%d KB", k }'
+}
+
+# --- disk ---------------------------------------------------------------------
+
+disk() {
+	echo "DISK"
+	# The sidecar dominates everything else by an order of magnitude, and it is
+	# not ours: it is a whole Chromium, which is the price of the only Widevine
+	# CDM that exists on Linux. Reported separately for exactly that reason —
+	# nothing we write will ever move that number.
+	local rows=(
+		"the app itself|target/release/vinilo"
+		"the daemon|target/release/vinilod"
+		"the sidecar (Chromium)|sidecar/node_modules"
+		"Widevine CDM + session|$HOME/.config/Vinilo"
+		"artwork + library cache|$HOME/.cache/vinilo"
+		"last session|${XDG_STATE_HOME:-$HOME/.local/state}/vinilo"
+	)
+	local label path size
+	for row in "${rows[@]}"; do
+		label=${row%%|*}
+		path=${row##*|}
+		if [ -e "$path" ]; then
+			size=$(du -sk "$path" 2>/dev/null | cut -f1)
+			printf '  %-24s %10s  %s\n' "$label" "$(human "$size")" "$path"
+		else
+			printf '  %-24s %10s  %s\n' "$label" "—" "$path (absent)"
+		fi
+	done
+	echo
+	echo "  The cache is the only one that grows with use, and it is swept:"
+	echo "  see components/prune.rs. The sidecar never changes."
+}
+
+if [ "${1:-}" = "--disk" ]; then
+	disk
+	exit 0
+fi
+
+# --- find the app -------------------------------------------------------------
+
+# **Ask the bus, never scan /proc.** An instance started as ./target/debug/vinilo
+# whose binary has since been rebuilt no longer matches by name, and a second
+# instance hands off to the first and exits silently — so the process you find by
+# scanning may not be the one holding the session. The bus is never wrong about
+# who owns the name.
+owner() {
+	busctl --user call org.freedesktop.DBus /org/freedesktop/DBus \
+		org.freedesktop.DBus GetConnectionUnixProcessID s "$1" 2>/dev/null |
+		awk '{print $2}'
+}
+
+ROOTS=()
+for bus in "$APP_BUS" "$MPRIS_BUS"; do
+	pid=$(owner "$bus")
+	[ -n "$pid" ] && [ -d "/proc/$pid" ] || continue
+	# The client owns both names when it runs alone, so the same pid arrives
+	# twice; counting its tree twice would double every number in the report.
+	for seen in ${ROOTS[@]+"${ROOTS[@]}"}; do [ "$seen" = "$pid" ] && continue 2; done
+	ROOTS+=("$pid")
+done
+
+if [ ${#ROOTS[@]} -eq 0 ]; then
+	echo "Nothing is running — start Vinilo or vinilod first, or use --disk." >&2
+	exit 1
+fi
+
+# Every descendant, depth first. The tree is not two levels: GTK's image loaders
+# (glycin) run in bwrap sandboxes that hang off both the app and the sidecar, and
+# they are real memory that a naive parent-and-children walk misses.
+descendants() {
+	local p=$1 c
+	echo "$p"
+	for c in $(pgrep -P "$p" 2>/dev/null); do descendants "$c"; done
+}
+PIDS=()
+for root in "${ROOTS[@]}"; do
+	mapfile -t -O "${#PIDS[@]}" PIDS < <(descendants "$root")
+done
+
+# What each process is for. Chromium tells you in its own argv, and seven rows
+# reading "electron" is not a report.
+role() {
+	local cmd=$1
+	case "$cmd" in
+	*--type=renderer*) echo "sidecar: renderer (MusicKit)" ;;
+	*--type=gpu-process*) echo "sidecar: gpu" ;;
+	*--type=zygote*) echo "sidecar: zygote" ;;
+	*--type=utility*)
+		case "$cmd" in
+		*NetworkService*) echo "sidecar: network" ;;
+		*AudioService*) echo "sidecar: audio" ;;
+		*) echo "sidecar: utility" ;;
+		esac
+		;;
+	*--type=broker*) echo "sidecar: broker" ;;
+	*glycin*) echo "image decoder (sandboxed)" ;;
+	*bwrap*) echo "sandbox wrapper" ;;
+	*electron*) echo "sidecar: main" ;;
+	*vinilod*) echo "the daemon (Rust)" ;;
+	*) echo "the app (Rust + GTK)" ;;
+	esac
+}
+
+# --- CPU sample ---------------------------------------------------------------
+
+jiffies() { # total user+system jiffies for a pid, 0 if it went away
+	awk '{print $14 + $15}' "/proc/$1/stat" 2>/dev/null || echo 0
+}
+
+declare -A before
+for p in "${PIDS[@]}"; do before[$p]=$(jiffies "$p"); done
+sleep "$SAMPLE"
+
+HZ=$(getconf CLK_TCK)
+
+# --- report -------------------------------------------------------------------
+
+echo "MEMORY AND CPU   (${#ROOTS[@]} tree(s): ${ROOTS[*]}, ${SAMPLE}s sample)"
+printf '  %-28s %9s %9s %7s\n' "" RSS PSS CPU
+rss_total=0
+pss_total=0
+cpu_total=0
+for p in "${PIDS[@]}"; do
+	[ -r "/proc/$p/smaps_rollup" ] || continue
+	rss=$(awk '/^Rss:/  {print $2; exit}' "/proc/$p/smaps_rollup")
+	pss=$(awk '/^Pss:/  {print $2; exit}' "/proc/$p/smaps_rollup")
+	[ -n "$rss" ] || continue
+	cmd=$(tr '\0' ' ' <"/proc/$p/cmdline")
+	used=$(($(jiffies "$p") - ${before[$p]:-0}))
+	cpu=$(awk -v u="$used" -v hz="$HZ" -v s="$SAMPLE" 'BEGIN { printf "%.1f", 100*u/hz/s }')
+
+	printf '  %-28s %9s %9s %6s%%\n' "$(role "$cmd")" \
+		"$(human "$rss")" "$(human "$pss")" "$cpu"
+	rss_total=$((rss_total + rss))
+	pss_total=$((pss_total + pss))
+	cpu_total=$(awk -v a="$cpu_total" -v b="$cpu" 'BEGIN { print a + b }')
+done
+
+echo "  ────────────────────────────────────────────────────────────"
+printf '  %-28s %9s %9s %6s%%\n' "$(printf '%d processes' "${#PIDS[@]}")" \
+	"$(human "$rss_total")" "$(human "$pss_total")" "$cpu_total"
+echo
+echo "  PSS is the honest total. The RSS column sums to a much larger number"
+echo "  because Chromium's processes share most of their pages, and adding RSS"
+echo "  counts that shared memory once per process."
+echo
+echo "  CPU is % of one core. Anything near 100 is the class of bug that froze a"
+echo "  desktop twice (#37, and the edge-versus-level rule in CLAUDE.md)."
+echo
+echo "  Idle should be near zero. If it is not, something is asking for frames:"
+echo "  GDK_DEBUG=frames counts them, and an animation that never ends is how"
+echo "  a still window cost 20% of a core once already (#126)."
+echo
+disk
