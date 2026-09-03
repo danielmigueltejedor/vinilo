@@ -20,8 +20,24 @@ SIDECAR  = $(DATADIR)/vinilo/sidecar
 
 ICON_SIZES = 16 32 48 64 128 256 512
 
-.PHONY: all build run test check sidecar sidecar-run gapless footprint install install-sidecar \
+.PHONY: all help build run test check sidecar sidecar-run gapless footprint install install-sidecar \
         dev-install uninstall clean flatpak flatpak-bundle aur aur-publish
+.DEFAULT_GOAL := help
+
+help:
+	@echo "Vinilo — reproductor de Apple Music para Linux"
+	@echo
+	@echo "Ejecuta estos comandos DENTRO de esta carpeta (donde está este Makefile),"
+	@echo "no desde ~."
+	@echo
+	@echo "  make install    Compila e instala en ~/.local (sin sudo)"
+	@echo "  make run        Arranca la app GNOME desde el árbol de fuentes"
+	@echo "  make check      fmt + clippy + tests"
+	@echo "  make uninstall  Quita los binarios e iconos de ~/.local"
+	@echo
+	@echo "Después de instalar: vinilo   (o ábrelo desde la parrilla de apps)"
+	@echo "Si fish no encuentra el comando:  fish_add_path ~/.local/bin"
+
 all: build
 
 build:

@@ -37,15 +37,36 @@ Cada instalación descarga una vez castLabs Electron (~200 MB de Chromium) para 
 
 ## Compilar e instalar
 
-Necesitas Rust ≥ 1.93 (MSRV de relm4 0.11), GTK 4.20, libadwaita 1.8, Node y las dependencias de desarrollo:
+El `Makefile` vive **dentro del repositorio**. Si ejecutas `make install` desde `~` verás:
 
-```bash
-sudo pacman -S --needed base-devel pkgconf rust gtk4 libadwaita librsvg \
-                        nodejs npm libpulse
-make install     # compila e instala en ~/.local, sin sudo
+```
+make: *** No hay ninguna regla para construir el objetivo 'install'.  Alto.
 ```
 
-Arranca **Vinilo** desde la parrilla de aplicaciones o ejecuta `vinilo`. Si no encuentra el comando, añade `~/.local/bin` a tu `PATH`.
+Eso no es un fallo de pacman: no hay Makefile en el directorio de trabajo.
+
+```bash
+# 1. Clona Vinilo y entra en la carpeta
+git clone https://github.com/TU_USUARIO/vinilo.git
+cd vinilo
+
+# 2. Dependencias (Arch). No hace falta sudo para make.
+sudo pacman -S --needed base-devel pkgconf rust gtk4 libadwaita librsvg \
+                        nodejs npm libpulse
+
+# 3. Compila, descarga el sidecar (~200 MB) e instala en ~/.local
+make install
+```
+
+Arranca **Vinilo** desde la parrilla de aplicaciones o:
+
+```bash
+# fish (Arch por defecto a menudo no incluye ~/.local/bin)
+fish_add_path ~/.local/bin
+vinilo
+```
+
+`make install` **no lleva sudo**: instala en `~/.local`. La primera vez tarda un rato (Rust en release + Chromium del sidecar).
 
 `aguja` se instala junto a Vinilo: el reproductor en terminal. También necesita una sesión gráfica porque el demonio ejecuta Chromium.
 
