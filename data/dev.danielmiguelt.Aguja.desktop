@@ -6,7 +6,8 @@ GenericName=Music Player
 GenericName[es]=Reproductor de música
 Comment=Play your Apple Music library from a terminal
 Comment[es]=Reproduce tu biblioteca de Apple Music desde la terminal
-Exec=aguja
+Exec=@BINDIR@/aguja
+TryExec=@BINDIR@/aguja
 Icon=dev.danielmiguelt.Aguja
 # The whole point: the desktop launches a terminal and runs aguja inside it.
 # Which terminal is the desktop's business, not ours.

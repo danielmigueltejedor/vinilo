@@ -127,9 +127,9 @@ install: build install-sidecar dev-install
 	install -Dm755 target/release/vinilo $(BINDIR)/vinilo
 	install -Dm755 target/release/vinilod $(BINDIR)/vinilod
 	install -Dm755 target/release/aguja $(BINDIR)/aguja
-	install -Dm644 packaging/systemd/vinilod.service \
-		$(DATADIR)/systemd/user/vinilod.service
-	@echo "Installed to $(PREFIX). Launch 'Vinilo' from the app grid, or run 'vinilo' — or 'aguja' for the terminal."
+	@echo "Installed to $(PREFIX)."
+	@echo "Launch Vinilo from the app grid, or run 'vinilo' — or 'aguja' for the terminal."
+	@echo "If the grid still does nothing: log out and back in, or run  update-desktop-database ~/.local/share/applications"
 
 install-sidecar: sidecar
 	install -d $(SIDECAR)
@@ -140,9 +140,22 @@ install-sidecar: sidecar
 # Everything except the binaries: the .desktop entry and the icons.
 # Not a way to get a dev-mode icon — on Wayland only the fully installed app
 # shows one.
+#
+# `@BINDIR@` in the desktop files is replaced with the real prefix. GNOME
+# launches from a session PATH that often lacks ~/.local/bin, so `Exec=vinilo`
+# is a no-op from the app grid while the same command works in a terminal.
 dev-install:
-	install -Dm644 data/$(APPID).desktop $(DATADIR)/applications/$(APPID).desktop
-	install -Dm644 data/$(AGUJA).desktop $(DATADIR)/applications/$(AGUJA).desktop
+	install -d $(DATADIR)/applications
+	sed -e 's|@BINDIR@|$(BINDIR)|g' data/$(APPID).desktop \
+		> $(DATADIR)/applications/$(APPID).desktop
+	sed -e 's|@BINDIR@|$(BINDIR)|g' data/$(AGUJA).desktop \
+		> $(DATADIR)/applications/$(AGUJA).desktop
+	chmod 644 $(DATADIR)/applications/$(APPID).desktop \
+		$(DATADIR)/applications/$(AGUJA).desktop
+	install -d $(DATADIR)/systemd/user
+	sed -e 's|@BINDIR@|$(BINDIR)|g' packaging/systemd/vinilod.service \
+		> $(DATADIR)/systemd/user/vinilod.service
+	chmod 644 $(DATADIR)/systemd/user/vinilod.service
 	install -Dm644 data/icons/hicolor/scalable/apps/$(APPID).svg \
 		$(DATADIR)/icons/hicolor/scalable/apps/$(APPID).svg
 	install -Dm644 data/icons/hicolor/scalable/apps/$(AGUJA).svg \
@@ -175,8 +188,10 @@ dev-install:
 
 uninstall:
 	rm -f $(BINDIR)/vinilo
+	rm -f $(BINDIR)/vinilod
 	rm -f $(BINDIR)/aguja
 	rm -rf $(DATADIR)/vinilo
+	rm -f $(DATADIR)/systemd/user/vinilod.service
 	rm -f $(DATADIR)/applications/$(APPID).desktop
 	rm -f $(DATADIR)/applications/$(AGUJA).desktop
 	rm -f $(DATADIR)/icons/hicolor/scalable/apps/$(APPID).svg

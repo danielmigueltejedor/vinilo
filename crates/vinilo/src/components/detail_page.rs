@@ -147,6 +147,9 @@ pub struct DetailPage {
     actions: gtk::Box,
     error: adw::StatusPage,
     empty: adw::StatusPage,
+    backdrop: gtk::CssProvider,
+    backdrop_class: String,
+    last_backdrop: std::cell::RefCell<Option<std::path::PathBuf>>,
 }
 
 impl DetailPage {
@@ -296,6 +299,11 @@ impl DetailPage {
         header.pack_start(&sidebar_toggle);
 
         let toolbar = adw::ToolbarView::new();
+        toolbar.add_css_class("page-sheet");
+        let backdrop_class = crate::style::page_backdrop_class(id);
+        toolbar.add_css_class(&backdrop_class);
+        let backdrop = gtk::CssProvider::new();
+        crate::style::install_page_provider(&backdrop);
         toolbar.add_top_bar(&header);
         toolbar.set_content(Some(&stack));
 
@@ -324,6 +332,9 @@ impl DetailPage {
             actions,
             error,
             empty,
+            backdrop,
+            backdrop_class,
+            last_backdrop: std::cell::RefCell::new(None),
         }
     }
 
@@ -475,9 +486,35 @@ impl DetailPage {
         }
     }
 
+    /// The same blurred sleeve the player uses, on this page only.
+    pub fn set_backdrop(&self, path: Option<&std::path::Path>) {
+        *self.last_backdrop.borrow_mut() = path.map(std::path::Path::to_path_buf);
+        crate::style::set_page_backdrop(
+            &self.backdrop,
+            &self.backdrop_class,
+            path.filter(|_| crate::style::backdrop_enabled()),
+        );
+    }
+
+    /// Preferences flipped the cover-behind-everything switch.
+    pub fn refresh_backdrop(&self) {
+        let path = self.last_backdrop.borrow();
+        crate::style::set_page_backdrop(
+            &self.backdrop,
+            &self.backdrop_class,
+            path.as_deref().filter(|_| crate::style::backdrop_enabled()),
+        );
+    }
+
     pub fn fail(&self, message: &str) {
         self.error.set_description(Some(message));
         self.stack.set_visible_child_name("error");
+    }
+}
+
+impl Drop for DetailPage {
+    fn drop(&mut self) {
+        crate::style::uninstall_page_provider(&self.backdrop);
     }
 }
 

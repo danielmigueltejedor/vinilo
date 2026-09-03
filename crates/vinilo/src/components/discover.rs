@@ -30,10 +30,13 @@ pub enum DiscoverAction {
 pub type DiscoverHandler = Rc<dyn Fn(DiscoverAction)>;
 
 pub struct DiscoverView {
-    pub scroller: gtk::ScrolledWindow,
+    /// The stack the app wraps in a `ScrolledWindow`. Built here rather than
+    /// in `view!` because the shelves are rebuilt in place; `#[local_ref]`
+    /// after `add_named =` is not valid relm4 syntax (the parser wants an
+    /// identifier, which is how the grids are attached).
+    pub stack: gtk::Stack,
     body: gtk::Box,
     empty: adw::StatusPage,
-    stack: gtk::Stack,
     pub(crate) registry: ArtRegistry,
     request: ArtRequest,
     on_activate: DiscoverHandler,
@@ -67,18 +70,10 @@ impl DiscoverView {
         stack.add_named(&empty, Some("empty"));
         stack.set_visible_child_name("empty");
 
-        let scroller = gtk::ScrolledWindow::builder()
-            .vexpand(true)
-            .hscrollbar_policy(gtk::PolicyType::Never)
-            .child(&stack)
-            .css_classes(["plain-scroller"])
-            .build();
-
         Self {
-            scroller,
+            stack,
             body,
             empty,
-            stack,
             registry,
             request,
             on_activate,

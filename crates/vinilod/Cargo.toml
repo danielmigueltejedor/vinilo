@@ -9,6 +9,9 @@ license.workspace = true
 # Volume lives on the audio server's stream, not inside MusicKit — see mixer.rs.
 libpulse-binding = { version = "2", default-features = false }
 vinilo-core = { path = "../vinilo-core" }
+# Local files. MusicKit cannot open a path; this is the decoder that can.
+rodio = "0.19"
+lofty = "0.22"
 
 anyhow.workspace = true
 serde_json.workspace = true

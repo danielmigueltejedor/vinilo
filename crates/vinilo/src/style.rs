@@ -180,8 +180,8 @@ pub fn init(accent: Accent, backdrop: bool) {
 /// on a photograph and cannot be seen on a 256px image blurred and then put
 /// behind a veil.
 const COVER_LAYOUT: &str = ".np-bar { background-size: cover, cover; }
-         .np-sheet { background-size: cover, 150% 150%; }
-         .np-bar, .np-sheet { background-position: center, center; }";
+         .np-sheet, .page-sheet { background-size: cover, 150% 150%; }
+         .np-bar, .np-sheet, .page-sheet { background-position: center, center; }";
 
 /// Apply an accent, and the handful of rules that go with it.
 pub fn set_accent(accent: Accent) {
@@ -485,6 +485,64 @@ fn backdrop_css(image: Option<&str>, dark: bool) -> String {
     )
 }
 
+/// CSS class a detail page uses so its backdrop cannot paint another page.
+pub fn page_backdrop_class(id: u64) -> String {
+    format!("page-bg-{id}")
+}
+
+/// Install a page's own provider, above the accent, same weight as the player.
+pub fn install_page_provider(provider: &gtk::CssProvider) {
+    let Some(display) = gdk::Display::default() else {
+        return;
+    };
+    gtk::style_context_add_provider_for_display(
+        &display,
+        provider,
+        gtk::STYLE_PROVIDER_PRIORITY_APPLICATION + 1,
+    );
+}
+
+pub fn uninstall_page_provider(provider: &gtk::CssProvider) {
+    let Some(display) = gdk::Display::default() else {
+        return;
+    };
+    gtk::style_context_remove_provider_for_display(&display, provider);
+}
+
+/// Whether the cover-behind-the-player preference is on. Playlist pages
+/// follow the same switch: one look, one toggle.
+pub fn backdrop_enabled() -> bool {
+    BACKDROP_ON.with(std::cell::Cell::get)
+}
+
+/// Paint a playlist or album page with the same blurred cover the player uses.
+pub fn set_page_backdrop(provider: &gtk::CssProvider, class: &str, path: Option<&std::path::Path>) {
+    let image = path
+        .filter(|_| backdrop_enabled())
+        .filter(|p| p.is_file())
+        .map(image_of);
+    provider.load_from_string(&page_backdrop_css(class, image.as_deref(), painting_dark()));
+}
+
+fn page_backdrop_css(class: &str, image: Option<&str>, dark: bool) -> String {
+    let Some(image) = image else {
+        return format!(".{class} {{ background-image: none; }}");
+    };
+    let veil = if dark { DARK_VEIL } else { LIGHT_VEIL };
+    let (top, bottom) = veil.sheet;
+    format!(
+        ".{class} {{
+             background-image:
+                 linear-gradient(
+                     alpha(@window_bg_color, {top}),
+                     alpha(@window_bg_color, {bottom})
+                 ),
+                 {image};
+             background-repeat: no-repeat, no-repeat;
+         }}"
+    )
+}
+
 /// Whether libadwaita is currently painting dark.
 ///
 /// Asked at paint time rather than cached: the answer changes when the user
@@ -655,5 +713,18 @@ mod tests {
     fn a_cover_is_a_file_url() {
         let css = image_of(std::path::Path::new("/tmp/a-b.backdrop.png"));
         assert_eq!(css, "url(\"file:///tmp/a-b.backdrop.png\")");
+    }
+
+    #[test]
+    fn a_playlist_page_tints_from_its_own_class() {
+        let css = page_backdrop_css(
+            "page-bg-3",
+            Some("url(\"file:///tmp/x.png\")"),
+            true,
+        );
+        assert!(css.contains(".page-bg-3"), "{css}");
+        assert!(!css.contains(".np-bar"), "must not recolour the player: {css}");
+        let cleared = page_backdrop_css("page-bg-3", None, true);
+        assert!(cleared.contains("background-image: none"));
     }
 }

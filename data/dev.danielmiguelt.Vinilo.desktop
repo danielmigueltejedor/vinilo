@@ -4,14 +4,20 @@ Name=Vinilo
 Name[es]=Vinilo
 GenericName=Music Player
 GenericName[es]=Reproductor de música
-Comment=Play your Apple Music library natively on Linux
-Comment[es]=Reproduce tu biblioteca de Apple Music de forma nativa en Linux
-Exec=vinilo
+Comment=Play Apple Music, and files on this computer, natively on Linux
+Comment[es]=Reproduce Apple Music y archivos de este equipo de forma nativa en Linux
+# @BINDIR@ is substituted at `make install`. A bare `vinilo` is why the
+# launchpad did nothing: GNOME's session PATH does not include ~/.local/bin,
+# which is where a prefix install puts the binary. The terminal did, because
+# fish_add_path had added it there.
+Exec=@BINDIR@/vinilo %U
+TryExec=@BINDIR@/vinilo
 Icon=dev.danielmiguelt.Vinilo
 Terminal=false
 Categories=AudioVideo;Audio;Player;GTK;
-Keywords=Music;Apple;Player;Audio;Playlist;Streaming;
-Keywords[es]=Música;Apple;Reproductor;Audio;Lista;Streaming;
+MimeType=audio/mpeg;audio/flac;audio/ogg;audio/x-vorbis+ogg;audio/mp4;audio/aac;audio/x-wav;audio/wav;audio/x-ape;audio/x-musepack;inode/directory;
+Keywords=Music;Apple;Player;Audio;Playlist;Streaming;Spotify;Tidal;
+Keywords[es]=Música;Apple;Reproductor;Audio;Lista;Streaming;Spotify;Tidal;
 StartupNotify=true
 # The Wayland app_id, which GTK takes from the application id and not from the
 # binary name. GNOME matches on this file's own id and never reads the line, so

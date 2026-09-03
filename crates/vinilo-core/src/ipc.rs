@@ -264,6 +264,18 @@ pub enum Request {
         start: PlayMode,
     },
 
+    /// Play files (or folders of files) from this computer.
+    ///
+    /// **Not catalog ids.** MusicKit cannot open a path, so the daemon's own
+    /// decoder handles these. A second `playFiles` replaces the local queue
+    /// the way `play` replaces the MusicKit one.
+    #[serde(rename = "playFiles")]
+    PlayFiles {
+        paths: Vec<String>,
+        #[serde(default)]
+        index: usize,
+    },
+
     /// Stop the daemon: stop playing, save the session, exit.
     ///
     /// **Refused while another client is attached.** Quitting takes the player
@@ -582,6 +594,16 @@ mod tests {
 
         let sub = serde_json::to_string(&Request::Subscribe).unwrap();
         assert_eq!(sub, r#"{"req":"subscribe"}"#);
+
+        let files = serde_json::to_string(&Request::PlayFiles {
+            paths: vec!["/tmp/a.mp3".into()],
+            index: 0,
+        })
+        .unwrap();
+        assert_eq!(
+            files,
+            r#"{"req":"playFiles","paths":["/tmp/a.mp3"],"index":0}"#
+        );
     }
 
     #[test]

@@ -130,6 +130,10 @@ pub struct AppModel {
     onboarding: Option<adw::Dialog>,
     /// The language picker, while a first run has not chosen English or Spanish.
     language_picker: Option<adw::Dialog>,
+    /// The music-source picker, after language and before Apple's sign-in.
+    provider_picker: Option<adw::Dialog>,
+    /// Files GApplication delivered before the daemon was connected.
+    pending_files: Vec<PathBuf>,
     /// Bumped when the interface language changes so `#[watch]` labels refresh.
     locale_tick: u32,
     primary_menu: gtk::gio::Menu,
@@ -530,7 +534,9 @@ pub enum AppMsg {
     ShowPreferences,
     ShowShortcuts,
     ChooseLanguage(Language),
+    ChooseProvider(vinilo_core::provider::Provider),
     SetLanguage(u32),
+    SetProvider(u32),
     /// The hide-timer fired: the panel has been up long enough.
     HideVolumeOsd,
     /// A sidebar row was selected, by position. What it does depends on what
@@ -564,6 +570,10 @@ pub enum AppMsg {
     SetAccent(crate::style::Accent),
     /// Whether the cover is painted behind the player (#145).
     SetPlayerBackdrop(bool),
+    /// The colour scheme flipped; page backdrops have to be re-veiled.
+    ThemeFlipped,
+    /// Files or folders this process was asked to play.
+    PlayFiles(Vec<PathBuf>),
     SetNotifyTrackChange(bool),
     ToggleQueue,
     /// A library row was activated; the position is resolved immediately.
@@ -622,7 +632,11 @@ pub enum CommandMsg {
         backdrop: Option<PathBuf>,
     },
     /// A page's header art is on disk, or could not be fetched.
-    PageArtwork { page: u64, path: Option<PathBuf> },
+    PageArtwork {
+        page: u64,
+        path: Option<PathBuf>,
+        backdrop: Option<PathBuf>,
+    },
     /// The artwork sweep finished. It logs its own numbers; this exists so the
     /// work can be a command rather than something done on the GTK thread.
     Pruned(crate::components::prune::Report),
@@ -1203,9 +1217,13 @@ impl Component for AppModel {
                                             },
                                         },
 
-                                        add_named[Some("discover")] = #[local_ref] discover_scroll -> gtk::ScrolledWindow {
+                                        add_named[Some("discover")] = &gtk::ScrolledWindow {
                                             set_vexpand: true,
+                                            set_hscrollbar_policy: gtk::PolicyType::Never,
                                             add_css_class: "plain-scroller",
+
+                                            #[local_ref]
+                                            discover_stack -> gtk::Stack {},
                                         },
 
                                         // An empty search box is not a failed
@@ -1236,7 +1254,11 @@ impl Component for AppModel {
                                             #[watch]
                                             set_description: Some({
                                                 let _ = model.locale_tick;
-                                                i18n::t(Key::EmptyLibraryBody)
+                                                if model.settings.provider.needs_apple() {
+                                                    i18n::t(Key::EmptyLibraryBody)
+                                                } else {
+                                                    i18n::t(Key::EmptyLibraryBodyLocal)
+                                                }
                                             }),
                                         },
 
@@ -1398,7 +1420,11 @@ impl Component for AppModel {
         );
 
         let mut model = AppModel {
-            stage: Stage::Starting,
+            stage: if settings.provider.needs_apple() {
+                Stage::Starting
+            } else {
+                Stage::Ready
+            },
             queue_view,
             player_view,
             library,
@@ -1494,6 +1520,8 @@ impl Component for AppModel {
             mirror: Mirror::default(),
             onboarding: None,
             language_picker: None,
+            provider_picker: None,
+            pending_files: Vec::new(),
             locale_tick: 0,
             primary_menu: gtk::gio::Menu::new(),
             last_item: None,
@@ -1515,7 +1543,7 @@ impl Component for AppModel {
             notify_when_art_lands: None,
         };
         let primary_menu = gtk::gio::Menu::new();
-        AppModel::fill_primary_menu(&primary_menu);
+        AppModel::fill_primary_menu(&primary_menu, model.settings.provider);
         model.primary_menu = primary_menu.clone();
 
         let toaster = &model.toaster;
@@ -1524,7 +1552,7 @@ impl Component for AppModel {
         let album_grid = &model.album_grid.view;
         let artist_grid = &model.artist_grid.view;
         let playlist_grid = &model.playlist_grid.view;
-        let discover_scroll = model.discover.scroller.clone();
+        let discover_stack = model.discover.stack.clone();
         let player_sheet_content = model.player_view.widget();
         // Cloned rather than borrowed from the model: `view_output!` needs it
         // while the model already owns it.
@@ -1560,8 +1588,12 @@ impl Component for AppModel {
         // Whatever the daemon had last time, until it says otherwise.
         model.reload_from_cache(&sender);
 
+        crate::open::bind(sender.input_sender().clone());
+
         if !model.settings.language_chosen {
             model.language_picker = Some(model.present_language_picker(&sender, &root));
+        } else if !model.settings.provider_chosen {
+            model.provider_picker = Some(model.present_provider_picker(&sender, &root));
         }
 
         ComponentParts { model, widgets }
@@ -1666,6 +1698,7 @@ impl Component for AppModel {
     fn update(&mut self, msg: Self::Input, sender: ComponentSender<Self>, root: &Self::Root) {
         self.handle(msg, &sender, root);
         self.sync_language_picker(&sender, root);
+        self.sync_provider_picker(&sender, root);
         self.sync_onboarding(&sender, root);
     }
 
@@ -1677,6 +1710,7 @@ impl Component for AppModel {
     ) {
         self.handle_cmd(msg, &sender, root);
         self.sync_language_picker(&sender, root);
+        self.sync_provider_picker(&sender, root);
         self.sync_onboarding(&sender, root);
     }
 }
@@ -2027,9 +2061,23 @@ impl AppModel {
             AppMsg::ShowAbout => show_about(root),
             AppMsg::OpenSupport => chrome::open_support(root),
             AppMsg::ChooseLanguage(language) => self.apply_language(language, true),
+            AppMsg::ChooseProvider(provider) => self.apply_provider(provider),
             AppMsg::SetLanguage(index) => {
                 self.apply_language(Language::from_index(index), true);
             }
+            AppMsg::SetProvider(index) => {
+                let provider = match index {
+                    1 => vinilo_core::provider::Provider::Local,
+                    _ => vinilo_core::provider::Provider::AppleMusic,
+                };
+                self.apply_provider(provider);
+            }
+            AppMsg::ThemeFlipped => {
+                for page in &self.pages {
+                    page.refresh_backdrop();
+                }
+            }
+            AppMsg::PlayFiles(paths) => self.play_files(paths),
             AppMsg::SetTheme(index) => {
                 self.settings.theme = Theme::from_index(index);
                 self.settings.apply_theme();
@@ -2271,9 +2319,10 @@ impl AppModel {
             AppMsg::SetPlayerBackdrop(on) => {
                 self.settings.player_backdrop = on;
                 self.settings.save();
-                // Live, like the accent. `style` still knows which cover is
-                // showing, so turning it back on needs no track change first.
                 crate::style::set_backdrop_enabled(on);
+                for page in &self.pages {
+                    page.refresh_backdrop();
+                }
             }
             AppMsg::SetSort(sort) => {
                 let mut current = self.sorts.get(self.view);
@@ -2471,10 +2520,16 @@ impl AppModel {
                 }
                 tracing::trace!(%key, painted, "tile art delivered");
             }
-            CommandMsg::PageArtwork { page, path } => {
-                if let (Some(path), Some(target)) = (path, self.pages.iter().find(|p| p.id == page))
-                {
-                    target.set_artwork(&path);
+            CommandMsg::PageArtwork {
+                page,
+                path,
+                backdrop,
+            } => {
+                if let Some(target) = self.pages.iter().find(|p| p.id == page) {
+                    if let Some(path) = path {
+                        target.set_artwork(&path);
+                    }
+                    target.set_backdrop(backdrop.as_deref());
                 }
             }
             CommandMsg::Artwork { path, backdrop } => {
@@ -2622,7 +2677,13 @@ impl AppModel {
     /// change, a hook attaching, and signing out — and three of them would have
     /// been easy to forget.
     fn sync_onboarding(&mut self, sender: &ComponentSender<Self>, root: &adw::ApplicationWindow) {
-        if !self.settings.language_chosen {
+        if !self.settings.language_chosen || !self.settings.provider_chosen {
+            return;
+        }
+        if !self.settings.provider.needs_apple() {
+            if let Some(dialog) = self.onboarding.take() {
+                dialog.force_close();
+            }
             return;
         }
         match (matches!(self.stage, Stage::SignedOut), &self.onboarding) {
@@ -2653,6 +2714,59 @@ impl AppModel {
         }
     }
 
+    fn sync_provider_picker(
+        &mut self,
+        sender: &ComponentSender<Self>,
+        root: &adw::ApplicationWindow,
+    ) {
+        if !self.settings.language_chosen {
+            return;
+        }
+        match (self.settings.provider_chosen, &self.provider_picker) {
+            (false, None) => {
+                self.provider_picker = Some(self.present_provider_picker(sender, root));
+            }
+            (true, Some(dialog)) => {
+                dialog.force_close();
+                self.provider_picker = None;
+            }
+            _ => {}
+        }
+    }
+
+    fn apply_provider(&mut self, provider: vinilo_core::provider::Provider) {
+        if !provider.is_available() {
+            return;
+        }
+        self.settings.provider = provider;
+        self.settings.provider_chosen = true;
+        self.settings.save();
+        Self::fill_primary_menu(&self.primary_menu, provider);
+        if !provider.needs_apple() {
+            self.stage = Stage::Ready;
+        }
+        if !self.pending_files.is_empty() {
+            let paths = std::mem::take(&mut self.pending_files);
+            self.play_files(paths);
+        }
+    }
+
+    fn play_files(&mut self, paths: Vec<PathBuf>) {
+        if paths.is_empty() {
+            return;
+        }
+        if self.daemon.is_none() {
+            self.pending_files.extend(paths);
+            return;
+        }
+        let paths: Vec<String> = paths
+            .into_iter()
+            .map(|p| p.to_string_lossy().into_owned())
+            .collect();
+        tracing::info!(count = paths.len(), "playing files from this computer");
+        self.ask(Request::PlayFiles { paths, index: 0 });
+    }
+
     fn apply_language(&mut self, language: Language, persist: bool) {
         if persist && self.settings.language_chosen && self.settings.language == language {
             return;
@@ -2664,7 +2778,7 @@ impl AppModel {
             self.settings.save();
         }
         self.locale_tick = self.locale_tick.wrapping_add(1);
-        Self::fill_primary_menu(&self.primary_menu);
+        Self::fill_primary_menu(&self.primary_menu, self.settings.provider);
         self.pins_dirty = true;
         self.now_playing.emit(NowPlayingInput::Relocalize);
         self.queue_view.emit(QueueViewInput::Relocalize);

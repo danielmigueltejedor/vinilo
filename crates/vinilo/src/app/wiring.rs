@@ -55,6 +55,11 @@ pub(super) fn connect(
     // The volume panel sits under the header for the same reason the content
     // clears the bar: that height is not a constant.
     model.volume_osd.sit_below_the_header(&widgets.content_bars);
+
+    let theme_sender = sender.clone();
+    adw::StyleManager::default().connect_dark_notify(move |_| {
+        theme_sender.input(AppMsg::ThemeFlipped);
+    });
 }
 
 /// Build the sidebar's section rows from [`View::SIDEBAR`].

@@ -90,6 +90,10 @@ impl AppModel {
                 self.ask(Request::Snapshot);
                 self.ask(Request::Queue);
                 self.refresh_discover();
+                if !self.pending_files.is_empty() {
+                    let paths = std::mem::take(&mut self.pending_files);
+                    self.play_files(paths);
+                }
             }
             daemon::Incoming::Event(event) => self.on_event(*event, sender),
             daemon::Incoming::Unparsed(line) => {
@@ -133,8 +137,14 @@ impl AppModel {
                 self.mark_now_playing();
             }
             Event::Stage(stage) => {
-                let clear = clears_account_state(&stage);
+                let clear = clears_account_state(&stage) && self.settings.provider.needs_apple();
                 self.mirror.stage = Some(stage.clone());
+                if !self.settings.provider.needs_apple()
+                    && matches!(stage, DaemonStage::Connecting | DaemonStage::SignedOut)
+                {
+                    self.stage = Stage::Ready;
+                    return;
+                }
                 self.stage = match stage {
                     DaemonStage::Connecting => Stage::Connecting,
                     DaemonStage::Ready => Stage::Ready,

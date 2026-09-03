@@ -280,13 +280,21 @@ impl AppModel {
             return;
         }
         sender.oneshot_command(async move {
+            let path = crate::components::mosaic::mosaic(covers, ART_SIZE, super::TILE_ART).await;
+            let backdrop = match &path {
+                Some(path) => {
+                    let blurred = path.clone();
+                    relm4::spawn_blocking(move || artwork::backdrop(&blurred))
+                        .await
+                        .ok()
+                        .flatten()
+                }
+                None => None,
+            };
             CommandMsg::PageArtwork {
                 page,
-                // `TILE_ART` is what the grids fetch, so a library playlist's
-                // covers are usually on disk already and the mosaic costs no
-                // download at all. Passed from here rather than derived inside,
-                // so the coupling to the grids is visible at the call site.
-                path: crate::components::mosaic::mosaic(covers, ART_SIZE, super::TILE_ART).await,
+                path,
+                backdrop,
             }
         });
     }
@@ -324,7 +332,21 @@ impl AppModel {
                     None
                 }
             };
-            CommandMsg::PageArtwork { page, path }
+            let backdrop = match &path {
+                Some(path) => {
+                    let blurred = path.clone();
+                    relm4::spawn_blocking(move || artwork::backdrop(&blurred))
+                        .await
+                        .ok()
+                        .flatten()
+                }
+                None => None,
+            };
+            CommandMsg::PageArtwork {
+                page,
+                path,
+                backdrop,
+            }
         });
     }
 }

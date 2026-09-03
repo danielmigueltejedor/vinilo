@@ -21,7 +21,7 @@ PartOf=graphical-session.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/vinilod
+ExecStart=@BINDIR@/vinilod
 # SIGTERM is how the daemon is asked to leave; it saves the session and removes
 # its socket on the way out. Long enough for that, short enough not to hang a
 # logout on a wedged Chromium.

@@ -14,6 +14,7 @@
 
 use relm4::gtk::glib::{self, KeyFile, KeyFileFlags};
 use vinilo_core::i18n::{self, Language};
+use vinilo_core::provider::Provider;
 
 const GROUP: &str = "Vinilo";
 
@@ -134,6 +135,11 @@ pub struct Settings {
     /// Preferences. Missing from disk means the picker still has to run.
     pub language: Language,
     pub language_chosen: bool,
+    /// Where the music comes from. Missing from disk means the picker still
+    /// has to run — except for installs that already had a language, which
+    /// were Apple Music before this field existed.
+    pub provider: Provider,
+    pub provider_chosen: bool,
 }
 
 /// Separates pins in the ini. KeyFile's own list separator, so a hand-edited
@@ -202,6 +208,8 @@ impl Default for Settings {
             pinned_playlists: Vec::new(),
             language: Language::English,
             language_chosen: false,
+            provider: Provider::AppleMusic,
+            provider_chosen: false,
         }
     }
 }
@@ -285,6 +293,24 @@ impl Settings {
                 settings.language_chosen = true;
             }
         }
+        // Same split as language: the dedicated file is what the daemon reads.
+        if let Some(provider) = vinilo_core::provider::load() {
+            settings.provider = provider;
+            settings.provider_chosen = true;
+        } else if let Ok(provider) = file.string(GROUP, "provider") {
+            if let Some(provider) = Provider::parse(&provider) {
+                settings.provider = provider;
+                settings.provider_chosen = true;
+            }
+        } else if let Ok(chosen) = file.boolean(GROUP, "provider-chosen") {
+            settings.provider_chosen = chosen;
+        } else if settings.language_chosen {
+            // An install from before this field existed already went through
+            // Apple Music onboarding. Showing the picker now would be a
+            // first-run screen on a machine that is not on a first run.
+            settings.provider = Provider::AppleMusic;
+            settings.provider_chosen = true;
+        }
         tracing::debug!(?settings, "loaded settings");
         settings
     }
@@ -322,6 +348,11 @@ impl Settings {
         if self.language_chosen {
             file.set_string(GROUP, "language", self.language.as_str());
             i18n::save(self.language);
+        }
+        file.set_boolean(GROUP, "provider-chosen", self.provider_chosen);
+        if self.provider_chosen {
+            file.set_string(GROUP, "provider", self.provider.as_str());
+            vinilo_core::provider::save(self.provider);
         }
 
         if let Err(err) = std::fs::create_dir_all(dir) {
@@ -416,6 +447,12 @@ mod tests {
     fn the_language_is_unchosen_until_the_picker_runs() {
         assert!(!Settings::default().language_chosen);
         assert_eq!(Settings::default().language, Language::English);
+    }
+
+    #[test]
+    fn the_provider_is_unchosen_until_the_picker_runs() {
+        assert!(!Settings::default().provider_chosen);
+        assert_eq!(Settings::default().provider, Provider::AppleMusic);
     }
 
     #[test]

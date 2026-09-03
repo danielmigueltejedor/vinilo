@@ -96,6 +96,8 @@ pub struct Daemon {
     /// The desktop's own volume for this application, or `None` where there is
     /// no audio server to talk to.
     pub mixer: Option<crate::mixer::Mixer>,
+    /// Files on this computer. Empty until a client asks to play some.
+    pub local: RefCell<crate::local::Player>,
     /// Rung by [`Request::Quit`], and answered where SIGTERM is — so leaving on
     /// purpose and being stopped by a service manager take the same path.
     pub quitting: tokio::sync::Notify,
@@ -207,11 +209,20 @@ pub async fn run() -> Result<()> {
     let listener = UnixListener::bind(&path).with_context(|| format!("binding {path:?}"))?;
     tracing::info!(socket = %path.display(), "listening");
 
-    let (handle, mut incoming) = sidecar::spawn().context("spawning the sidecar")?;
+    let local_only = vinilo_core::provider::load().is_some_and(|p| !p.needs_sidecar());
+
+    let (sidecar_handle, incoming) = if local_only {
+        tracing::info!("music source is local files — not starting MusicKit");
+        (None, None)
+    } else {
+        let (handle, incoming) = sidecar::spawn().context("spawning the sidecar")?;
+        (Some(handle), Some(incoming))
+    };
     let (events, _) = broadcast::channel(BACKLOG);
     let daemon = Rc::new(Daemon {
         model: RefCell::new(Model::new()),
-        sidecar: RefCell::new(Some(handle)),
+        sidecar: RefCell::new(sidecar_handle),
+        local: RefCell::new(crate::local::Player::new()),
         events,
         restored: std::cell::Cell::new(false),
         restarts: std::cell::Cell::new(0),
@@ -286,6 +297,20 @@ pub async fn run() -> Result<()> {
             let moved = outside.is_some_and(|v| (v - ticking.model.borrow().volume).abs() > 0.005);
             if moved {
                 ticking.model.borrow_mut().volume = outside.unwrap_or_default();
+            }
+            if ticking.local.borrow().is_active() {
+                if ticking.local.borrow().ended() {
+                    let _ = ticking.local.borrow_mut().next();
+                    publish_local(&ticking);
+                } else if ticking.local.borrow().is_playing() {
+                    let event = ticking.local.borrow().position_event();
+                    ticking.model.borrow_mut().player.apply(&event);
+                    ticking.publish_snapshot();
+                } else if moved {
+                    ticking.publish_snapshot();
+                }
+                watchdog::check(&ticking, &mut watch);
+                continue;
             }
             if moved || ticking.model.borrow().player.state.is_playing() {
                 ticking.publish_snapshot();
@@ -363,6 +388,17 @@ pub async fn run() -> Result<()> {
         let _ = std::fs::remove_file(&socket);
         std::process::exit(0);
     });
+
+    if local_only {
+        daemon.model.borrow_mut().stage = Stage::Ready;
+        daemon.publish(Event::Stage(Stage::Ready));
+        // The sidecar loop below is what keeps `run` from returning. Without
+        // one, wait here: clients still attach, files still play, and SIGTERM
+        // still takes the process out through the task above.
+        std::future::pending::<()>().await;
+    }
+
+    let mut incoming = incoming.expect("MusicKit sidecar");
 
     // **The daemon outlives its sidecar.** A child that dies takes the queue
     // with it, but not the process every client is connected to — so this
@@ -799,6 +835,15 @@ fn answer(
             Some(Event::Queue { items, position })
         }
         Request::JumpTo { index } => {
+            if daemon.local.borrow().is_active() {
+                return match daemon.local.borrow_mut().jump(index) {
+                    Ok(()) => {
+                        publish_local(daemon);
+                        None
+                    }
+                    Err(detail) => Some(Event::Error { detail }),
+                };
+            }
             // Nothing pending: there is no new queue to verify against.
             *daemon.pending_start.borrow_mut() = None;
             daemon.restart_at.borrow_mut().take();
@@ -873,10 +918,17 @@ fn answer(
             None
         }
         Request::Play { ids, index, start } => {
+            stop_local(daemon);
             play(daemon, &ids, index, start.into());
             None
         }
+        Request::PlayFiles { paths, index } => play_files(daemon, paths, index),
         Request::Enqueue { ids, next } => {
+            if daemon.local.borrow().is_active() {
+                return Some(Event::Error {
+                    detail: "Can't add Apple Music tracks to a file that's playing".into(),
+                });
+            }
             // Filtered, because a dead id rejects the whole insert the same way
             // it rejects a whole queue.
             let dead = daemon.model.borrow().dead_ids.clone();
@@ -895,6 +947,15 @@ fn answer(
             None
         }
         Request::RemoveFromQueue { index } => {
+            if daemon.local.borrow().is_active() {
+                return match daemon.local.borrow_mut().remove(index) {
+                    Ok(()) => {
+                        publish_local(daemon);
+                        None
+                    }
+                    Err(detail) => Some(Event::Error { detail }),
+                };
+            }
             // **MusicKit will not remove the track it is playing**, and says
             // nothing when asked to: `queue.remove(current)` returns, fires no
             // event, and leaves the queue as it was. Measured on a five-track
@@ -911,6 +972,15 @@ fn answer(
             None
         }
         Request::MoveInQueue { from, to } => {
+            if daemon.local.borrow().is_active() {
+                return match daemon.local.borrow_mut().move_item(from, to) {
+                    Ok(()) => {
+                        publish_local(daemon);
+                        None
+                    }
+                    Err(detail) => Some(Event::Error { detail }),
+                };
+            }
             // Optimistic, like the GTK client's drag: the mirror moves now and
             // MusicKit's echo confirms it, so a client redrawing from the next
             // snapshot does not see the row spring back.
@@ -922,6 +992,15 @@ fn answer(
             None
         }
         Request::ClearQueue => {
+            if daemon.local.borrow().is_active() {
+                stop_local(daemon);
+                daemon.publish(Event::Queue {
+                    items: Vec::new(),
+                    position: 0,
+                });
+                daemon.publish_snapshot();
+                return None;
+            }
             tracing::info!("clearing the queue");
             daemon.send(Command::ClearQueue);
             // The mirror follows the sidecar's own event as always (rule 3);
@@ -946,7 +1025,93 @@ fn answer(
     }
 }
 
+fn stop_local(daemon: &Daemon) {
+    if !daemon.local.borrow().is_active() {
+        return;
+    }
+    daemon.local.borrow_mut().stop();
+    daemon.model.borrow_mut().player.state = PlaybackState::None;
+    daemon.model.borrow_mut().art_path = None;
+}
+
+fn publish_local(daemon: &Daemon) {
+    let local = daemon.local.borrow();
+    if !local.is_active() {
+        return;
+    }
+    let now = local.now_playing_event();
+    let playback = local.playback_event();
+    let position = local.position_event();
+    let art = local.art_path();
+    drop(local);
+    {
+        let mut model = daemon.model.borrow_mut();
+        model.player.apply(&now);
+        model.player.apply(&playback);
+        model.player.apply(&position);
+        model.art_path = art;
+    }
+    let (items, position) = daemon.model.borrow().queue();
+    daemon.publish(Event::Queue { items, position });
+    daemon.publish_snapshot();
+}
+
+fn play_files(daemon: &Daemon, paths: Vec<String>, index: usize) -> Option<Event> {
+    let paths: Vec<std::path::PathBuf> = paths.into_iter().map(std::path::PathBuf::from).collect();
+    if daemon.sidecar.borrow().is_some() {
+        daemon.send(Command::Pause);
+    }
+    match daemon.local.borrow_mut().play_paths(paths, index) {
+        Ok(()) => {
+            tracing::info!("playing files from this computer");
+            *daemon.art_for.borrow_mut() = None;
+            publish_local(daemon);
+            None
+        }
+        Err(detail) => Some(Event::Error { detail }),
+    }
+}
+
+fn route_local_transport(daemon: &Daemon, transport: Transport) {
+    match transport {
+        Transport::Play => daemon.local.borrow_mut().play(),
+        Transport::Pause => daemon.local.borrow_mut().pause(),
+        Transport::PlayPause => daemon.local.borrow_mut().play_pause(),
+        Transport::Next => {
+            let _ = daemon.local.borrow_mut().next();
+        }
+        Transport::Previous => {
+            let _ = daemon.local.borrow_mut().previous();
+        }
+        Transport::Seek { position_ms } => {
+            daemon.local.borrow_mut().seek(position_ms);
+            daemon.model.borrow_mut().player.seeked_to(position_ms);
+        }
+        Transport::SetVolume { volume } => {
+            let volume = volume.clamp(0.0, 1.0);
+            if let Some(mixer) = &daemon.mixer {
+                mixer.set(volume);
+            } else {
+                daemon.local.borrow_mut().set_volume(volume);
+            }
+            daemon.model.borrow_mut().volume = volume;
+        }
+        Transport::SetShuffle { shuffle } => {
+            daemon.model.borrow_mut().player.shuffle = shuffle;
+        }
+        Transport::SetRepeat { mode } => {
+            daemon.local.borrow_mut().set_repeat(mode);
+            daemon.model.borrow_mut().player.repeat = mode;
+        }
+    }
+    publish_local(daemon);
+}
+
 pub(crate) fn route_transport(daemon: &Rc<Daemon>, transport: Transport) {
+    if daemon.local.borrow().is_active() {
+        route_local_transport(daemon, transport);
+        return;
+    }
     if matches!(
         transport,
         Transport::Next | Transport::Previous | Transport::Seek { .. }
@@ -1508,6 +1673,7 @@ mod tests {
             idle: std::cell::Cell::new(false),
             wake: tokio::sync::Notify::new(),
             mixer: None,
+            local: RefCell::new(crate::local::Player::new()),
             last_listen: RefCell::new(None),
             quitting: tokio::sync::Notify::new(),
         })

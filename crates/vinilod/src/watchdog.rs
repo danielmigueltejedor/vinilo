@@ -61,6 +61,12 @@ pub fn check(daemon: &Rc<Daemon>, watch: &mut Watch) {
         watch.disarm();
         return;
     }
+    // A file on this computer, not MusicKit. The sidecar is idle on purpose
+    // and its position is supposed to be frozen.
+    if daemon.local.borrow().is_active() {
+        watch.disarm();
+        return;
+    }
 
     // Read and release: `restart` borrows the same cell.
     let (playing, position_ms) = {

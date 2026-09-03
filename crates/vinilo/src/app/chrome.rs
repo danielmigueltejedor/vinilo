@@ -530,6 +530,29 @@ impl AppModel {
         }
         language.add(&language_row);
 
+        let source = adw::PreferencesGroup::builder()
+            .title(t(Key::MusicSource))
+            .build();
+        let source_row = adw::ComboRow::builder()
+            .title(t(Key::MusicSource))
+            .subtitle(t(Key::MusicSourceSub))
+            .model(&gtk::StringList::new(&[
+                t(Key::ProviderApple),
+                t(Key::ProviderLocal),
+            ]))
+            .selected(match self.settings.provider {
+                vinilo_core::provider::Provider::Local => 1,
+                _ => 0,
+            })
+            .build();
+        {
+            let sender = sender.clone();
+            source_row.connect_selected_notify(move |row| {
+                sender.input(AppMsg::SetProvider(row.selected()));
+            });
+        }
+        source.add(&source_row);
+
         // No group description. It carried a caveat about notifications needing
         // the app to be installed, which is a **developer's** problem — anyone
         // who has Preferences open from a Flatpak or `make install` is already
@@ -552,6 +575,7 @@ impl AppModel {
         notifications.add(&notify);
 
         page.add(&language);
+        page.add(&source);
         page.add(&appearance);
         page.add(&notifications);
         dialog.add(&page);
@@ -635,7 +659,108 @@ impl AppModel {
         dialog
     }
 
-    pub(super) fn fill_primary_menu(menu: &gtk::gio::Menu) {
+    /// First-run music source. Apple Music and files on this computer play
+    /// today; the others are named so the choice is the product, not a lie.
+    pub(super) fn present_provider_picker(
+        &self,
+        sender: &ComponentSender<Self>,
+        parent: &adw::ApplicationWindow,
+    ) -> adw::Dialog {
+        use vinilo_core::provider::Provider;
+
+        let page = adw::StatusPage::builder()
+            .icon_name(crate::APP_ID)
+            .title(t(Key::ProviderTitle))
+            .description(t(Key::ProviderBody))
+            .build();
+
+        let list = gtk::ListBox::builder()
+            .selection_mode(gtk::SelectionMode::None)
+            .css_classes(["boxed-list"])
+            .halign(gtk::Align::Center)
+            .width_request(380)
+            .build();
+
+        let apple = adw::ActionRow::builder()
+            .title(t(Key::ProviderApple))
+            .subtitle(t(Key::ProviderAppleSub))
+            .activatable(true)
+            .build();
+        apple.add_prefix(&gtk::Image::from_icon_name("folder-music-symbolic"));
+        apple.add_suffix(&gtk::Image::from_icon_name("go-next-symbolic"));
+        {
+            let sender = sender.clone();
+            apple.connect_activated(move |_| {
+                sender.input(AppMsg::ChooseProvider(Provider::AppleMusic));
+            });
+        }
+        list.append(&apple);
+
+        let local = adw::ActionRow::builder()
+            .title(t(Key::ProviderLocal))
+            .subtitle(t(Key::ProviderLocalSub))
+            .activatable(true)
+            .build();
+        local.add_prefix(&gtk::Image::from_icon_name("drive-harddisk-symbolic"));
+        local.add_suffix(&gtk::Image::from_icon_name("go-next-symbolic"));
+        {
+            let sender = sender.clone();
+            local.connect_activated(move |_| {
+                sender.input(AppMsg::ChooseProvider(Provider::Local));
+            });
+        }
+        list.append(&local);
+
+        for title in [
+            t(Key::ProviderSpotify),
+            t(Key::ProviderYoutube),
+            t(Key::ProviderTidal),
+        ] {
+            let row = adw::ActionRow::builder()
+                .title(title)
+                .subtitle(t(Key::ProviderComingLater))
+                .activatable(false)
+                .sensitive(false)
+                .build();
+            list.append(&row);
+        }
+
+        let note = gtk::Label::builder()
+            .label(t(Key::ProviderNote))
+            .justify(gtk::Justification::Center)
+            .wrap(true)
+            .max_width_chars(48)
+            .css_classes(["caption", "dim-label"])
+            .build();
+
+        let column = gtk::Box::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .halign(gtk::Align::Center)
+            .spacing(18)
+            .build();
+        column.append(&list);
+        column.append(&note);
+        page.set_child(Some(&column));
+
+        let view = adw::ToolbarView::builder().content(&page).build();
+        let header = adw::HeaderBar::builder()
+            .show_start_title_buttons(false)
+            .show_end_title_buttons(false)
+            .css_classes(["flat"])
+            .build();
+        header.set_title_widget(Some(&gtk::Label::new(None)));
+        view.add_top_bar(&header);
+
+        let dialog = adw::Dialog::builder()
+            .child(&view)
+            .content_width(520)
+            .can_close(false)
+            .build();
+        dialog.present(Some(parent));
+        dialog
+    }
+
+    pub(super) fn fill_primary_menu(menu: &gtk::gio::Menu, provider: vinilo_core::provider::Provider) {
         menu.remove_all();
         let section = gtk::gio::Menu::new();
         section.append(Some(t(Key::Preferences)), Some("win.preferences"));
@@ -643,9 +768,11 @@ impl AppModel {
         section.append(Some(t(Key::About)), Some("win.about"));
         menu.append_section(None, &section);
 
-        let account = gtk::gio::Menu::new();
-        account.append(Some(t(Key::SignOut)), Some("win.sign-out"));
-        menu.append_section(None, &account);
+        if provider.needs_apple() {
+            let account = gtk::gio::Menu::new();
+            account.append(Some(t(Key::SignOut)), Some("win.sign-out"));
+            menu.append_section(None, &account);
+        }
 
         let quit = gtk::gio::Menu::new();
         quit.append(Some(t(Key::Quit)), Some("app.quit"));

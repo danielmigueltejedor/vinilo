@@ -6,11 +6,14 @@ mod components;
 mod daemon;
 mod mirror;
 mod notify;
+mod open;
 mod settings;
 mod style;
 
 use relm4::RelmApp;
 use relm4::gtk;
+use relm4::gtk::gio::prelude::FileExt;
+use relm4::gtk::prelude::{ApplicationExt, ApplicationExtManual};
 use tracing_subscriber::EnvFilter;
 
 pub(crate) use vinilo_core::APP_ID;
@@ -27,6 +30,20 @@ fn main() {
     // init here.
     let app = RelmApp::new(APP_ID);
     setup_icon();
+
+    // Files and folders this process was asked to play. GNOME's session PATH
+    // is why the grid used to do nothing; this is why "Open with Vinilo"
+    // actually starts the song. Set before `run` so GTK has not registered.
+    let gtk_app = relm4::main_application();
+    gtk_app.set_flags(gtk_app.flags() | gtk::gio::ApplicationFlags::HANDLES_OPEN);
+    gtk_app.connect_open(|app, files, _hint| {
+        let paths: Vec<std::path::PathBuf> = files.iter().filter_map(|f| f.path()).collect();
+        crate::open::receive(paths);
+        // With HANDLES_OPEN, a launch that carries files fires `open` instead
+        // of `activate`. RelmApp builds the window from activate, so we have
+        // to fire it ourselves or the grid (and `xdg-open`) would do nothing.
+        app.activate();
+    });
 
     // Load preferences and apply the colour scheme before the window is shown,
     // so there is no flash of the wrong theme. The model owns them from here.
