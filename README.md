@@ -45,9 +45,13 @@ make: *** No hay ninguna regla para construir el objetivo 'install'.  Alto.
 
 Eso no es un fallo de pacman: no hay Makefile en el directorio de trabajo.
 
+Primero publica el código en GitHub (en Cursor: **Create repo**). Hasta que ese remoto exista, `git clone` fallará: el proyecto vive aquí, no todavía en github.com.
+
+GitHub **no acepta la contraseña de la cuenta** para `git clone` / `git push`. Usa SSH o un token (PAT), no la contraseña de iCloud/GitHub.
+
 ```bash
-# 1. Clona Vinilo y entra en la carpeta
-git clone https://github.com/TU_USUARIO/vinilo.git
+# 1. Clona con la URL que te dé GitHub (SSH, no HTTPS+contraseña)
+git clone git@github.com:TU_USUARIO/vinilo.git
 cd vinilo
 
 # 2. Dependencias (Arch). No hace falta sudo para make.
