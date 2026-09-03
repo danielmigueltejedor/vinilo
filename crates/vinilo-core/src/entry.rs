@@ -15,7 +15,7 @@ use crate::ipc::PageKind;
 use crate::music::types::{Album, Artist, Playlist, Track};
 
 /// What a row stands for. Songs play; everything else opens a page.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum Entry {
     Song(Track),
@@ -30,6 +30,17 @@ impl Entry {
         match self {
             Entry::Song(track) => track.catalog_id.as_deref(),
             _ => None,
+        }
+    }
+
+    /// The resource id, whichever collection it came from. Used to compare a
+    /// cached page with a fresh fetch without requiring every field to match.
+    pub fn id(&self) -> &str {
+        match self {
+            Entry::Song(track) => track.catalog_id.as_deref().unwrap_or(track.id.0.as_str()),
+            Entry::Album(album) => album.id.as_str(),
+            Entry::Artist(artist) => artist.id.as_str(),
+            Entry::Playlist(playlist) => playlist.id.as_str(),
         }
     }
 

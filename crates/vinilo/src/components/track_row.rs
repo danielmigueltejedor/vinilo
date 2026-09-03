@@ -18,8 +18,14 @@ use relm4::typed_view::list::RelmListItem;
 use relm4::{gtk, view};
 
 use crate::components::{CurrentTrack, DeadTracks, RowRegistry, TrackOverrides, overridden};
+use crate::components::cover::Cover;
+use crate::components::grid_item::{ArtRegistry, ArtRequest, register, unregister};
 
 pub use vinilo_core::entry::Entry;
+
+/// Cover in a list row, in logical pixels. Fetched at the grid's size so a
+/// playlist reuses album art already on disk.
+const ROW_ART_PX: i32 = 40;
 
 /// The symbolic icon a row shows when it has no artwork. Presentation, so it
 /// stays here rather than travelling with `Entry` — a terminal client wants a
@@ -98,6 +104,8 @@ pub struct LibraryItem {
     /// what `entry` was fetched with. Same discipline as the two above.
     pub overrides: TrackOverrides,
     pub registry: RowRegistry<LibraryRowWidgets>,
+    art_registry: ArtRegistry,
+    art_request: ArtRequest,
 }
 
 /// The widgets a row publishes while it is on screen.
@@ -139,6 +147,8 @@ impl LibraryItem {
         current: CurrentTrack,
         dead: DeadTracks,
         overrides: TrackOverrides,
+        art_registry: ArtRegistry,
+        art_request: ArtRequest,
     ) -> Self {
         Self {
             entry,
@@ -146,6 +156,20 @@ impl LibraryItem {
             current,
             dead,
             overrides,
+            art_registry,
+            art_request,
+        }
+    }
+
+    fn bind_art(
+        &self,
+        widgets: &LibraryItemWidgets,
+        art: Option<&vinilo_core::music::types::Artwork>,
+    ) {
+        if let Some(art) = art {
+            let key = art.cache_key();
+            (self.art_request)(key.clone(), art.clone());
+            register(&mut self.art_registry.borrow_mut(), key, &widgets.cover);
         }
     }
 
@@ -198,6 +222,7 @@ pub struct LibraryItemWidgets {
     /// time the row is reused. The same recycling rule as everything else here.
     showing: std::rc::Rc<std::cell::RefCell<Option<RowFacts>>>,
     icon: gtk::Image,
+    cover: Cover,
     title: gtk::Label,
     subtitle: gtk::Label,
     trailing: gtk::Label,
@@ -213,17 +238,24 @@ impl RelmListItem for LibraryItem {
 
         let showing: std::rc::Rc<std::cell::RefCell<Option<RowFacts>>> = Default::default();
 
+        let cover = Cover::new(ROW_ART_PX);
+        let icon = gtk::Image::builder()
+            .pixel_size(16)
+            .halign(gtk::Align::Center)
+            .valign(gtk::Align::Center)
+            .css_classes(["osd", "circular"])
+            .visible(false)
+            .build();
+        let overlay = gtk::Overlay::new();
+        overlay.set_child(Some(cover.widget()));
+        overlay.add_overlay(&icon);
+        overlay.set_valign(gtk::Align::Center);
+
         view! {
             root = gtk::Box {
                 set_orientation: gtk::Orientation::Horizontal,
                 set_spacing: 12,
                 set_margin_all: 8,
-
-                #[name = "icon"]
-                gtk::Image {
-                    set_pixel_size: 16,
-                    set_valign: gtk::Align::Center,
-                },
 
                 gtk::Box {
                     set_orientation: gtk::Orientation::Vertical,
@@ -350,6 +382,7 @@ impl RelmListItem for LibraryItem {
                 });
             }
         });
+        root.prepend(&overlay);
         root.add_controller(menu);
 
         (
@@ -359,6 +392,7 @@ impl RelmListItem for LibraryItem {
                 menu_button,
                 showing,
                 icon,
+                cover,
                 title,
                 subtitle,
                 trailing,
@@ -419,12 +453,18 @@ impl RelmListItem for LibraryItem {
 
         match &self.entry {
             Entry::Song(track) => {
+                widgets.cover.square("audio-x-generic-symbolic");
                 widgets.trailing.set_label(&track.duration_label());
 
                 let playable = self.playable();
                 let playing = track.catalog_id.is_some()
                     && self.current.borrow().as_deref() == track.catalog_id.as_deref();
                 apply_row_state(&widgets.icon, root, playing, playable);
+                widgets.icon.add_css_class("osd");
+                widgets.icon.add_css_class("circular");
+                widgets.icon.set_visible(playing || !playable);
+
+                self.bind_art(widgets, track.artwork.as_ref());
 
                 if let Some(id) = &track.catalog_id {
                     self.registry.borrow_mut().insert(
@@ -441,19 +481,43 @@ impl RelmListItem for LibraryItem {
             other => {
                 // Albums and artists are never dimmed and never carry the play
                 // marker, so they bypass the shared state entirely.
+                match other {
+                    Entry::Artist(artist) => widgets.cover.round(&artist.name),
+                    Entry::Album(_) => widgets.cover.square("media-optical-symbolic"),
+                    Entry::Playlist(_) => widgets.cover.square("view-list-symbolic"),
+                    Entry::Song(_) => {}
+                }
+                widgets.icon.set_visible(false);
                 widgets.icon.set_icon_name(Some(icon(other)));
                 widgets.icon.set_css_classes(&["dim-label"]);
                 root.set_sensitive(true);
                 root.set_tooltip_text(None);
+                self.bind_art(widgets, artwork_of(other));
             }
         }
     }
 
-    fn unbind(&mut self, _widgets: &mut Self::Widgets, _root: &mut Self::Root) {
+    fn unbind(&mut self, widgets: &mut Self::Widgets, _root: &mut Self::Root) {
         // The widget is about to be handed to another row.
         if let Some(id) = self.entry.catalog_id() {
             self.registry.borrow_mut().remove(id);
         }
+        if let Some(art) = artwork_of(&self.entry) {
+            unregister(
+                &mut self.art_registry.borrow_mut(),
+                &art.cache_key(),
+                &widgets.cover,
+            );
+        }
+    }
+}
+
+fn artwork_of(entry: &Entry) -> Option<&vinilo_core::music::types::Artwork> {
+    match entry {
+        Entry::Song(t) => t.artwork.as_ref(),
+        Entry::Album(a) => a.artwork.as_ref(),
+        Entry::Artist(a) => a.artwork.as_ref(),
+        Entry::Playlist(p) => p.artwork.as_ref(),
     }
 }
 

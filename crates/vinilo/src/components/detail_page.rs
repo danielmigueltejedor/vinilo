@@ -24,6 +24,7 @@ use relm4::typed_view::list::TypedListView;
 use relm4::{adw, gtk};
 
 use crate::components::cover::Cover;
+use crate::components::grid_item::{ArtRegistry, ArtRequest};
 use crate::components::track_row::{Entry, LibraryItem, LibraryRowWidgets};
 use crate::components::{CurrentTrack, DeadTracks, RowRegistry, TrackOverrides};
 use vinilo_core::music::types::{Album, Artist, Artwork, Playlist};
@@ -121,6 +122,8 @@ pub struct RowState {
     /// Favourites and membership as they are now. Shared with the lists behind
     /// this page, so un-starring a song here is true everywhere it appears.
     pub overrides: TrackOverrides,
+    pub art_registry: ArtRegistry,
+    pub art_request: ArtRequest,
 }
 
 pub struct DetailPage {
@@ -447,6 +450,8 @@ impl DetailPage {
                 self.state.current.clone(),
                 self.state.dead.clone(),
                 self.state.overrides.clone(),
+                self.state.art_registry.clone(),
+                self.state.art_request.clone(),
             )
         });
         self.list.extend_from_iter(items);

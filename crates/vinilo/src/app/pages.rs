@@ -82,7 +82,7 @@ impl AppModel {
         entries: Vec<Entry>,
         sender: &ComponentSender<Self>,
     ) {
-        let Some(page) = self.page_for.remove(id) else {
+        let Some(&page) = self.page_for.get(id) else {
             return; // navigated back while this was in flight
         };
         let Some(target) = self.pages.iter_mut().find(|p| p.id == page) else {
@@ -146,6 +146,8 @@ impl AppModel {
                 overrides: self.row_overrides.clone(),
                 current: self.current_track.clone(),
                 dead: self.dead_rows.clone(),
+                art_registry: self.song_art_widgets.clone(),
+                art_request: self.tile_art_request.clone(),
             },
             move |row| activate.input(AppMsg::DetailActivated { page: id, row }),
             move || {

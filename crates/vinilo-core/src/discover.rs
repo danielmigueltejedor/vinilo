@@ -1,0 +1,204 @@
+// SPDX-FileCopyrightText: 2026 Daniel Miguel Tejedor
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+//! The Listen Now / Discover shelves: recently played, recommendations, charts.
+//!
+//! Apple's own endpoints are tried first. Anything they leave empty is filled
+//! from the library already on disk and from the local listen history, so the
+//! page still has something to show on a storefront that 403s recommendations.
+
+use serde::{Deserialize, Serialize};
+
+use crate::entry::Entry;
+use crate::music::types::{Album, Playlist, Track};
+
+const VERSION: u32 = 1;
+const SHELF: usize = 16;
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct Discover {
+    #[serde(default)]
+    version: u32,
+    #[serde(default)]
+    pub recently_played: Vec<Entry>,
+    #[serde(default)]
+    pub recommended_playlists: Vec<Playlist>,
+    #[serde(default)]
+    pub recommended_songs: Vec<Track>,
+    #[serde(default)]
+    pub recently_added: Vec<Entry>,
+    #[serde(default)]
+    pub charts: Vec<Entry>,
+}
+
+impl Discover {
+    pub fn is_empty(&self) -> bool {
+        self.recently_played.is_empty()
+            && self.recommended_playlists.is_empty()
+            && self.recommended_songs.is_empty()
+            && self.recently_added.is_empty()
+            && self.charts.is_empty()
+    }
+
+    /// Fill any shelf Apple left empty, without replacing one that already has
+    /// editorial content.
+    pub fn fill_gaps(&mut self, homemade: Discover) {
+        if self.recently_played.is_empty() {
+            self.recently_played = homemade.recently_played;
+        }
+        if self.recommended_playlists.is_empty() {
+            self.recommended_playlists = homemade.recommended_playlists;
+        }
+        if self.recommended_songs.is_empty() {
+            self.recommended_songs = homemade.recommended_songs;
+        }
+        if self.recently_added.is_empty() {
+            self.recently_added = homemade.recently_added;
+        }
+        if self.charts.is_empty() {
+            self.charts = homemade.charts;
+        }
+    }
+}
+
+fn cache_file() -> Option<std::path::PathBuf> {
+    Some(crate::paths::cache_dir()?.join("discover.json"))
+}
+
+pub fn load() -> Discover {
+    let Some(path) = cache_file() else {
+        return Discover::default();
+    };
+    let Ok(raw) = std::fs::read_to_string(path) else {
+        return Discover::default();
+    };
+    match serde_json::from_str::<Discover>(&raw) {
+        Ok(cache) if cache.version == VERSION => cache,
+        _ => Discover::default(),
+    }
+}
+
+pub fn save(discover: &Discover) {
+    let Some(path) = cache_file() else { return };
+    let Some(dir) = path.parent() else { return };
+    let mut writing = discover.clone();
+    writing.version = VERSION;
+    let Ok(json) = serde_json::to_string(&writing) else {
+        return;
+    };
+    let _ = std::fs::create_dir_all(dir).and_then(|_| std::fs::write(path, json));
+}
+
+pub fn clear() {
+    if let Some(path) = cache_file() {
+        let _ = std::fs::remove_file(path);
+    }
+}
+
+/// What we can put on Discover without asking Apple again.
+///
+/// Recently played comes from the local listen history. Recently added and
+/// playlists come from the library cache. Charts stay empty — those are
+/// Apple's, and inventing a "top songs" list from one person's library would
+/// be a lie.
+pub fn homemade(
+    songs: &[Track],
+    albums: &[Album],
+    playlists: &[Playlist],
+    history: &[Track],
+) -> Discover {
+    let mut recently_added: Vec<Entry> = albums
+        .iter()
+        .filter(|a| !a.date_added.is_empty())
+        .cloned()
+        .map(Entry::Album)
+        .chain(
+            playlists
+                .iter()
+                .filter(|p| !p.date_added.is_empty())
+                .cloned()
+                .map(Entry::Playlist),
+        )
+        .collect();
+    recently_added.sort_by(|a, b| date_of(b).cmp(&date_of(a)));
+    recently_added.truncate(SHELF);
+
+    let mut recommended_playlists = playlists.to_vec();
+    recommended_playlists.sort_by(|a, b| b.last_modified.cmp(&a.last_modified));
+    recommended_playlists.truncate(SHELF);
+
+    let mut recommended_songs: Vec<Track> = songs.iter().filter(|t| t.favorite).cloned().collect();
+    if recommended_songs.is_empty() {
+        recommended_songs = songs.iter().take(SHELF).cloned().collect();
+    } else {
+        recommended_songs.truncate(SHELF);
+    }
+
+    Discover {
+        version: VERSION,
+        recently_played: history.iter().cloned().map(Entry::Song).take(SHELF).collect(),
+        recommended_playlists,
+        recommended_songs,
+        recently_added,
+        charts: Vec::new(),
+    }
+}
+
+fn date_of(entry: &Entry) -> &str {
+    match entry {
+        Entry::Album(a) => a.date_added.as_str(),
+        Entry::Playlist(p) => p.date_added.as_str(),
+        Entry::Song(t) => t.date_added.as_str(),
+        Entry::Artist(_) => "",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::music::types::{Artwork, TrackId};
+
+    fn song(title: &str, favorite: bool, added: &str) -> Track {
+        Track {
+            id: TrackId(format!("i.{title}")),
+            catalog_id: Some("1".into()),
+            favorite,
+            in_library: true,
+            library_id: None,
+            date_added: added.into(),
+            year: String::new(),
+            title: title.into(),
+            artist: "Aitana".into(),
+            album: "Superestrella".into(),
+            duration_ms: 200_000,
+            track_number: 1,
+            artwork: Some(Artwork::new("https://x/{w}x{h}bb.jpg")),
+        }
+    }
+
+    #[test]
+    fn homemade_prefers_favourites_for_recommended_songs() {
+        let songs = vec![
+            song("plain", false, "2024-01-01T00:00:00Z"),
+            song("star", true, "2023-01-01T00:00:00Z"),
+        ];
+        let made = homemade(&songs, &[], &[], &[]);
+        assert_eq!(made.recommended_songs.len(), 1);
+        assert_eq!(made.recommended_songs[0].title, "star");
+    }
+
+    #[test]
+    fn fill_gaps_does_not_replace_apple_content() {
+        let mut apple = Discover {
+            recommended_songs: vec![song("from-apple", false, "")],
+            ..Discover::default()
+        };
+        apple.fill_gaps(Discover {
+            recommended_songs: vec![song("homemade", true, "")],
+            recently_played: vec![Entry::Song(song("played", false, ""))],
+            ..Discover::default()
+        });
+        assert_eq!(apple.recommended_songs[0].title, "from-apple");
+        assert_eq!(apple.recently_played.len(), 1);
+    }
+}

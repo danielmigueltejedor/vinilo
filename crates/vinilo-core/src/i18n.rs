@@ -111,6 +111,15 @@ pub enum Key {
     Albums,
     Artists,
     Playlists,
+    Discover,
+    RecentlyPlayed,
+    MadeForYou,
+    RecommendedSongs,
+    RecentlyAdded,
+    Charts,
+    LoadingDiscover,
+    DiscoverEmpty,
+    DiscoverEmptyBody,
     Library,
     All,
     Queue,
@@ -288,6 +297,18 @@ fn en(key: Key) -> &'static str {
         Key::Albums => "Albums",
         Key::Artists => "Artists",
         Key::Playlists => "Playlists",
+        Key::Discover => "Listen Now",
+        Key::RecentlyPlayed => "Recently Played",
+        Key::MadeForYou => "Made for You",
+        Key::RecommendedSongs => "Songs for You",
+        Key::RecentlyAdded => "Recently Added",
+        Key::Charts => "Charts",
+        Key::LoadingDiscover => "Loading recommendations",
+        Key::DiscoverEmpty => "Nothing to discover yet",
+        Key::DiscoverEmptyBody => {
+            "Play something and Vinilo will show it here, along with playlists \
+             and songs Apple Music recommends."
+        }
         Key::Library => "Library",
         Key::All => "All",
         Key::Queue => "Queue",
@@ -456,6 +477,18 @@ fn es(key: Key) -> &'static str {
         Key::Albums => "Álbumes",
         Key::Artists => "Artistas",
         Key::Playlists => "Listas",
+        Key::Discover => "Escuchar ahora",
+        Key::RecentlyPlayed => "Reproducido recientemente",
+        Key::MadeForYou => "Hecho para ti",
+        Key::RecommendedSongs => "Canciones para ti",
+        Key::RecentlyAdded => "Añadido recientemente",
+        Key::Charts => "Éxitos",
+        Key::LoadingDiscover => "Cargando recomendaciones",
+        Key::DiscoverEmpty => "Todavía no hay nada que descubrir",
+        Key::DiscoverEmptyBody => {
+            "Reproduce algo y Vinilo lo mostrará aquí, junto con listas y \
+             canciones que recomienda Apple Music."
+        }
         Key::Library => "Biblioteca",
         Key::All => "Todas",
         Key::Queue => "Cola",

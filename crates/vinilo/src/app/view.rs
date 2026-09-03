@@ -24,8 +24,9 @@ pub use vinilo_core::sort::SortBy;
 /// library list was on screen.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum View {
-    Search,
     #[default]
+    Discover,
+    Search,
     Songs,
     Albums,
     Artists,
@@ -56,7 +57,7 @@ pub(super) struct Row {
 /// "select this" and "clear that".
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum SidebarRow {
-    /// One of the five fixed sections.
+    /// One of the fixed sections.
     Section(View),
     /// A pinned playlist, by **library** id. The name is looked up when the row
     /// is built, so a pin costs nothing to store and cannot go out of date.
@@ -95,7 +96,12 @@ impl View {
     ///
     /// The label is not [`View::title`]: the row says "Search" under a heading
     /// that says "Apple Music", and the narrow header has no heading to lean on.
-    pub(super) const SIDEBAR: [Row; 5] = [
+    pub(super) const SIDEBAR: [Row; 6] = [
+        Row {
+            view: Self::Discover,
+            icon: "starred-symbolic",
+            label: "discover",
+        },
         Row {
             view: Self::Search,
             icon: "system-search-symbolic",
@@ -135,6 +141,7 @@ impl View {
     pub(super) fn sidebar_label(self) -> &'static str {
         use vinilo_core::i18n::{self, Key};
         i18n::t(match self {
+            Self::Discover => Key::Discover,
             Self::Search => Key::Search,
             Self::Songs => Key::Songs,
             Self::Albums => Key::Albums,
@@ -158,6 +165,7 @@ impl View {
     pub(super) fn title(self) -> &'static str {
         use vinilo_core::i18n::{self, Key};
         i18n::t(match self {
+            Self::Discover => Key::Discover,
             Self::Search => Key::AppleMusic,
             Self::Songs => Key::Songs,
             Self::Albums => Key::Albums,
@@ -170,6 +178,7 @@ impl View {
 impl From<Section> for View {
     fn from(section: Section) -> Self {
         match section {
+            Section::Discover => Self::Discover,
             Section::Library => Self::Songs,
             Section::Albums => Self::Albums,
             Section::Artists => Self::Artists,
@@ -182,6 +191,7 @@ impl From<Section> for View {
 impl From<View> for Section {
     fn from(view: View) -> Self {
         match view {
+            View::Discover => Self::Discover,
             View::Songs => Self::Library,
             View::Albums => Self::Albums,
             View::Artists => Self::Artists,
@@ -287,7 +297,7 @@ impl View {
             Self::Albums => vinilo_core::ipc::View::Albums,
             Self::Artists => vinilo_core::ipc::View::Artists,
             Self::Playlists => vinilo_core::ipc::View::Playlists,
-            Self::Songs | Self::Search => vinilo_core::ipc::View::Songs,
+            Self::Songs | Self::Search | Self::Discover => vinilo_core::ipc::View::Songs,
         }
     }
 }
@@ -330,7 +340,7 @@ impl AppModel {
                 self.built_playlists = None;
                 self.rebuild_playlists();
             }
-            View::Songs | View::Search => {
+            View::Songs | View::Search | View::Discover => {
                 self.built_rows = None;
                 self.rebuild_rows();
             }
@@ -375,7 +385,7 @@ impl Sorts {
             View::Albums => self.albums,
             View::Artists => self.artists,
             View::Playlists => self.playlists,
-            View::Songs | View::Search => self.songs,
+            View::Songs | View::Search | View::Discover => self.songs,
         }
     }
 
@@ -384,7 +394,7 @@ impl Sorts {
             View::Albums => &mut self.albums,
             View::Artists => &mut self.artists,
             View::Playlists => &mut self.playlists,
-            View::Songs | View::Search => &mut self.songs,
+            View::Songs | View::Search | View::Discover => &mut self.songs,
         };
         *slot = sort;
     }
@@ -532,6 +542,7 @@ mod tests {
     #[test]
     fn the_view_round_trips_through_the_persisted_section() {
         for view in [
+            View::Discover,
             View::Search,
             View::Songs,
             View::Albums,
@@ -545,7 +556,7 @@ mod tests {
     #[test]
     fn only_search_looks_at_the_catalog() {
         assert_eq!(View::Search.scope(), SearchScope::Catalog);
-        for view in [View::Songs, View::Albums, View::Artists, View::Playlists] {
+        for view in [View::Discover, View::Songs, View::Albums, View::Artists, View::Playlists] {
             assert_eq!(view.scope(), SearchScope::Library);
         }
     }

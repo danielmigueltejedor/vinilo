@@ -43,6 +43,7 @@ use relm4::typed_view::list::TypedListView;
 
 use crate::components::artwork::{self, ART_SIZE};
 use crate::components::detail_page::{DetailPage, PageKind};
+use crate::components::discover::{DiscoverAction, DiscoverView};
 use crate::components::grid_item::{ArtRegistry, ArtRequest, GridItem, Tile, art_registry};
 use crate::components::now_playing::{NowPlaying, NowPlayingInput, NowPlayingOutput, VOLUME_STEP};
 use crate::components::player_view::{PlayerView, PlayerViewInput};
@@ -268,9 +269,11 @@ pub struct AppModel {
     album_grid: TypedGridView<GridItem, gtk::NoSelection>,
     artist_grid: TypedGridView<GridItem, gtk::NoSelection>,
     playlist_grid: TypedGridView<GridItem, gtk::NoSelection>,
+    discover: DiscoverView,
     loading_albums: bool,
     loading_artists: bool,
     loading_playlists: bool,
+    loading_discover: bool,
     /// Whether a load has been *attempted*, distinct from whether it produced
     /// anything. A failure leaves the collection empty, and "empty" alone would
     /// mean trying again on every event.
@@ -296,6 +299,7 @@ pub struct AppModel {
     album_art_widgets: ArtRegistry,
     artist_art_widgets: ArtRegistry,
     playlist_art_widgets: ArtRegistry,
+    song_art_widgets: ArtRegistry,
     /// Fetches already in flight, so a tile rebinding twice while scrolling
     /// does not queue the same download again.
     tile_art_pending: std::collections::HashSet<String>,
@@ -493,6 +497,8 @@ pub enum AppMsg {
     AlbumActivated(u32),
     ArtistActivated(u32),
     PlaylistActivated(u32),
+    /// A Listen Now tile was activated.
+    DiscoverAction(DiscoverAction),
     /// A tile is on screen and its cover is not on disk yet.
     NeedTileArt(String, Artwork),
     ToggleSidebar,
@@ -948,6 +954,7 @@ impl Component for AppModel {
                                                 set_placeholder_text: Some({
                                                     let _ = model.locale_tick;
                                                     match model.view {
+                                                    View::Discover => i18n::t(Key::Discover),
                                                     View::Songs => i18n::t(Key::SearchLibrary),
                                                     View::Albums => i18n::t(Key::SearchAlbums),
                                                     View::Artists => i18n::t(Key::SearchArtists),
@@ -1040,12 +1047,14 @@ impl Component for AppModel {
                                             add_css_class: "flat",
                                             #[watch]
                                             // Every library section, not just
-                                            // Songs. Search is the exception:
-                                            // Apple ranked those results and
-                                            // re-ordering them locally would
-                                            // throw away the ranking without
-                                            // being able to reproduce it.
-                                            set_visible: model.view != View::Search,
+                                            // Songs. Search and Listen Now are
+                                            // the exceptions: Apple ranked those
+                                            // results, and a Discover shelf is
+                                            // not a sortable list.
+                                            set_visible: !matches!(
+                                                model.view,
+                                                View::Search | View::Discover
+                                            ),
                                             // Visibility follows the section,
                                             // which says nothing about whether
                                             // there is a list to reorder yet.
@@ -1194,6 +1203,11 @@ impl Component for AppModel {
                                             },
                                         },
 
+                                        add_named[Some("discover")] = #[local_ref] discover_scroll -> gtk::ScrolledWindow {
+                                            set_vexpand: true,
+                                            add_css_class: "plain-scroller",
+                                        },
+
                                         // An empty search box is not a failed
                                         // search. Telling someone that Apple
                                         // Music has nothing matching "" is
@@ -1240,6 +1254,7 @@ impl Component for AppModel {
                                             set_description: Some(&{
                                                 let _ = model.locale_tick;
                                                 match model.view {
+                                                View::Discover => i18n::t(Key::DiscoverEmptyBody).to_owned(),
                                                 View::Songs => i18n::no_library_songs(model.query()),
                                                 View::Albums => i18n::no_library_albums(model.query()),
                                                 View::Artists => i18n::no_library_artists(model.query()),
@@ -1373,6 +1388,15 @@ impl Component for AppModel {
             art_sender.input(AppMsg::NeedTileArt(key, art));
         });
 
+        let discover_sender = sender.clone();
+        let discover = DiscoverView::new(
+            art_registry(),
+            tile_art_request.clone(),
+            std::rc::Rc::new(move |action| {
+                discover_sender.input(AppMsg::DiscoverAction(action));
+            }),
+        );
+
         let mut model = AppModel {
             stage: Stage::Starting,
             queue_view,
@@ -1431,9 +1455,11 @@ impl Component for AppModel {
             album_grid,
             artist_grid,
             playlist_grid,
+            discover,
             loading_albums: false,
             loading_artists: false,
             loading_playlists: false,
+            loading_discover: false,
             tried_albums: false,
             tried_artists: false,
             tried_playlists: false,
@@ -1445,6 +1471,7 @@ impl Component for AppModel {
             album_art_widgets: art_registry(),
             artist_art_widgets: art_registry(),
             playlist_art_widgets: art_registry(),
+            song_art_widgets: art_registry(),
             tile_art_pending: std::collections::HashSet::new(),
             tile_art_request,
             catalog: Vec::new(),
@@ -1497,6 +1524,7 @@ impl Component for AppModel {
         let album_grid = &model.album_grid.view;
         let artist_grid = &model.artist_grid.view;
         let playlist_grid = &model.playlist_grid.view;
+        let discover_scroll = model.discover.scroller.clone();
         let player_sheet_content = model.player_view.widget();
         // Cloned rather than borrowed from the model: `view_output!` needs it
         // while the model already owns it.
@@ -1572,6 +1600,15 @@ impl Component for AppModel {
             // does by now, because `update` set it first. No loop.
             widgets.search_entry.set_text(self.query());
             self.sync_sort_menu(&widgets.sort_button);
+            // Keep the sidebar on the section the reducer just switched to —
+            // typing in Listen Now lands on Search without a click, and a
+            // selected row that still says Listen Now would be a lie.
+            if let Some(index) = view::section_index(&self.sidebar_rows, self.view)
+                && let Some(row) = widgets.nav_list.row_at_index(index)
+            {
+                widgets.nav_list.select_row(Some(&row));
+                self.selected_row = Some(SidebarRow::Section(self.view));
+            }
         }
 
         // After `update`, so a narrow header has already swapped the entry in
@@ -1776,6 +1813,15 @@ impl AppModel {
             AppMsg::MovePin { from, slot } => self.move_pinned(from, slot),
             AppMsg::Tick => self.push_snapshot(),
             AppMsg::SearchChanged(query) => {
+                if self.view == View::Discover {
+                    if query.trim().is_empty() {
+                        return;
+                    }
+                    // The search box on Listen Now is the same one every
+                    // section shares. Typing there is a catalog search, not a
+                    // filter of the shelves.
+                    self.handle(AppMsg::SetView(View::Search), &sender, root);
+                }
                 if query == self.query() {
                     return;
                 }
@@ -1793,6 +1839,7 @@ impl AppModel {
                     View::Albums => self.rebuild_albums(),
                     View::Artists => self.rebuild_artists(),
                     View::Playlists => self.rebuild_playlists(),
+                    View::Discover => {}
                     View::Search => {
                         self.search_gen = self.search_gen.wrapping_add(1);
                         let generation = self.search_gen;
@@ -1873,6 +1920,7 @@ impl AppModel {
                     View::Albums => self.rebuild_albums(),
                     View::Artists => self.rebuild_artists(),
                     View::Playlists => self.rebuild_playlists(),
+                    View::Discover => self.refresh_discover(),
                     View::Search => {
                         self.search_gen = self.search_gen.wrapping_add(1);
                         let generation = self.search_gen;
@@ -1914,6 +1962,24 @@ impl AppModel {
                     sender.input(AppMsg::OpenPage(PageKind::playlist(playlist)));
                 }
             }
+            AppMsg::DiscoverAction(action) => match action {
+                DiscoverAction::Open(Entry::Album(album)) => {
+                    sender.input(AppMsg::OpenPage(PageKind::album(&album)));
+                }
+                DiscoverAction::Open(Entry::Artist(artist)) => {
+                    sender.input(AppMsg::OpenPage(PageKind::artist(&artist)));
+                }
+                DiscoverAction::Open(Entry::Playlist(playlist)) => {
+                    sender.input(AppMsg::OpenPage(PageKind::playlist(&playlist)));
+                }
+                DiscoverAction::Open(Entry::Song(track)) => {
+                    self.play_entries(&[Entry::Song(track)], 0, PlayMode::Clicked);
+                }
+                DiscoverAction::PlaySongs { songs, index } => {
+                    let entries: Vec<Entry> = songs.into_iter().map(Entry::Song).collect();
+                    self.play_entries(&entries, index, PlayMode::Clicked);
+                }
+            },
             AppMsg::NeedTileArt(key, art) => {
                 // Scrolling rebinds the same tile repeatedly; one request each.
                 if !self.tile_art_pending.insert(key.clone()) {
@@ -1950,6 +2016,9 @@ impl AppModel {
             }
             AppMsg::ReloadCurrentSection => {
                 self.reload(self.view, &sender);
+                if self.view == View::Discover {
+                    self.refresh_discover();
+                }
                 self.set_library_refreshing(true);
                 self.ask(Request::Refresh);
             }
@@ -2110,6 +2179,7 @@ impl AppModel {
                 // The page owns its own row registry, so dropping it takes the
                 // stale widget handles with it. Nothing to clean up by hand.
                 self.pages.retain(|p| p.id != id);
+                self.page_for.retain(|_, page| *page != id);
                 tracing::debug!(id, depth = self.pages.len(), "page popped");
             }
             AppMsg::DetailActivated { page, row } => {
@@ -2391,6 +2461,8 @@ impl AppModel {
                     &self.album_art_widgets,
                     &self.artist_art_widgets,
                     &self.playlist_art_widgets,
+                    &self.song_art_widgets,
+                    &self.discover.registry,
                 ] {
                     for widget in registry.borrow().get(&key).into_iter().flatten() {
                         widget.set_texture(&texture);
@@ -2464,6 +2536,9 @@ impl AppModel {
             View::Songs | View::Search => {
                 self.tried_library = false;
             }
+            View::Discover => {
+                self.loading_discover = true;
+            }
             View::Albums => {
                 self.tried_albums = false;
             }
@@ -2493,6 +2568,8 @@ impl AppModel {
         self.loading_artists = false;
         self.loading_playlists = false;
         self.loading_library = false;
+        self.loading_discover = false;
+        self.discover.fill(vinilo_core::discover::Discover::default());
         self.tried_albums = false;
         self.tried_artists = false;
         self.tried_playlists = false;
@@ -2592,6 +2669,7 @@ impl AppModel {
         self.now_playing.emit(NowPlayingInput::Relocalize);
         self.queue_view.emit(QueueViewInput::Relocalize);
         self.player_view.emit(PlayerViewInput::Relocalize);
+        self.discover.relocalize();
     }
 
     fn toast(&self, text: &str) {

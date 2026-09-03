@@ -125,7 +125,7 @@ impl SameWidget for Cover {
 /// Idempotent: `bind` can be called on a widget already registered for this
 /// key — rebinding the same tile to the same item — and the same widget twice
 /// in the list would be paint work done twice for ever.
-fn register<T: SameWidget + Clone>(registry: &mut HashMap<String, Vec<T>>, key: String, item: &T) {
+pub(crate) fn register<T: SameWidget + Clone>(registry: &mut HashMap<String, Vec<T>>, key: String, item: &T) {
     let showing = registry.entry(key).or_default();
     if !showing.iter().any(|c| c.same(item)) {
         showing.push(item.clone());
@@ -137,7 +137,7 @@ fn register<T: SameWidget + Clone>(registry: &mut HashMap<String, Vec<T>>, key: 
 /// The half that used to be wrong by construction: with one widget per key
 /// there was nothing to leave alone, so unbinding one tile silently
 /// unregistered whatever other tile had taken the entry.
-fn unregister<T: SameWidget>(registry: &mut HashMap<String, Vec<T>>, key: &str, item: &T) {
+pub(crate) fn unregister<T: SameWidget>(registry: &mut HashMap<String, Vec<T>>, key: &str, item: &T) {
     let Some(showing) = registry.get_mut(key) else {
         return;
     };

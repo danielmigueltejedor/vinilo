@@ -99,6 +99,9 @@ pub struct Daemon {
     /// Rung by [`Request::Quit`], and answered where SIGTERM is — so leaving on
     /// purpose and being stopped by a service manager take the same path.
     pub quitting: tokio::sync::Notify,
+    /// Last catalog id written to the listen history, so a 500ms tick does not
+    /// rewrite the same song.
+    pub last_listen: RefCell<Option<String>>,
 }
 
 impl Daemon {
@@ -136,10 +139,49 @@ impl Daemon {
     }
 
     fn publish_snapshot(&self) {
+        self.record_listen();
         self.publish(Event::Snapshot(self.model.borrow().snapshot()));
         if let Some(mpris) = self.mpris.borrow().as_ref() {
             mpris.update(bus::state(self));
         }
+    }
+
+    fn record_listen(&self) {
+        let model = self.model.borrow();
+        if !model.player.state.is_playing() {
+            return;
+        }
+        let Some(item) = model.player.now_playing.as_ref() else {
+            return;
+        };
+        let Some(id) = item
+            .catalog_id
+            .clone()
+            .or_else(|| item.id.clone())
+        else {
+            return;
+        };
+        if self.last_listen.borrow().as_deref() == Some(id.as_str()) {
+            return;
+        }
+        let track = vinilo_core::music::types::Track {
+            id: vinilo_core::music::types::TrackId(id.clone()),
+            catalog_id: Some(id.clone()),
+            favorite: false,
+            in_library: false,
+            library_id: None,
+            date_added: String::new(),
+            year: String::new(),
+            title: item.title.clone(),
+            artist: item.artist.clone(),
+            album: item.album.clone(),
+            duration_ms: item.duration_ms,
+            track_number: item.track_number,
+            artwork: item.artwork_template.clone().map(Artwork::new),
+        };
+        drop(model);
+        *self.last_listen.borrow_mut() = Some(id);
+        vinilo_core::listen_history::record(track);
     }
 }
 
@@ -188,6 +230,7 @@ pub async fn run() -> Result<()> {
         wake: tokio::sync::Notify::new(),
         quitting: tokio::sync::Notify::new(),
         mixer: crate::mixer::Mixer::start(),
+        last_listen: RefCell::new(None),
     });
 
     // After the `Rc` exists: MPRIS holds one so a button on a bar can reach the
@@ -664,6 +707,9 @@ fn clear_account_state(daemon: &Daemon) {
     daemon.after_apply.take();
     daemon.art_for.borrow_mut().take();
     vinilo_core::library_cache::clear();
+    vinilo_core::page_cache::clear();
+    vinilo_core::discover::clear();
+    vinilo_core::listen_history::clear();
     vinilo_core::session::clear();
 
     daemon.publish(Event::Stage(Stage::SignedOut));
@@ -803,6 +849,10 @@ fn answer(
             // and a client waiting on one must not stop the daemon answering
             // everyone else.
             open_page(daemon, kind, id);
+            None
+        }
+        Request::Discover => {
+            discover(daemon);
             None
         }
         Request::Quit => {
@@ -1163,10 +1213,21 @@ fn search(daemon: &Rc<Daemon>, query: String, filter: CatalogFilter, offset: usi
 /// arrives as an [`Event::Page`] on every subscriber, which is also what lets a
 /// second client show a page the first one opened.
 fn open_page(daemon: &Rc<Daemon>, kind: PageKind, id: String) {
-    let Some(client) = daemon.client() else {
-        daemon.publish(Event::Error {
-            detail: "Not signed in yet".into(),
+    if let Some(cached) = vinilo_core::page_cache::load(kind, &id) {
+        daemon.publish(Event::Page {
+            kind,
+            id: id.clone(),
+            header: cached.header,
+            entries: cached.entries,
         });
+    }
+
+    let Some(client) = daemon.client() else {
+        if vinilo_core::page_cache::load(kind, &id).is_none() {
+            daemon.publish(Event::Error {
+                detail: "Not signed in yet".into(),
+            });
+        }
         return;
     };
 
@@ -1213,19 +1274,61 @@ fn open_page(daemon: &Rc<Daemon>, kind: PageKind, id: String) {
         };
 
         match fetched {
-            Ok((header, entries)) => daemon.publish(Event::Page {
-                kind,
-                id,
-                header,
-                entries,
-            }),
+            Ok((header, entries)) => {
+                let unchanged = vinilo_core::page_cache::load(kind, &id)
+                    .is_some_and(|cached| vinilo_core::page_cache::same(&cached, &header, &entries));
+                vinilo_core::page_cache::save(kind, &id, &header, &entries);
+                if !unchanged {
+                    daemon.publish(Event::Page {
+                        kind,
+                        id,
+                        header,
+                        entries,
+                    });
+                }
+            }
             Err(err) => {
                 tracing::warn!(?err, %id, "opening a page failed");
-                daemon.publish(Event::Error {
-                    detail: format!("{err}"),
-                });
+                if vinilo_core::page_cache::load(kind, &id).is_none() {
+                    daemon.publish(Event::Error {
+                        detail: format!("{err}"),
+                    });
+                }
             }
         }
+    });
+}
+
+fn discover(daemon: &Rc<Daemon>) {
+    let cached = vinilo_core::discover::load();
+    if !cached.is_empty() {
+        daemon.publish(Event::Discover(cached));
+    }
+
+    let homemade = {
+        let library = &daemon.model.borrow().library;
+        vinilo_core::discover::homemade(
+            &library.tracks,
+            &library.albums,
+            &library.playlists,
+            &vinilo_core::listen_history::load(),
+        )
+    };
+
+    let Some(client) = daemon.client() else {
+        if !homemade.is_empty() {
+            vinilo_core::discover::save(&homemade);
+            daemon.publish(Event::Discover(homemade));
+        }
+        return;
+    };
+
+    let daemon = daemon.clone();
+    tokio::task::spawn_local(async move {
+        let mut page = client.discover().await;
+        page.fill_gaps(homemade);
+        vinilo_core::discover::save(&page);
+        daemon.publish(Event::Discover(page));
     });
 }
 
@@ -1405,6 +1508,7 @@ mod tests {
             idle: std::cell::Cell::new(false),
             wake: tokio::sync::Notify::new(),
             mixer: None,
+            last_listen: RefCell::new(None),
             quitting: tokio::sync::Notify::new(),
         })
     }

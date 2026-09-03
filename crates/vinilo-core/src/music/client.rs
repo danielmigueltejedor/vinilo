@@ -22,6 +22,8 @@ use super::types::{
     LibraryArtistResource, Playlist, PlaylistAttributes, RelationshipData, Resource, Response,
     SongAttributes, SongContainers, Track,
 };
+use crate::discover::Discover;
+use crate::entry::Entry;
 
 /// What a catalog search turned up. Apple returns each kind in its own array;
 /// this keeps them apart rather than flattening, because the UI shows them as
@@ -911,6 +913,186 @@ impl Client {
         } else {
             ApiError::Other(StatusCode::BAD_GATEWAY)
         }
+    }
+
+    /// Best-effort GET: missing or forbidden personalisation endpoints become
+    /// `None` instead of failing the whole Discover page.
+    async fn try_json(&self, path: &str) -> Option<serde_json::Value> {
+        let res = match self.get(path).send().await {
+            Ok(res) => res,
+            Err(err) => {
+                tracing::debug!(path, ?err, "discover endpoint unreachable");
+                return None;
+            }
+        };
+        if !res.status().is_success() {
+            tracing::debug!(path, status = %res.status(), "discover endpoint declined");
+            return None;
+        }
+        match res.json().await {
+            Ok(value) => Some(value),
+            Err(err) => {
+                tracing::debug!(path, ?err, "discover endpoint was not json");
+                None
+            }
+        }
+    }
+
+    async fn try_resource_list(&self, path: &str) -> Vec<Entry> {
+        let Some(value) = self.try_json(path).await else {
+            return Vec::new();
+        };
+        let Some(data) = value.get("data").cloned() else {
+            return Vec::new();
+        };
+        let Ok(list) = serde_json::from_value::<Vec<super::mixed::TypedResource>>(data) else {
+            return Vec::new();
+        };
+        super::mixed::entries_from_list(list)
+    }
+
+    /// Recently played albums, playlists and songs, as Apple still has them.
+    async fn try_recent_played(&self) -> Vec<Entry> {
+        self.try_resource_list("/me/recent/played?limit=20&types=albums,playlists,songs")
+            .await
+    }
+
+    async fn try_recent_tracks(&self) -> Vec<Entry> {
+        self.try_resource_list("/me/recent/played/tracks?limit=20")
+            .await
+    }
+
+    async fn try_heavy_rotation(&self) -> Vec<Entry> {
+        self.try_resource_list("/me/history/heavy-rotation?limit=10")
+            .await
+    }
+
+    async fn try_recently_added(&self) -> Vec<Entry> {
+        self.try_resource_list("/me/library/recently-added?limit=20")
+            .await
+    }
+
+    async fn try_recommendations(&self) -> (Vec<Playlist>, Vec<Track>) {
+        let Some(value) = self.try_json("/me/recommendations").await else {
+            return (Vec::new(), Vec::new());
+        };
+        let Some(data) = value.get("data").cloned() else {
+            return (Vec::new(), Vec::new());
+        };
+        let Ok(groups) = serde_json::from_value::<Vec<super::mixed::TypedResource>>(data) else {
+            return (Vec::new(), Vec::new());
+        };
+        let mut playlists = Vec::new();
+        let mut songs = Vec::new();
+        for group in groups {
+            for entry in super::mixed::contents_of(&group) {
+                match entry {
+                    Entry::Playlist(list) => playlists.push(list),
+                    Entry::Song(track) => songs.push(track),
+                    Entry::Album(_) | Entry::Artist(_) => {}
+                }
+            }
+        }
+        (playlists, songs)
+    }
+
+    async fn try_charts(&self) -> (Vec<Entry>, Vec<Track>, Vec<Playlist>) {
+        let path = format!(
+            "/catalog/{}/charts?types=songs,albums,playlists&limit=12",
+            self.storefront
+        );
+        let Some(value) = self.try_json(&path).await else {
+            return (Vec::new(), Vec::new(), Vec::new());
+        };
+        let mut mixed = Vec::new();
+        let mut songs = Vec::new();
+        let mut playlists = Vec::new();
+        let Some(results) = value.get("results") else {
+            return (mixed, songs, playlists);
+        };
+        for key in ["songs", "albums", "playlists"] {
+            let Some(charts) = results.get(key).and_then(|v| v.as_array()) else {
+                continue;
+            };
+            for chart in charts {
+                let Some(data) = chart.get("data").cloned() else {
+                    continue;
+                };
+                let Ok(list) = serde_json::from_value::<Vec<super::mixed::TypedResource>>(data)
+                else {
+                    continue;
+                };
+                for entry in super::mixed::entries_from_list(list) {
+                    match entry {
+                        Entry::Song(track) => {
+                            mixed.push(Entry::Song(track.clone()));
+                            songs.push(track);
+                        }
+                        Entry::Playlist(list) => {
+                            mixed.push(Entry::Playlist(list.clone()));
+                            playlists.push(list);
+                        }
+                        other => mixed.push(other),
+                    }
+                }
+            }
+        }
+        (mixed, songs, playlists)
+    }
+
+    /// Listen Now: Apple's personalisation where it exists, empty shelves where
+    /// it does not. The daemon fills the gaps from the library cache.
+    pub async fn discover(&self) -> Discover {
+        let (played, tracks, recs, rotation, added, charts) = tokio::join!(
+            self.try_recent_played(),
+            self.try_recent_tracks(),
+            self.try_recommendations(),
+            self.try_heavy_rotation(),
+            self.try_recently_added(),
+            self.try_charts(),
+        );
+        let (rec_playlists, rec_songs) = recs;
+        let (chart_mixed, chart_songs, chart_playlists) = charts;
+
+        let mut recently_played = played;
+        for entry in tracks {
+            if !recently_played.iter().any(|e| e.id() == entry.id()) {
+                recently_played.push(entry);
+            }
+        }
+        for entry in rotation {
+            if !recently_played.iter().any(|e| e.id() == entry.id()) {
+                recently_played.push(entry);
+            }
+        }
+        recently_played.truncate(20);
+
+        let mut recommended_playlists = rec_playlists;
+        for list in chart_playlists {
+            if !recommended_playlists.iter().any(|p| p.id == list.id) {
+                recommended_playlists.push(list);
+            }
+        }
+        recommended_playlists.truncate(16);
+
+        let mut recommended_songs = rec_songs;
+        for song in chart_songs {
+            if !recommended_songs
+                .iter()
+                .any(|s| s.catalog_id == song.catalog_id)
+            {
+                recommended_songs.push(song);
+            }
+        }
+        recommended_songs.truncate(16);
+
+        let mut page = Discover::default();
+        page.recently_played = recently_played;
+        page.recommended_playlists = recommended_playlists;
+        page.recommended_songs = recommended_songs;
+        page.recently_added = added;
+        page.charts = chart_mixed.into_iter().take(16).collect();
+        page
     }
 }
 

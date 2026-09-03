@@ -65,6 +65,7 @@ impl Theme {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Section {
     #[default]
+    Discover,
     Library,
     Albums,
     Artists,
@@ -75,6 +76,7 @@ pub enum Section {
 impl Section {
     fn as_str(self) -> &'static str {
         match self {
+            Self::Discover => "discover",
             Self::Library => "library",
             Self::Albums => "albums",
             Self::Artists => "artists",
@@ -89,7 +91,8 @@ impl Section {
             "albums" => Self::Albums,
             "artists" => Self::Artists,
             "playlists" => Self::Playlists,
-            _ => Self::Library,
+            "library" => Self::Library,
+            _ => Self::Discover,
         }
     }
 }

@@ -209,6 +209,10 @@ pub enum Request {
     #[serde(rename = "open")]
     Open { kind: PageKind, id: String },
 
+    /// Listen Now / Discover: recently played, recommendations, charts.
+    #[serde(rename = "discover")]
+    Discover,
+
     /// Grow the queue MusicKit already holds, without rebuilding it.
     ///
     /// **Not a `Play`**, and that is the point: rebuilding a queue to add a
@@ -470,6 +474,10 @@ pub enum Event {
         header: Entry,
         entries: Vec<Entry>,
     },
+
+    /// Listen Now shelves, answering a [`Request::Discover`].
+    #[serde(rename = "discover")]
+    Discover(crate::discover::Discover),
 
     /// The library changed under a client — a refresh landed, or a write
     /// settled. **An invalidation, not the rows**: a client asks for the page

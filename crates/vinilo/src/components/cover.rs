@@ -142,6 +142,11 @@ impl Cover {
         parent.prepend(&self.stack);
     }
 
+    /// The stack that holds the three faces, for overlays and custom parents.
+    pub fn widget(&self) -> &gtk::Stack {
+        &self.stack
+    }
+
     /// Show or hide the whole picture, whichever face it is wearing.
     pub fn set_shown(&self, shown: bool) {
         self.stack.set_visible(shown);

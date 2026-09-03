@@ -27,6 +27,8 @@ La primera vez que abres la aplicación eliges idioma: **English** o **Español*
 - **Reproducción sin cortes** y reproductor a pantalla completa con portada y cola.
 - **Controles del escritorio.** Barra superior de GNOME, pantalla de bloqueo o teclas multimedia. La música sigue si cierras la ventana.
 - **Búsqueda en Apple Music.** Artistas, álbumes, listas y canciones.
+- **Escuchar ahora.** Recién reproducido, listas hechas para ti y éxitos, con Apple Music si responde y con tu biblioteca si no.
+- **Listas rápidas.** Las playlists que ya abriste se quedan en caché; las filas muestran la carátula de cada canción.
 - **Idioma en Preferencias.** Inglés y español, elegidos al arrancar y cambiables después.
 
 ## Requisitos

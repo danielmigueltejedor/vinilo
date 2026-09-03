@@ -9,12 +9,15 @@
 
 pub mod artwork;
 pub mod catalog;
+pub mod discover;
 pub mod entry;
 pub mod i18n;
 pub mod ipc;
 pub mod library_cache;
+pub mod listen_history;
 pub mod mpris;
 pub mod music;
+pub mod page_cache;
 pub mod paths;
 pub mod player;
 pub mod queue;

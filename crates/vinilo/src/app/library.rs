@@ -35,6 +35,18 @@ pub(super) fn matches(track: &Track, needle: &str) -> bool {
 }
 
 impl AppModel {
+    /// Listen Now: paint the disk cache immediately, then ask the daemon for a
+    /// fresh page. Apple's recommendations can 403; the daemon fills gaps from
+    /// the library and the local listen history.
+    pub(super) fn refresh_discover(&mut self) {
+        let cached = vinilo_core::discover::load();
+        if !cached.is_empty() {
+            self.discover.fill(cached);
+        }
+        self.loading_discover = true;
+        self.ask(Request::Discover);
+    }
+
     /// Show what the daemon found in the catalog.
     ///
     /// **Checked against the box, not against a generation counter.** The
@@ -196,6 +208,8 @@ impl AppModel {
                     current.clone(),
                     dead.clone(),
                     overrides.clone(),
+                    self.song_art_widgets.clone(),
+                    self.tile_art_request.clone(),
                 )
             }));
     }
@@ -252,6 +266,8 @@ impl AppModel {
                     current.clone(),
                     dead.clone(),
                     overrides.clone(),
+                    self.song_art_widgets.clone(),
+                    self.tile_art_request.clone(),
                 )
             }));
     }
@@ -451,6 +467,10 @@ impl AppModel {
     /// loaders' `!is_empty()` guards do that on their own, which is the same
     /// rule that makes revisiting a section instant.
     pub(super) fn seed_from_cache(&mut self) {
+        let discover = vinilo_core::discover::load();
+        if !discover.is_empty() {
+            self.discover.fill(discover);
+        }
         let cached = vinilo_core::library_cache::load();
         if cached.is_empty() {
             return;
@@ -473,6 +493,7 @@ impl AppModel {
             View::Albums => self.rebuild_albums(),
             View::Artists => self.rebuild_artists(),
             View::Playlists => self.rebuild_playlists(),
+            View::Discover => {}
             View::Songs | View::Search => self.rebuild_rows(),
         }
     }

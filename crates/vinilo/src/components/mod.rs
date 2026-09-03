@@ -7,6 +7,7 @@
 pub mod artwork;
 pub mod cover;
 pub mod detail_page;
+pub mod discover;
 pub mod grid_item;
 pub mod mosaic;
 pub mod now_playing;

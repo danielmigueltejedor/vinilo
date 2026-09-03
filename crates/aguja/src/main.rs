@@ -873,6 +873,7 @@ impl App {
                 self.browser.replace(entries, 0);
                 self.browser.reset();
             }
+            Event::Discover(_) => {}
             Event::LibraryChanged => {
                 self.refreshing_library = false;
                 self.message = None;

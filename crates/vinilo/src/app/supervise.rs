@@ -89,6 +89,7 @@ impl AppModel {
                 self.ask(Request::Stage);
                 self.ask(Request::Snapshot);
                 self.ask(Request::Queue);
+                self.refresh_discover();
             }
             daemon::Incoming::Event(event) => self.on_event(*event, sender),
             daemon::Incoming::Unparsed(line) => {
@@ -149,6 +150,11 @@ impl AppModel {
                 tracing::info!("the daemon refreshed the library");
                 self.set_library_refreshing(false);
                 self.reload_from_cache(sender);
+                self.refresh_discover();
+            }
+            Event::Discover(page) => {
+                self.loading_discover = false;
+                self.discover.fill(page);
             }
             Event::LibraryRefreshing { refreshing } => {
                 self.set_library_refreshing(refreshing);

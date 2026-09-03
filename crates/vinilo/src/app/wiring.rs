@@ -41,7 +41,8 @@ pub(super) fn connect(
     sidebar_selection(model, widgets, sender);
     sidebar_headers(
         widgets,
-        super::view::section_index(&model.sidebar_rows, View::Playlists).unwrap_or_default(),
+        super::view::section_index(&model.sidebar_rows, View::Songs).unwrap_or(2),
+        super::view::section_index(&model.sidebar_rows, View::Playlists).unwrap_or(5),
     );
     sort_menu(model, widgets, sender);
     catalog_filter_menu(model, widgets, sender);
@@ -56,7 +57,7 @@ pub(super) fn connect(
     model.volume_osd.sit_below_the_header(&widgets.content_bars);
 }
 
-/// Build the sidebar's five rows from [`View::SIDEBAR`].
+/// Build the sidebar's section rows from [`View::SIDEBAR`].
 ///
 /// They were five near-identical `ListBoxRow`s in `view!` — 126 lines saying
 /// one thing five times, each carrying a comment repeating its own index.
@@ -68,7 +69,7 @@ pub(super) fn connect(
 /// by `sync_section_spinners`.
 fn sidebar_rows(model: &mut AppModel, widgets: &Widgets, sender: &ComponentSender<AppModel>) {
     // A pin's position among the *pins*, which is what a reorder moves — not its
-    // position among the rows, which counts the five sections above it.
+    // position among the rows, which counts the sections above it.
     let mut pin_index = 0usize;
     for entry in model.sidebar_rows.clone() {
         let content = gtk::Box::new(gtk::Orientation::Horizontal, 12);
@@ -232,11 +233,13 @@ fn section_row(view: View) -> &'static super::view::Row {
 /// `view!` and 285b542. `playlists_row` is passed rather than hard-coded so the
 /// heading follows the row if the sections are ever reordered; everything below
 /// that row is a pin, which is why Playlists is the last group.
-fn sidebar_headers(widgets: &Widgets, playlists_row: i32) {
+fn sidebar_headers(widgets: &Widgets, library_row: i32, playlists_row: i32) {
     widgets.nav_list.set_header_func(move |row, _before| {
         let title = match row.index() {
             0 => vinilo_core::i18n::t(vinilo_core::i18n::Key::AppleMusic),
-            1 => vinilo_core::i18n::t(vinilo_core::i18n::Key::Library),
+            index if index == library_row => {
+                vinilo_core::i18n::t(vinilo_core::i18n::Key::Library)
+            }
             index if index == playlists_row => {
                 vinilo_core::i18n::t(vinilo_core::i18n::Key::Playlists)
             }
