@@ -427,9 +427,9 @@ fn en(key: Key) -> &'static str {
         Key::Playlist => "playlist",
         Key::Song => "song",
         Key::SongsLower => "songs",
-        Key::EmptyAlbum => "This {kind} has no songs.",
-        Key::EmptyArtist => "No matches in your library for “{query}”.",
-        Key::EmptyPlaylist => "No playlist in your library matches “{query}”.",
+        Key::EmptyAlbum => "This album has no songs.",
+        Key::EmptyArtist => "This artist has no albums.",
+        Key::EmptyPlaylist => "This playlist has no songs.",
         Key::AboutComments => {
             "A native GNOME client for Apple Music.\n\n\
              Playback runs through Apple's own MusicKit player using Google's \
@@ -596,9 +596,9 @@ fn es(key: Key) -> &'static str {
         Key::Playlist => "lista",
         Key::Song => "canción",
         Key::SongsLower => "canciones",
-        Key::EmptyAlbum => "Este {kind} no tiene canciones.",
-        Key::EmptyArtist => "Nada en tu biblioteca coincide con «{query}».",
-        Key::EmptyPlaylist => "Ninguna lista de tu biblioteca coincide con «{query}».",
+        Key::EmptyAlbum => "Este álbum no tiene canciones.",
+        Key::EmptyArtist => "Este artista no tiene álbumes.",
+        Key::EmptyPlaylist => "Esta lista no tiene canciones.",
         Key::AboutComments => {
             "Un cliente nativo de GNOME para Apple Music.\n\n\
              La reproducción pasa por el reproductor MusicKit de Apple con el CDM \
@@ -681,24 +681,15 @@ pub fn albums_count(n: usize) -> String {
 }
 
 pub fn empty_album() -> &'static str {
-    match current() {
-        Language::English => "This album has no songs.",
-        Language::Spanish => "Este álbum no tiene canciones.",
-    }
+    t(Key::EmptyAlbum)
 }
 
 pub fn empty_playlist() -> &'static str {
-    match current() {
-        Language::English => "This playlist has no songs.",
-        Language::Spanish => "Esta lista no tiene canciones.",
-    }
+    t(Key::EmptyPlaylist)
 }
 
 pub fn empty_artist() -> &'static str {
-    match current() {
-        Language::English => "This artist has no albums.",
-        Language::Spanish => "Este artista no tiene álbumes.",
-    }
+    t(Key::EmptyArtist)
 }
 
 pub fn sign_out_button() -> &'static str {
@@ -740,5 +731,18 @@ mod tests {
         assert_eq!(t(Key::SignIn), "Iniciar sesión en Apple Music");
         set_current(Language::English);
         assert_eq!(t(Key::WelcomeTitle), "Welcome to Vinilo");
+    }
+
+    #[test]
+    fn empty_states_are_complete_sentences() {
+        set_current(Language::English);
+        assert_eq!(empty_album(), "This album has no songs.");
+        assert_eq!(empty_playlist(), "This playlist has no songs.");
+        assert_eq!(empty_artist(), "This artist has no albums.");
+        set_current(Language::Spanish);
+        assert_eq!(empty_album(), "Este álbum no tiene canciones.");
+        assert_eq!(empty_playlist(), "Esta lista no tiene canciones.");
+        assert_eq!(empty_artist(), "Este artista no tiene álbumes.");
+        set_current(Language::English);
     }
 }

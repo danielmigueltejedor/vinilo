@@ -370,14 +370,9 @@ impl DetailPage {
         self.meta.set_label(&meta);
         self.meta.set_visible(!meta.is_empty());
 
-        self.set_empty_kind(vinilo_core::i18n::empty_album());
-        self.fill(tracks);
-    }
-
-    /// What the empty state calls the thing that is empty.
-    fn set_empty_kind(&self, plural: &str) {
         self.empty
-            .set_description(Some(&vinilo_core::i18n::empty_kind(plural)));
+            .set_description(Some(vinilo_core::i18n::empty_album()));
+        self.fill(tracks);
     }
 
     /// Fill a playlist page: cover, curator or blurb, and its tracks.
@@ -400,7 +395,8 @@ impl DetailPage {
         self.meta.set_label(&vinilo_core::i18n::songs_count(songs));
         self.meta.set_visible(songs > 0);
 
-        self.set_empty_kind(vinilo_core::i18n::empty_playlist());
+        self.empty
+            .set_description(Some(vinilo_core::i18n::empty_playlist()));
         self.fill(tracks);
     }
 
