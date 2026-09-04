@@ -28,11 +28,6 @@ use crate::streams::{self, StreamHit};
 mod totp;
 
 const API: &str = "https://api.spotify.com/v1";
-const LEGACY_TOKEN_URLS: &[&str] = &[
-    "https://open.spotify.com/get_access_token?reason=transport&productType=web_player",
-    "https://open.spotify.com/get_access_token?reason=init&productType=web_player",
-    "https://open.spotify.com/get_access_token?reason=transport&productType=web-player",
-];
 const PLAYER_TOKEN: &str = "https://open.spotify.com/api/token";
 
 struct CachedToken {
@@ -41,6 +36,8 @@ struct CachedToken {
 }
 
 static TOKEN: Mutex<Option<CachedToken>> = Mutex::new(None);
+static COOLDOWN: Mutex<Option<Instant>> = Mutex::new(None);
+static FETCH: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 /// What a `sp:` id refers to.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -293,35 +290,66 @@ pub fn tracks_from_search(value: &Value) -> Vec<StreamHit> {
 }
 
 async fn token(http: &reqwest::Client) -> Result<String> {
-    if let Ok(guard) = TOKEN.lock()
-        && let Some(cached) = guard.as_ref()
-        && cached.expires > Instant::now()
-    {
-        return Ok(cached.access.clone());
+    if let Some(cached) = cached_token() {
+        return Ok(cached);
+    }
+    if let Some(wait) = cooldown_left() {
+        tracing::warn!(secs = wait.as_secs(), "spotify still rate-limited");
+        anyhow::bail!("{}", i18n::t(Key::SpotifyRateLimited));
+    }
+    let _fetch = FETCH.lock().await;
+    if let Some(cached) = cached_token() {
+        return Ok(cached);
+    }
+    if cooldown_left().is_some() {
+        anyhow::bail!("{}", i18n::t(Key::SpotifyRateLimited));
     }
     let Some(cookie) = crate::setup::session_cookie(Provider::Spotify) else {
         anyhow::bail!("{}", i18n::t(Key::SpotifyNotSignedIn));
     };
-    for url in LEGACY_TOKEN_URLS {
-        match fetch_token_url(http, url, &cookie).await {
-            Ok((access, false, ttl)) => {
-                store_token(&access, ttl);
-                return Ok(access);
-            }
-            Ok((_, true, _)) => {
-                tracing::warn!(url, "spotify legacy token was anonymous");
-            }
-            Err(err) => {
-                tracing::debug!(url, %err, "spotify legacy token failed");
-            }
-        }
-    }
     match fetch_totp_token(http, &cookie).await {
         Ok((access, ttl)) => {
             store_token(&access, ttl);
             Ok(access)
         }
+        Err(_) if cooldown_left().is_some() => {
+            anyhow::bail!("{}", i18n::t(Key::SpotifyRateLimited));
+        }
         Err(err) => Err(err).context(i18n::t(Key::SpotifyTokenRefused)),
+    }
+}
+
+fn cached_token() -> Option<String> {
+    let guard = TOKEN.lock().ok()?;
+    let cached = guard.as_ref()?;
+    (cached.expires > Instant::now()).then(|| cached.access.clone())
+}
+
+fn cooldown_left() -> Option<Duration> {
+    let until = *COOLDOWN.lock().ok()?;
+    let until = until?;
+    let now = Instant::now();
+    (until > now).then(|| until.saturating_duration_since(now))
+}
+
+fn note_rate_limit(wait: Duration) {
+    tracing::warn!(secs = wait.as_secs(), "spotify 429 — backing off");
+    if let Ok(mut guard) = COOLDOWN.lock() {
+        let until = Instant::now() + wait;
+        if guard.is_none_or(|was| until > was) {
+            *guard = Some(until);
+        }
+    }
+}
+
+fn retry_after(headers: &reqwest::header::HeaderMap) -> Duration {
+    const DEFAULT: Duration = Duration::from_secs(60);
+    let Some(raw) = headers.get("retry-after").and_then(|h| h.to_str().ok()) else {
+        return DEFAULT;
+    };
+    match raw.trim().parse::<u64>() {
+        Ok(secs) => Duration::from_secs(secs.clamp(15, 15 * 60)),
+        Err(_) => DEFAULT,
     }
 }
 
@@ -337,31 +365,24 @@ fn store_token(access: &str, ttl: Duration) {
 async fn fetch_totp_token(http: &reqwest::Client, cookie: &str) -> Result<(String, Duration)> {
     let secret = totp::current_secret(http).await;
     let server_time = totp::server_time(http).await;
+    let otp = totp::totp_from_cipher(&secret.cipher, server_time);
+    tracing::info!(ver = secret.version, "requesting spotify web-player token");
     let mut last_err = anyhow::anyhow!("spotify /api/token: no accessToken");
-    for skew in [0i64, -30, 30] {
-        let at = if skew < 0 {
-            server_time.saturating_sub(skew.unsigned_abs())
-        } else {
-            server_time.saturating_add(skew as u64)
-        };
-        let otp = totp::totp_from_cipher(&secret.cipher, at);
-        tracing::info!(
-            ver = secret.version,
-            reason_skew = skew,
-            "requesting spotify web-player token"
-        );
-        for reason in ["transport", "init"] {
-            match fetch_player_token(http, cookie, reason, &otp, secret.version, at).await {
-                Ok((access, false, ttl)) => {
-                    return Ok((access, ttl));
-                }
-                Ok((_, true, _)) => {
-                    last_err = anyhow::anyhow!("spotify /api/token returned an anonymous token");
-                    tracing::warn!(reason, "spotify totp token was anonymous");
-                }
-                Err(err) => {
-                    tracing::warn!(reason, %err, "spotify totp token failed");
-                    last_err = err;
+    for reason in ["transport", "init"] {
+        if cooldown_left().is_some() {
+            anyhow::bail!("{}", i18n::t(Key::SpotifyRateLimited));
+        }
+        match fetch_player_token(http, cookie, reason, &otp, secret.version, server_time).await {
+            Ok((access, false, ttl)) => return Ok((access, ttl)),
+            Ok((_, true, _)) => {
+                last_err = anyhow::anyhow!("spotify /api/token returned an anonymous token");
+                tracing::warn!(reason, "spotify totp token was anonymous");
+            }
+            Err(err) => {
+                tracing::warn!(reason, %err, "spotify totp token failed");
+                last_err = err;
+                if cooldown_left().is_some() {
+                    break;
                 }
             }
         }
@@ -400,14 +421,6 @@ async fn fetch_player_token(
     send_token(player_token_request(http, PLAYER_TOKEN, cookie).query(&pairs)).await
 }
 
-async fn fetch_token_url(
-    http: &reqwest::Client,
-    url: &str,
-    cookie: &str,
-) -> Result<(String, bool, Duration)> {
-    send_token(player_token_request(http, url, cookie)).await
-}
-
 fn player_token_request(
     http: &reqwest::Client,
     url: &str,
@@ -424,6 +437,10 @@ fn player_token_request(
 async fn send_token(req: reqwest::RequestBuilder) -> Result<(String, bool, Duration)> {
     let res = req.send().await.context("spotify token")?;
     let status = res.status();
+    if status.as_u16() == 429 {
+        note_rate_limit(retry_after(res.headers()));
+        anyhow::bail!("{}", i18n::t(Key::SpotifyRateLimited));
+    }
     let body = res.text().await.unwrap_or_default();
     if !status.is_success() {
         tracing::warn!(
@@ -485,6 +502,10 @@ async fn api_get(http: &reqwest::Client, token: &str, url: &str) -> Result<Value
         .await
         .with_context(|| format!("spotify GET {url}"))?;
     let status = res.status();
+    if status.as_u16() == 429 {
+        note_rate_limit(retry_after(res.headers()));
+        anyhow::bail!("{}", i18n::t(Key::SpotifyRateLimited));
+    }
     if status.as_u16() == 401 || status.as_u16() == 403 {
         if let Ok(mut guard) = TOKEN.lock() {
             *guard = None;
@@ -1127,5 +1148,18 @@ mod tests {
         assert!(song.favorite);
         assert_eq!(song.track_number, 3);
         assert_eq!(song.year, "2023");
+    }
+
+    #[test]
+    fn retry_after_reads_seconds_and_clamps() {
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert("retry-after", "30".parse().unwrap());
+        assert_eq!(retry_after(&headers), Duration::from_secs(30));
+        headers.insert("retry-after", "5".parse().unwrap());
+        assert_eq!(retry_after(&headers), Duration::from_secs(15));
+        headers.insert("retry-after", "99999".parse().unwrap());
+        assert_eq!(retry_after(&headers), Duration::from_secs(15 * 60));
+        headers.clear();
+        assert_eq!(retry_after(&headers), Duration::from_secs(60));
     }
 }

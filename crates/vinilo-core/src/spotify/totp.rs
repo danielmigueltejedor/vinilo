@@ -80,17 +80,13 @@ pub async fn current_secret(http: &reqwest::Client) -> Secret {
     {
         return secret.clone();
     }
+    if let Some(secret) = load_disk() {
+        remember(secret.clone());
+        return secret;
+    }
     if let Some(secret) = download_secret(http).await {
         remember(secret.clone());
         tracing::info!(ver = secret.version, "spotify totp secrets downloaded");
-        return secret;
-    }
-    if let Some(secret) = load_disk() {
-        remember(secret.clone());
-        tracing::warn!(
-            ver = secret.version,
-            "spotify totp secrets from cache — download failed"
-        );
         return secret;
     }
     let secret = bundled();

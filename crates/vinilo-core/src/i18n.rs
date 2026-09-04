@@ -293,6 +293,7 @@ pub enum Key {
     SpotifyNotSignedIn,
     SpotifyTokenRefused,
     CatalogLoginFailed,
+    SpotifyRateLimited,
 }
 
 /// Resolve `key` in the current language.
@@ -565,6 +566,7 @@ fn en(key: Key) -> &'static str {
         Key::CatalogLoginFailed => {
             "Could not keep the session. Stay on the signed-in page, then press Done."
         }
+        Key::SpotifyRateLimited => "Spotify asked us to wait. Try Reload in a minute.",
     }
 }
 
@@ -812,6 +814,9 @@ fn es(key: Key) -> &'static str {
         }
         Key::CatalogLoginFailed => {
             "No se ha podido guardar la sesión. Quédate en la página ya iniciada y pulsa Listo."
+        }
+        Key::SpotifyRateLimited => {
+            "Spotify pide que esperemos. Prueba Recargar dentro de un minuto."
         }
     }
 }
