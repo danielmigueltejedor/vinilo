@@ -18,7 +18,7 @@ use crate::components::grid_item::{ArtRegistry, ArtRequest, TILE_PX, register};
 use vinilo_core::discover::Discover;
 use vinilo_core::entry::Entry;
 use vinilo_core::i18n::{self, Key};
-use vinilo_core::music::types::{Artwork, Playlist, Track};
+use vinilo_core::music::types::{Artwork, Track};
 
 /// What a click on a Discover tile is asking for.
 #[derive(Debug)]
@@ -109,7 +109,7 @@ impl DiscoverView {
         }
 
         self.add_mixed_shelf(i18n::t(Key::RecentlyPlayed), &self.data.recently_played);
-        self.add_playlist_shelf(i18n::t(Key::MadeForYou), &self.data.recommended_playlists);
+        self.add_mixed_shelf(i18n::t(Key::MadeForYou), &self.data.recommended_playlists);
         self.add_song_shelf(i18n::t(Key::RecommendedSongs), &self.data.recommended_songs);
         self.add_mixed_shelf(i18n::t(Key::RecentlyAdded), &self.data.recently_added);
         self.add_mixed_shelf(i18n::t(Key::Charts), &self.data.charts);
@@ -122,17 +122,6 @@ impl DiscoverView {
         let row = self.shelf_header(title);
         for entry in entries {
             row.append(&self.tile(entry.clone(), None));
-        }
-        self.body.append(&row.parent_scroller());
-    }
-
-    fn add_playlist_shelf(&self, title: &str, playlists: &[Playlist]) {
-        if playlists.is_empty() {
-            return;
-        }
-        let row = self.shelf_header(title);
-        for playlist in playlists {
-            row.append(&self.tile(Entry::Playlist(playlist.clone()), None));
         }
         self.body.append(&row.parent_scroller());
     }
@@ -167,6 +156,9 @@ impl DiscoverView {
             .child(&row)
             .build();
         scroller.set_propagate_natural_height(true);
+        // Nested inside the page scroller, a horizontal ScrolledWindow with
+        // no min height can collapse to 0 and hide an otherwise full shelf.
+        scroller.set_min_content_height(TILE_PX + 56);
 
         let wrap = gtk::Box::builder()
             .orientation(gtk::Orientation::Vertical)

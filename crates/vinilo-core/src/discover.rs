@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use crate::entry::Entry;
 use crate::music::types::{Album, Playlist, Track};
 
-const VERSION: u32 = 1;
+const VERSION: u32 = 2;
 const SHELF: usize = 16;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
@@ -21,8 +21,10 @@ pub struct Discover {
     version: u32,
     #[serde(default)]
     pub recently_played: Vec<Entry>,
+    /// Mixes and albums Apple put in "Made for You". `Entry` rather than
+    /// `Playlist` so an album recommendation is a tile, not a dropped row.
     #[serde(default)]
-    pub recommended_playlists: Vec<Playlist>,
+    pub recommended_playlists: Vec<Entry>,
     #[serde(default)]
     pub recommended_songs: Vec<Track>,
     #[serde(default)]
@@ -97,10 +99,11 @@ pub fn clear() {
 
 /// What we can put on Discover without asking Apple again.
 ///
-/// Recently played comes from the local listen history. Recently added and
-/// playlists come from the library cache. Charts stay empty — those are
-/// Apple's, and inventing a "top songs" list from one person's library would
-/// be a lie.
+/// Recently played comes from the local listen history. Recently added comes
+/// from the library cache. "Made for You" and charts stay empty — dumping
+/// the user's own playlists into Hecho para ti, or inventing a top-songs
+/// list from one library, would be a lie. Favourite songs can fill Canciones
+/// para ti when Apple sent none.
 pub fn homemade(
     songs: &[Track],
     albums: &[Album],
@@ -123,10 +126,6 @@ pub fn homemade(
     recently_added.sort_by(|a, b| date_of(b).cmp(&date_of(a)));
     recently_added.truncate(SHELF);
 
-    let mut recommended_playlists = playlists.to_vec();
-    recommended_playlists.sort_by(|a, b| b.last_modified.cmp(&a.last_modified));
-    recommended_playlists.truncate(SHELF);
-
     let mut recommended_songs: Vec<Track> = songs.iter().filter(|t| t.favorite).cloned().collect();
     if recommended_songs.is_empty() {
         recommended_songs = songs.iter().take(SHELF).cloned().collect();
@@ -137,7 +136,7 @@ pub fn homemade(
     Discover {
         version: VERSION,
         recently_played: history.iter().cloned().map(Entry::Song).take(SHELF).collect(),
-        recommended_playlists,
+        recommended_playlists: Vec::new(),
         recommended_songs,
         recently_added,
         charts: Vec::new(),
@@ -200,5 +199,25 @@ mod tests {
         });
         assert_eq!(apple.recommended_songs[0].title, "from-apple");
         assert_eq!(apple.recently_played.len(), 1);
+    }
+
+    fn playlist(name: &str) -> Playlist {
+        Playlist {
+            id: format!("p.{name}"),
+            date_added: "2024-01-01T00:00:00Z".into(),
+            last_modified: "2024-06-01T00:00:00Z".into(),
+            name: name.into(),
+            curator: String::new(),
+            description: String::new(),
+            artwork: None,
+            library: true,
+        }
+    }
+
+    #[test]
+    fn homemade_does_not_pass_library_playlists_off_as_made_for_you() {
+        let made = homemade(&[], &[], &[playlist("Gym"), playlist("Drive")], &[]);
+        assert!(made.recommended_playlists.is_empty());
+        assert!(made.charts.is_empty());
     }
 }

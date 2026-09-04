@@ -1492,6 +1492,14 @@ fn discover(daemon: &Rc<Daemon>) {
     tokio::task::spawn_local(async move {
         let mut page = client.discover().await;
         page.fill_gaps(homemade);
+        tracing::info!(
+            recently_played = page.recently_played.len(),
+            made_for_you = page.recommended_playlists.len(),
+            recommended_songs = page.recommended_songs.len(),
+            recently_added = page.recently_added.len(),
+            charts = page.charts.len(),
+            "listen now shelves"
+        );
         vinilo_core::discover::save(&page);
         daemon.publish(Event::Discover(page));
     });

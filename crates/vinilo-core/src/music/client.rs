@@ -926,7 +926,12 @@ impl Client {
             }
         };
         if !res.status().is_success() {
-            tracing::debug!(path, status = %res.status(), "discover endpoint declined");
+            let status = res.status();
+            if path.contains("/recommendations") {
+                tracing::warn!(path, %status, "Listen Now request declined");
+            } else {
+                tracing::debug!(path, %status, "discover endpoint declined");
+            }
             return None;
         }
         match res.json().await {
@@ -939,16 +944,167 @@ impl Client {
     }
 
     async fn try_resource_list(&self, path: &str) -> Vec<Entry> {
+        super::mixed::entries_from_list(self.fetch_typed_list(path).await.0)
+    }
+
+    async fn fetch_typed_list(
+        &self,
+        path: &str,
+    ) -> (Vec<super::mixed::TypedResource>, Option<String>) {
         let Some(value) = self.try_json(path).await else {
-            return Vec::new();
+            return (Vec::new(), None);
         };
-        let Some(data) = value.get("data").cloned() else {
-            return Vec::new();
+        let list = value
+            .get("data")
+            .cloned()
+            .and_then(|data| serde_json::from_value(data).ok())
+            .unwrap_or_default();
+        let next = value
+            .get("next")
+            .and_then(|n| n.as_str())
+            .map(super::mixed::api_path)
+            .filter(|p| !p.is_empty());
+        (list, next)
+    }
+
+    fn index_hydrated(map: &mut HashMap<String, Entry>, entry: Entry) {
+        match &entry {
+            Entry::Song(track) => {
+                map.insert(track.id.0.clone(), entry.clone());
+                if let Some(catalog) = &track.catalog_id {
+                    map.insert(catalog.clone(), entry.clone());
+                }
+                if let Some(library) = &track.library_id {
+                    map.insert(library.clone(), entry.clone());
+                }
+            }
+            Entry::Album(album) => {
+                map.insert(album.id.clone(), entry);
+            }
+            Entry::Playlist(list) => {
+                map.insert(list.id.clone(), entry);
+            }
+            Entry::Artist(artist) => {
+                map.insert(artist.id.clone(), entry);
+            }
+        }
+    }
+
+    async fn fetch_ids(
+        &self,
+        catalog: bool,
+        collection: &str,
+        ids: &[String],
+        into: &mut HashMap<String, Entry>,
+    ) {
+        if ids.is_empty() {
+            return;
+        }
+        for chunk in ids.chunks(25) {
+            let joined = chunk.join(",");
+            let path = if catalog {
+                format!(
+                    "/catalog/{}/{collection}?ids={joined}",
+                    self.storefront
+                )
+            } else {
+                format!("/me/library/{collection}?ids={joined}")
+            };
+            for entry in self.try_resource_list(&path).await {
+                Self::index_hydrated(into, entry);
+            }
+        }
+    }
+
+    /// Recommendation `contents` are often `{ id, type }` stubs. Fetch the
+    /// real catalog (or library) resource so the shelf has a title and cover.
+    async fn hydrate_typed(&self, list: Vec<super::mixed::TypedResource>) -> Vec<Entry> {
+        let (song_ids, album_ids, playlist_ids) = super::mixed::stub_ids(&list);
+        if song_ids.is_empty() && album_ids.is_empty() && playlist_ids.is_empty() {
+            return super::mixed::entries_from_list(list);
+        }
+
+        let mut catalog_songs = Vec::new();
+        let mut catalog_albums = Vec::new();
+        let mut catalog_playlists = Vec::new();
+        let mut library_songs = Vec::new();
+        let mut library_albums = Vec::new();
+        let mut library_playlists = Vec::new();
+
+        let partition = |ids: Vec<String>,
+                         catalog: &mut Vec<String>,
+                         library: &mut Vec<String>| {
+            for id in ids {
+                if super::mixed::looks_library_id(&id) {
+                    library.push(id);
+                } else {
+                    catalog.push(id);
+                }
+            }
         };
-        let Ok(list) = serde_json::from_value::<Vec<super::mixed::TypedResource>>(data) else {
-            return Vec::new();
-        };
-        super::mixed::entries_from_list(list)
+        partition(song_ids, &mut catalog_songs, &mut library_songs);
+        partition(album_ids, &mut catalog_albums, &mut library_albums);
+        partition(playlist_ids, &mut catalog_playlists, &mut library_playlists);
+
+        let mut by_id = HashMap::new();
+        self.fetch_ids(true, "songs", &catalog_songs, &mut by_id)
+            .await;
+        self.fetch_ids(true, "albums", &catalog_albums, &mut by_id)
+            .await;
+        self.fetch_ids(true, "playlists", &catalog_playlists, &mut by_id)
+            .await;
+        self.fetch_ids(false, "songs", &library_songs, &mut by_id)
+            .await;
+        self.fetch_ids(false, "albums", &library_albums, &mut by_id)
+            .await;
+        self.fetch_ids(false, "playlists", &library_playlists, &mut by_id)
+            .await;
+
+        let mut out = Vec::new();
+        for resource in list {
+            let id = resource.id.clone();
+            if let Some(entry) = resource.into_entry() {
+                if !entry.title().is_empty() {
+                    out.push(entry);
+                }
+                continue;
+            }
+            if let Some(entry) = by_id.remove(&id) {
+                if !entry.title().is_empty() {
+                    out.push(entry);
+                }
+            }
+        }
+        out
+    }
+
+    async fn recommendation_contents(
+        &self,
+        group: &super::mixed::TypedResource,
+    ) -> Vec<super::mixed::TypedResource> {
+        let mut items = super::mixed::contents_resources(group);
+        let stubs = items.iter().all(|item| item.attributes.is_none());
+        if items.is_empty() || stubs {
+            if let Some(href) = super::mixed::contents_href(group) {
+                let (page, _) = self.fetch_typed_list(&href).await;
+                if page.iter().any(|item| item.attributes.is_some()) || items.is_empty() {
+                    items = page;
+                }
+            }
+        }
+        let mut next = super::mixed::next_path(group);
+        for _ in 0..3 {
+            let Some(path) = next.take() else {
+                break;
+            };
+            let (page, following) = self.fetch_typed_list(&path).await;
+            if page.is_empty() {
+                break;
+            }
+            items.extend(page);
+            next = following;
+        }
+        items
     }
 
     /// Recently played albums, playlists and songs, as Apple still has them.
@@ -972,72 +1128,92 @@ impl Client {
             .await
     }
 
-    async fn try_recommendations(&self) -> (Vec<Playlist>, Vec<Track>) {
-        let Some(value) = self.try_json("/me/recommendations").await else {
+    async fn try_recommendations(&self) -> (Vec<Entry>, Vec<Track>) {
+        let mut groups = Vec::new();
+        let mut path = Some("/me/recommendations?limit=10".to_string());
+        for _ in 0..4 {
+            let Some(next) = path.take() else {
+                break;
+            };
+            let (page, following) = self.fetch_typed_list(&next).await;
+            if page.is_empty() && following.is_none() && groups.is_empty() {
+                break;
+            }
+            groups.extend(page);
+            path = following;
+        }
+        if groups.is_empty() {
+            tracing::warn!("Apple Music recommendations returned no groups");
             return (Vec::new(), Vec::new());
-        };
-        let Some(data) = value.get("data").cloned() else {
-            return (Vec::new(), Vec::new());
-        };
-        let Ok(groups) = serde_json::from_value::<Vec<super::mixed::TypedResource>>(data) else {
-            return (Vec::new(), Vec::new());
-        };
+        }
+
+        let mut resources = Vec::new();
+        for group in &groups {
+            resources.extend(self.recommendation_contents(group).await);
+        }
+        let entries = self.hydrate_typed(resources).await;
+
         let mut playlists = Vec::new();
         let mut songs = Vec::new();
-        for group in groups {
-            for entry in super::mixed::contents_of(&group) {
-                match entry {
-                    Entry::Playlist(list) => playlists.push(list),
-                    Entry::Song(track) => songs.push(track),
-                    Entry::Album(_) | Entry::Artist(_) => {}
+        for entry in entries {
+            match entry {
+                Entry::Song(track) if !track.title.is_empty() => {
+                    if !songs.iter().any(|s: &Track| s.catalog_id == track.catalog_id && s.id == track.id)
+                    {
+                        songs.push(track);
+                    }
                 }
+                Entry::Song(_) => {}
+                other if !other.title().is_empty() => {
+                    if !playlists.iter().any(|e: &Entry| e.id() == other.id()) {
+                        playlists.push(other);
+                    }
+                }
+                _ => {}
             }
+        }
+        playlists.truncate(16);
+        songs.truncate(16);
+        if playlists.is_empty() && songs.is_empty() {
+            tracing::warn!("Apple Music recommendations had no hydratable contents");
         }
         (playlists, songs)
     }
 
-    async fn try_charts(&self) -> (Vec<Entry>, Vec<Track>, Vec<Playlist>) {
-        let path = format!(
-            "/catalog/{}/charts?types=songs,albums,playlists&limit=12",
-            self.storefront
-        );
-        let Some(value) = self.try_json(&path).await else {
-            return (Vec::new(), Vec::new(), Vec::new());
-        };
-        let mut mixed = Vec::new();
-        let mut songs = Vec::new();
-        let mut playlists = Vec::new();
-        let Some(results) = value.get("results") else {
-            return (mixed, songs, playlists);
-        };
-        for key in ["songs", "albums", "playlists"] {
-            let Some(charts) = results.get(key).and_then(|v| v.as_array()) else {
+    async fn try_charts(&self) -> Vec<Entry> {
+        let sf = &self.storefront;
+        let paths = [
+            format!("/catalog/{sf}/charts?types=songs,albums,playlists&limit=20"),
+            format!("/catalog/{sf}/charts?types=songs,albums&limit=20"),
+            format!("/catalog/{sf}/charts?chart=most-played&types=songs,albums&limit=20"),
+            format!("/catalog/{sf}/charts?types=songs&limit=20"),
+        ];
+        for path in &paths {
+            let Some(value) = self.try_json(path).await else {
                 continue;
             };
-            for chart in charts {
-                let Some(data) = chart.get("data").cloned() else {
-                    continue;
-                };
-                let Ok(list) = serde_json::from_value::<Vec<super::mixed::TypedResource>>(data)
-                else {
-                    continue;
-                };
+            let Some(results) = value.get("results") else {
+                continue;
+            };
+            let mut mixed = Vec::new();
+            for key in ["songs", "albums", "playlists"] {
+                let list = super::mixed::chart_resources(results, key);
                 for entry in super::mixed::entries_from_list(list) {
-                    match entry {
-                        Entry::Song(track) => {
-                            mixed.push(Entry::Song(track.clone()));
-                            songs.push(track);
-                        }
-                        Entry::Playlist(list) => {
-                            mixed.push(Entry::Playlist(list.clone()));
-                            playlists.push(list);
-                        }
-                        other => mixed.push(other),
+                    if entry.title().is_empty() {
+                        continue;
+                    }
+                    if !mixed.iter().any(|e: &Entry| e.id() == entry.id()) {
+                        mixed.push(entry);
                     }
                 }
             }
+            if !mixed.is_empty() {
+                mixed.truncate(16);
+                return mixed;
+            }
         }
-        (mixed, songs, playlists)
+        tracing::warn!("Apple Music charts came back empty");
+        Vec::new()
     }
 
     /// Listen Now: Apple's personalisation where it exists, empty shelves where
@@ -1052,7 +1228,6 @@ impl Client {
             self.try_charts(),
         );
         let (rec_playlists, rec_songs) = recs;
-        let (chart_mixed, chart_songs, chart_playlists) = charts;
 
         let mut recently_played = played;
         for entry in tracks {
@@ -1067,31 +1242,20 @@ impl Client {
         }
         recently_played.truncate(20);
 
-        let mut recommended_playlists = rec_playlists;
-        for list in chart_playlists {
-            if !recommended_playlists.iter().any(|p| p.id == list.id) {
-                recommended_playlists.push(list);
-            }
-        }
-        recommended_playlists.truncate(16);
-
-        let mut recommended_songs = rec_songs;
-        for song in chart_songs {
-            if !recommended_songs
-                .iter()
-                .any(|s| s.catalog_id == song.catalog_id)
-            {
-                recommended_songs.push(song);
-            }
-        }
-        recommended_songs.truncate(16);
-
         let mut page = Discover::default();
         page.recently_played = recently_played;
-        page.recommended_playlists = recommended_playlists;
-        page.recommended_songs = recommended_songs;
+        page.recommended_playlists = rec_playlists;
+        page.recommended_songs = rec_songs;
         page.recently_added = added;
-        page.charts = chart_mixed.into_iter().take(16).collect();
+        page.charts = charts;
+        tracing::info!(
+            recently_played = page.recently_played.len(),
+            made_for_you = page.recommended_playlists.len(),
+            recommended_songs = page.recommended_songs.len(),
+            recently_added = page.recently_added.len(),
+            charts = page.charts.len(),
+            "listen now shelves"
+        );
         page
     }
 }

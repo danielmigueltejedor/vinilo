@@ -5,8 +5,9 @@
 //!
 //! Those endpoints return several resource types in one array. The rest of the
 //! client parses one kind at a time; this is the one place a `type` field
-//! decides which of our types to build. Items without attributes (id-only
-//! stubs inside a recommendation group) are skipped rather than fetched again.
+//! decides which of our types to build. Recommendation `contents` are often
+//! `{ id, type }` stubs — `stub_ids` collects them so the client can hydrate
+//! them from the catalog instead of dropping the whole shelf.
 
 use serde::Deserialize;
 
@@ -16,7 +17,7 @@ use crate::music::types::{
     SongAttributes, Track,
 };
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub(crate) struct TypedResource {
     pub id: String,
     #[serde(rename = "type")]
@@ -89,8 +90,30 @@ pub(crate) fn entries_from_list(list: Vec<TypedResource>) -> Vec<Entry> {
     list.into_iter().filter_map(TypedResource::into_entry).collect()
 }
 
+/// Ids Apple sent without attributes, grouped by catalog collection.
+///
+/// Recommendation `contents` often arrives as `{ id, type }` stubs. Those
+/// cannot become a tile until we fetch the real resource.
+pub(crate) fn stub_ids(list: &[TypedResource]) -> (Vec<String>, Vec<String>, Vec<String>) {
+    let mut songs = Vec::new();
+    let mut albums = Vec::new();
+    let mut playlists = Vec::new();
+    for resource in list {
+        if resource.attributes.is_some() {
+            continue;
+        }
+        match resource.kind.as_str() {
+            "songs" | "library-songs" => songs.push(resource.id.clone()),
+            "albums" | "library-albums" => albums.push(resource.id.clone()),
+            "playlists" | "library-playlists" => playlists.push(resource.id.clone()),
+            _ => {}
+        }
+    }
+    (songs, albums, playlists)
+}
+
 /// `relationships.contents.data` on a personal-recommendation resource.
-pub(crate) fn contents_of(resource: &TypedResource) -> Vec<Entry> {
+pub(crate) fn contents_resources(resource: &TypedResource) -> Vec<TypedResource> {
     let Some(relationships) = &resource.relationships else {
         return Vec::new();
     };
@@ -100,10 +123,74 @@ pub(crate) fn contents_of(resource: &TypedResource) -> Vec<Entry> {
     let Some(data) = contents.get("data") else {
         return Vec::new();
     };
-    let Ok(list) = serde_json::from_value::<Vec<TypedResource>>(data.clone()) else {
+    serde_json::from_value::<Vec<TypedResource>>(data.clone()).unwrap_or_default()
+}
+
+pub(crate) fn contents_of(resource: &TypedResource) -> Vec<Entry> {
+    entries_from_list(contents_resources(resource))
+}
+
+/// Apple's `next` on a relationship, stripped to a path `Client::get` can use.
+pub(crate) fn next_path(resource: &TypedResource) -> Option<String> {
+    let href = resource
+        .relationships
+        .as_ref()?
+        .get("contents")?
+        .get("next")?
+        .as_str()?;
+    Some(api_path(href))
+}
+
+pub(crate) fn api_path(href: &str) -> String {
+    href.strip_prefix("https://api.music.apple.com/v1")
+        .or_else(|| href.strip_prefix("/v1"))
+        .unwrap_or(href)
+        .to_owned()
+}
+
+/// `relationships.contents.href`, stripped to a path `Client::get` can use.
+pub(crate) fn contents_href(resource: &TypedResource) -> Option<String> {
+    let href = resource
+        .relationships
+        .as_ref()?
+        .get("contents")?
+        .get("href")?
+        .as_str()?;
+    Some(api_path(href))
+}
+
+/// Charts live under `results.{songs,albums,playlists}`, each either a list of
+/// chart objects with a `data` array, or (rarely) one object. Treating only
+/// arrays as valid is how an otherwise-good charts response became an empty
+/// Éxitos shelf.
+pub(crate) fn chart_resources(results: &serde_json::Value, key: &str) -> Vec<TypedResource> {
+    let Some(node) = results.get(key) else {
         return Vec::new();
     };
-    entries_from_list(list)
+    let charts: Vec<&serde_json::Value> = if let Some(array) = node.as_array() {
+        array.iter().collect()
+    } else {
+        vec![node]
+    };
+    let mut out = Vec::new();
+    for chart in charts {
+        let Some(data) = chart.get("data") else {
+            continue;
+        };
+        if let Ok(list) = serde_json::from_value::<Vec<TypedResource>>(data.clone()) {
+            out.extend(list);
+        }
+    }
+    out
+}
+
+/// Library resources use `i.…` / `l.…` / `p.…`. Catalog playlists use `pl.…`,
+/// which must not be treated as a library playlist id.
+pub(crate) fn looks_library_id(id: &str) -> bool {
+    let Some((prefix, rest)) = id.split_once('.') else {
+        return false;
+    };
+    matches!(prefix, "i" | "l" | "p") && !rest.is_empty()
 }
 
 #[cfg(test)]
@@ -189,5 +276,77 @@ mod tests {
         assert_eq!(contents.len(), 2);
         assert!(matches!(&contents[0], Entry::Playlist(p) if p.name == "New Music Mix"));
         assert!(matches!(&contents[1], Entry::Song(t) if t.title == "Bloom"));
+    }
+
+    #[test]
+    fn stubs_without_attributes_are_collected_not_turned_into_tiles() {
+        let json = serde_json::json!({
+            "id": "rec.1",
+            "type": "personal-recommendation",
+            "relationships": {
+                "contents": {
+                    "href": "/v1/me/recommendations/rec.1/contents",
+                    "data": [
+                        { "id": "pl.u-mix", "type": "playlists" },
+                        { "id": "1440857781", "type": "songs" },
+                        { "id": "l.abc", "type": "library-albums" }
+                    ]
+                }
+            }
+        });
+        let resource: TypedResource = serde_json::from_value(json).unwrap();
+        assert!(contents_of(&resource).is_empty());
+        let (songs, albums, playlists) = stub_ids(&contents_resources(&resource));
+        assert_eq!(songs, vec!["1440857781"]);
+        assert_eq!(albums, vec!["l.abc"]);
+        assert_eq!(playlists, vec!["pl.u-mix"]);
+        assert_eq!(
+            contents_href(&resource).as_deref(),
+            Some("/me/recommendations/rec.1/contents")
+        );
+        assert!(looks_library_id("l.abc"));
+        assert!(!looks_library_id("pl.u-mix"));
+        assert!(!looks_library_id("1440857781"));
+    }
+
+    #[test]
+    fn charts_accept_an_array_or_a_single_object() {
+        let results = serde_json::json!({
+            "songs": [{
+                "chart": "most-played",
+                "data": [{
+                    "id": "1",
+                    "type": "songs",
+                    "attributes": {
+                        "name": "One",
+                        "artistName": "Aitana",
+                        "playParams": { "id": "1", "kind": "song" }
+                    }
+                }]
+            }],
+            "albums": {
+                "chart": "most-played",
+                "data": [{
+                    "id": "2",
+                    "type": "albums",
+                    "attributes": { "name": "Alpha", "artistName": "Aitana" }
+                }]
+            }
+        });
+        let songs = entries_from_list(chart_resources(&results, "songs"));
+        let albums = entries_from_list(chart_resources(&results, "albums"));
+        assert!(matches!(&songs[0], Entry::Song(t) if t.title == "One"));
+        assert!(matches!(&albums[0], Entry::Album(a) if a.name == "Alpha"));
+        assert!(chart_resources(&results, "playlists").is_empty());
+    }
+
+    #[test]
+    fn api_paths_drop_the_v1_prefix() {
+        assert_eq!(
+            api_path("https://api.music.apple.com/v1/me/recommendations"),
+            "/me/recommendations"
+        );
+        assert_eq!(api_path("/v1/catalog/es/charts"), "/catalog/es/charts");
+        assert_eq!(api_path("/catalog/es/songs?ids=1"), "/catalog/es/songs?ids=1");
     }
 }
