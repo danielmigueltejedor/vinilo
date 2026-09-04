@@ -298,12 +298,20 @@ pub async fn run() -> Result<()> {
             // can change this without Vinilo being asked, and a client still
             // showing the old number is the disagreement this whole thing
             // moved to fix.
-            let outside = ticking.mixer.as_ref().and_then(|m| m.current());
+            let local_active = ticking.local.borrow().is_active();
+            // The Pulse mixer looks up `application.name = Vinilo`. While a
+            // file is playing that name still matches the paused sidecar, so
+            // reading it would snap the slider back to Apple Music's gain.
+            let outside = if local_active {
+                None
+            } else {
+                ticking.mixer.as_ref().and_then(|m| m.current())
+            };
             let moved = outside.is_some_and(|v| (v - ticking.model.borrow().volume).abs() > 0.005);
             if moved {
                 ticking.model.borrow_mut().volume = outside.unwrap_or_default();
             }
-            if ticking.local.borrow().is_active() {
+            if local_active {
                 if ticking.local.borrow().ended() {
                     let _ = ticking.local.borrow_mut().next();
                     publish_local(&ticking);
@@ -1096,6 +1104,8 @@ fn play_files(daemon: &Daemon, paths: Vec<String>, index: usize) -> Option<Event
     if daemon.sidecar.borrow().is_some() {
         daemon.send(Command::Pause);
     }
+    let volume = daemon.model.borrow().volume;
+    daemon.local.borrow_mut().set_volume(volume);
     match daemon.local.borrow_mut().play_paths(paths, index) {
         Ok(()) => {
             tracing::info!("playing files from this computer");
@@ -1124,11 +1134,9 @@ fn route_local_transport(daemon: &Daemon, transport: Transport) {
         }
         Transport::SetVolume { volume } => {
             let volume = volume.clamp(0.0, 1.0);
-            if let Some(mixer) = &daemon.mixer {
-                mixer.set(volume);
-            } else {
-                daemon.local.borrow_mut().set_volume(volume);
-            }
+            // Rodio's gain, not the Pulse stream named Vinilo — that stream is
+            // still the paused sidecar, so driving it leaves the file loud.
+            daemon.local.borrow_mut().set_volume(volume);
             daemon.model.borrow_mut().volume = volume;
         }
         Transport::SetShuffle { shuffle } => {
@@ -1554,6 +1562,8 @@ fn play_streams(daemon: &Rc<Daemon>, ids: Vec<String>, index: usize) {
             daemon.send(Command::Pause);
         }
         *daemon.art_for.borrow_mut() = None;
+        let volume = daemon.model.borrow().volume;
+        daemon.local.borrow_mut().set_volume(volume);
         if let Err(detail) = daemon.local.borrow_mut().play_paths(vec![path], 0) {
             daemon.publish(Event::Error { detail });
             return;
@@ -2272,5 +2282,20 @@ mod tests {
             model.art_path.as_deref(),
             Some(std::path::Path::new("/tmp/local-cover.jpg"))
         );
+    }
+
+    #[test]
+    fn local_volume_moves_the_rodio_gain() {
+        let daemon = daemon();
+        daemon.model.borrow_mut().volume = 1.0;
+        daemon
+            .local
+            .borrow_mut()
+            .hold_for_test("Local title", "Local artist", None);
+
+        route_local_transport(&daemon, Transport::SetVolume { volume: 0.25 });
+
+        assert!((daemon.local.borrow().volume() - 0.25).abs() < f64::EPSILON);
+        assert!((daemon.model.borrow().volume - 0.25).abs() < f64::EPSILON);
     }
 }

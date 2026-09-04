@@ -126,6 +126,12 @@ impl Player {
     }
 
     pub fn play(&mut self) {
+        // An empty sink is a finished file, not a paused one. `Sink::play`
+        // on it is silence; the file has to be opened again.
+        if self.should_reload() {
+            let _ = self.start_current();
+            return;
+        }
         if let Some(sink) = self.sink.as_ref() {
             sink.play();
         }
@@ -138,6 +144,10 @@ impl Player {
     }
 
     pub fn play_pause(&mut self) {
+        if self.should_reload() {
+            let _ = self.start_current();
+            return;
+        }
         let Some(sink) = self.sink.as_ref() else {
             return;
         };
@@ -159,6 +169,16 @@ impl Player {
     /// True when the current decoder has run out, so the caller should advance.
     pub fn ended(&self) -> bool {
         self.active && self.sink.as_ref().is_some_and(|s| s.empty() && !s.is_paused())
+    }
+
+    /// Queue still here, nothing on the decoder — Play must open the file again.
+    pub(crate) fn should_reload(&self) -> bool {
+        self.active && !self.queue.is_empty() && self.sink.as_ref().is_none_or(Sink::empty)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn volume(&self) -> f64 {
+        self.volume
     }
 
     pub fn next(&mut self) -> Result<bool, String> {
@@ -298,7 +318,9 @@ impl Player {
     pub fn playback_event(&self) -> PlayerEvent {
         let state = if !self.active {
             PlaybackState::None
-        } else if self.is_paused() {
+        } else if self.is_paused() || self.sink.as_ref().is_some_and(Sink::empty) {
+            // Finished files stay on the bar as paused, so Play can open them
+            // again instead of looking like they are still going.
             PlaybackState::Paused
         } else {
             PlaybackState::Playing
@@ -471,5 +493,25 @@ mod tests {
         assert_eq!(track.art_path.as_deref(), Some(cover.as_path()));
         assert_eq!(track.title, "track");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_finished_file_is_paused_and_play_must_reload_it() {
+        let mut player = Player::new();
+        player.hold_for_test("Local", "Artist", None);
+        assert!(
+            player.should_reload(),
+            "no decoder yet is the same hole as a file that has run out"
+        );
+        match player.playback_event() {
+            PlayerEvent::PlaybackState {
+                state: PlaybackState::Paused,
+            } => {}
+            other => panic!("expected paused so the bar offers Play, got {other:?}"),
+        }
+        player.set_volume(0.4);
+        assert!((player.volume() - 0.4).abs() < f64::EPSILON);
+        player.set_volume(3.0);
+        assert!((player.volume() - 1.0).abs() < f64::EPSILON);
     }
 }
