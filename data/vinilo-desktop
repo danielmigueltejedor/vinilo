@@ -1,0 +1,57 @@
+#!/bin/sh
+# SPDX-FileCopyrightText: 2026 Daniel Miguel Tejedor
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# GNOME Shell does not use fish's PATH. A click in the app grid is often a
+# D-Bus activation whose environment has no WAYLAND_DISPLAY, no DISPLAY, and
+# no ~/.local/bin — the same `vinilo` that works in a terminal then exits
+# before GTK can open a window. This wrapper lives next to the binary, pulls
+# in the graphical session, and execs by absolute path.
+#
+# A click that still does nothing should leave a line in
+# ~/.cache/vinilo/launcher.log.
+
+bindir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+logdir="${XDG_CACHE_HOME:-$HOME/.cache}/vinilo"
+mkdir -p "$logdir" 2>/dev/null || true
+log="$logdir/launcher.log"
+
+# D-Bus activation does not inherit gnome-shell's environment. systemd does.
+if [ -z "${WAYLAND_DISPLAY:-}" ] && [ -z "${DISPLAY:-}" ] \
+    && command -v systemctl >/dev/null 2>&1; then
+    eval "$(systemctl --user show-environment 2>/dev/null \
+        | grep -E '^(WAYLAND_DISPLAY|DISPLAY|XDG_CURRENT_DESKTOP|XDG_SESSION_TYPE|XDG_SESSION_DESKTOP|XDG_RUNTIME_DIR|GDK_BACKEND|DBUS_SESSION_BUS_ADDRESS)=' \
+        | sed 's/^/export /')" || true
+fi
+
+if [ -z "${WAYLAND_DISPLAY:-}" ] && [ -n "${XDG_RUNTIME_DIR:-}" ]; then
+    for sock in "$XDG_RUNTIME_DIR"/wayland-*; do
+        [ -S "$sock" ] || continue
+        export WAYLAND_DISPLAY=$(basename "$sock")
+        break
+    done
+fi
+if [ -z "${DISPLAY:-}" ] && [ -S /tmp/.X11-unix/X0 ]; then
+    export DISPLAY=:0
+fi
+
+# The session PATH from systemd still often lacks ~/.local/bin. The binary
+# lives in $bindir; keep that first so `vinilod` and `yt-dlp` resolve too.
+export PATH="$bindir:${HOME:+$HOME/.local/bin}:/usr/local/bin:/usr/bin:${PATH:-/usr/bin}"
+cd "${HOME:-/}" || true
+
+{
+    echo "$(date -Iseconds) launcher bindir=$bindir argv=$*"
+    echo "  PATH=$PATH"
+    echo "  WAYLAND_DISPLAY=${WAYLAND_DISPLAY-unset} DISPLAY=${DISPLAY-unset}"
+    echo "  XDG_CURRENT_DESKTOP=${XDG_CURRENT_DESKTOP-unset} XDG_SESSION_TYPE=${XDG_SESSION_TYPE-unset}"
+    echo "  XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR-unset}"
+} >>"$log" 2>/dev/null || true
+
+if [ ! -x "$bindir/vinilo" ]; then
+    echo "$(date -Iseconds) missing $bindir/vinilo" >>"$log" 2>/dev/null || true
+    echo "Vinilo is not installed at $bindir/vinilo" >&2
+    exit 127
+fi
+
+exec "$bindir/vinilo" "$@"

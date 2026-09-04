@@ -125,13 +125,14 @@ aur-publish:
 	./scripts/aur-publish.sh vinilo --push
 	./scripts/aur-publish.sh vinilo-git --push
 
-install: build install-sidecar dev-install
+install: build install-sidecar
 	install -Dm755 target/release/vinilo $(BINDIR)/vinilo
 	install -Dm755 target/release/vinilod $(BINDIR)/vinilod
 	install -Dm755 target/release/aguja $(BINDIR)/aguja
+	$(MAKE) dev-install
 	@echo "Installed to $(PREFIX)."
 	@echo "Launch Vinilo from the app grid, or run 'vinilo' — or 'aguja' for the terminal."
-	@echo "If the grid still does nothing: log out and back in, or run  update-desktop-database ~/.local/share/applications"
+	@echo "If the grid still does nothing: log out and back in, then cat ~/.cache/vinilo/launcher.log"
 
 install-sidecar: sidecar
 	install -d $(SIDECAR)
@@ -147,6 +148,7 @@ install-sidecar: sidecar
 # launches from a session PATH that often lacks ~/.local/bin, so `Exec=vinilo`
 # is a no-op from the app grid while the same command works in a terminal.
 dev-install:
+	install -Dm755 data/vinilo-desktop $(BINDIR)/vinilo-desktop
 	install -d $(DATADIR)/applications
 	sed -e 's|@BINDIR@|$(BINDIR)|g' data/$(APPID).desktop \
 		> $(DATADIR)/applications/$(APPID).desktop
@@ -201,6 +203,8 @@ dev-install:
 		exit 1; \
 	fi
 	@echo "Desktop Exec: $$(grep '^Exec=' $(DATADIR)/applications/$(APPID).desktop)"
+	@echo "If the app grid still does nothing: grep Exec $(DATADIR)/applications/$(APPID).desktop"
+	@echo "and check ~/.cache/vinilo/launcher.log after a click."
 
 # Pull this tree and reinstall. A local `cargo build` often dirties
 # Cargo.lock; that is exactly what blocked `git pull` and left the app
@@ -212,6 +216,7 @@ update:
 
 uninstall:
 	rm -f $(BINDIR)/vinilo
+	rm -f $(BINDIR)/vinilo-desktop
 	rm -f $(BINDIR)/vinilod
 	rm -f $(BINDIR)/aguja
 	rm -rf $(DATADIR)/vinilo

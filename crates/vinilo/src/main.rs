@@ -21,6 +21,33 @@ use tracing_subscriber::EnvFilter;
 pub(crate) use vinilo_core::APP_ID;
 
 fn main() {
+    // The desktop wrapper already logs; this line proves GTK itself started
+    // (or crashed immediately after). GNOME's grid often has a PATH and
+    // display that fish never sees.
+    if let Some(dir) = vinilo_core::paths::cache_dir() {
+        let _ = std::fs::create_dir_all(&dir);
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(dir.join("launcher.log"))
+        {
+            use std::io::Write;
+            let _ = writeln!(
+                f,
+                "{} vinilo pid={} DISPLAY={:?} WAYLAND_DISPLAY={:?} XDG_CURRENT_DESKTOP={:?} argv={:?}",
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0),
+                std::process::id(),
+                std::env::var_os("DISPLAY"),
+                std::env::var_os("WAYLAND_DISPLAY"),
+                std::env::var_os("XDG_CURRENT_DESKTOP"),
+                std::env::args().collect::<Vec<_>>(),
+            );
+        }
+    }
+
     tracing_subscriber::fmt()
         .with_env_filter(
             EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("vinilo=info")),
@@ -49,7 +76,10 @@ fn main() {
     // Some shells fire `open` with zero files for `Exec=… %U` instead of
     // `activate`. The handler above covers that; this is the normal click.
     gtk_app.connect_activate(|app| {
-        app.windows().iter().for_each(|w| w.present());
+        for w in app.windows() {
+            w.set_visible(true);
+            w.present();
+        }
     });
 
     // Load preferences and apply the colour scheme before the window is shown,

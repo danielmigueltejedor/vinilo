@@ -6,14 +6,13 @@ GenericName=Music Player
 GenericName[es]=Reproductor de música
 Comment=Play Apple Music, and files on this computer, natively on Linux
 Comment[es]=Reproduce Apple Music y archivos de este equipo de forma nativa en Linux
-# @BINDIR@ is substituted at `make install`. A bare `vinilo` is why the
-# launchpad did nothing: GNOME's session PATH does not include ~/.local/bin,
-# which is where a prefix install puts the binary. The terminal did, because
-# fish_add_path had added it there.
-Exec=@BINDIR@/vinilo %U
-TryExec=@BINDIR@/vinilo
-# GNOME would otherwise D-Bus-activate by application id, miss the service,
-# and show nothing — the terminal path never does that.
+# The grid never uses fish's PATH, and a D-Bus activation often has no
+# WAYLAND_DISPLAY. A wrapper next to the binary fills both in.
+# `Exec=vinilo` is why a terminal worked and the icon did not.
+Exec=@BINDIR@/vinilo-desktop %U
+TryExec=@BINDIR@/vinilo-desktop
+# Prefer the Exec line so the wrapper always runs. The D-Bus .service
+# still points at the same wrapper if a shell activates us anyway.
 DBusActivatable=false
 Icon=dev.danielmiguelt.Vinilo
 Terminal=false

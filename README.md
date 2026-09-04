@@ -77,7 +77,7 @@ fish_add_path ~/.local/bin
 vinilo
 ```
 
-`make install` escribe `Exec=/home/…/.local/bin/vinilo` en el `.desktop` y un servicio D-Bus con la misma ruta. Un `Exec=vinilo` a secas es por lo que la parrilla no abría nada: el PATH de GNOME no incluye `~/.local/bin`, y el de fish sí.
+`make install` escribe `Exec=/home/…/.local/bin/vinilo-desktop` en el `.desktop` (un wrapper que pone `~/.local/bin` en el PATH y recupera `WAYLAND_DISPLAY` si GNOME arranca por D-Bus). Un `Exec=vinilo` a secas es por lo que la parrilla no abría nada: el PATH de GNOME no incluye `~/.local/bin`, y el de fish sí.
 
 Si `git pull` aborta por `Cargo.lock` (un `cargo build` local lo ensucia), no instales a medias. Desde `~/vinilo`:
 
@@ -94,7 +94,7 @@ pkill vinilod
 make install
 ```
 
-Si tras instalar la parrilla sigue muda: cierra sesión y vuelve a entrar, o `update-desktop-database ~/.local/share/applications`. El `.desktop` tiene que decir `Exec=/home/TU_USUARIO/.local/bin/vinilo`, no `vinilo`.
+Si tras instalar la parrilla sigue muda: cierra sesión y vuelve a entrar, o `update-desktop-database ~/.local/share/applications`. El `.desktop` tiene que decir `Exec=/home/TU_USUARIO/.local/bin/vinilo-desktop`, no `vinilo`. Tras un clic, `~/.cache/vinilo/launcher.log` dice si GNOME llegó a ejecutar el acceso directo.
 
 Para que sea el reproductor predeterminado: en Archivos, clic derecho en una canción → **Abrir con** → Vinilo → **Siempre**. O:
 

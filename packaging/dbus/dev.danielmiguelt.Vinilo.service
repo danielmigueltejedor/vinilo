@@ -1,10 +1,9 @@
 # SPDX-FileCopyrightText: 2026 Daniel Miguel Tejedor
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
-# GNOME matches this file's Name to the GtkApplication id. Without it, the
-# app grid can try D-Bus activation, find nobody on the bus, and do nothing,
-# while the same binary started from a terminal (which never goes through
-# D-Bus activation) opens a window.
+# GNOME matches this file's Name to the GtkApplication id. The Exec is the
+# same wrapper as the .desktop file: D-Bus activation has no fish PATH and
+# often no WAYLAND_DISPLAY, which is why a terminal worked and the icon did not.
 [D-BUS Service]
 Name=dev.danielmiguelt.Vinilo
-Exec=@BINDIR@/vinilo
+Exec=@BINDIR@/vinilo-desktop
