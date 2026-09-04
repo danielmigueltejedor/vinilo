@@ -13,7 +13,9 @@ mod style;
 use relm4::RelmApp;
 use relm4::gtk;
 use relm4::gtk::gio::prelude::FileExt;
-use relm4::gtk::prelude::{ApplicationExt, ApplicationExtManual, GtkWindowExt};
+use relm4::gtk::prelude::{
+    ApplicationExt, ApplicationExtManual, GtkApplicationExt, GtkWindowExt,
+};
 use tracing_subscriber::EnvFilter;
 
 pub(crate) use vinilo_core::APP_ID;
