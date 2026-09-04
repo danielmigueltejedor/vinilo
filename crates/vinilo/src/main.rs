@@ -13,7 +13,7 @@ mod style;
 use relm4::RelmApp;
 use relm4::gtk;
 use relm4::gtk::gio::prelude::FileExt;
-use relm4::gtk::prelude::{ApplicationExt, ApplicationExtManual};
+use relm4::gtk::prelude::{ApplicationExt, ApplicationExtManual, GtkWindowExt};
 use tracing_subscriber::EnvFilter;
 
 pub(crate) use vinilo_core::APP_ID;
@@ -43,6 +43,11 @@ fn main() {
         // of `activate`. RelmApp builds the window from activate, so we have
         // to fire it ourselves or the grid (and `xdg-open`) would do nothing.
         app.activate();
+    });
+    // Some shells fire `open` with zero files for `Exec=… %U` instead of
+    // `activate`. The handler above covers that; this is the normal click.
+    gtk_app.connect_activate(|app| {
+        app.windows().iter().for_each(|w| w.present());
     });
 
     // Load preferences and apply the colour scheme before the window is shown,

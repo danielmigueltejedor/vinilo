@@ -12,6 +12,9 @@ Comment[es]=Reproduce Apple Music y archivos de este equipo de forma nativa en L
 # fish_add_path had added it there.
 Exec=@BINDIR@/vinilo %U
 TryExec=@BINDIR@/vinilo
+# GNOME would otherwise D-Bus-activate by application id, miss the service,
+# and show nothing — the terminal path never does that.
+DBusActivatable=false
 Icon=dev.danielmiguelt.Vinilo
 Terminal=false
 Categories=AudioVideo;Audio;Player;GTK;

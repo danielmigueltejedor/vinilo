@@ -21,7 +21,7 @@ SIDECAR  = $(DATADIR)/vinilo/sidecar
 ICON_SIZES = 16 32 48 64 128 256 512
 
 .PHONY: all help build run test check sidecar sidecar-run gapless footprint install install-sidecar \
-        dev-install uninstall clean flatpak flatpak-bundle aur aur-publish
+        dev-install update uninstall clean flatpak flatpak-bundle aur aur-publish
 .DEFAULT_GOAL := help
 
 help:
@@ -31,12 +31,14 @@ help:
 	@echo "no desde ~."
 	@echo
 	@echo "  make install    Compila e instala en ~/.local (sin sudo)"
+	@echo "  make update     git pull (ignorando Cargo.lock local) e instala"
 	@echo "  make run        Arranca la app GNOME desde el árbol de fuentes"
 	@echo "  make check      fmt + clippy + tests"
 	@echo "  make uninstall  Quita los binarios e iconos de ~/.local"
 	@echo
 	@echo "Después de instalar: vinilo   (o ábrelo desde la parrilla de apps)"
 	@echo "Si fish no encuentra el comando:  fish_add_path ~/.local/bin"
+	@echo "Si git pull se queja de Cargo.lock:  make update"
 
 all: build
 
@@ -156,6 +158,15 @@ dev-install:
 	sed -e 's|@BINDIR@|$(BINDIR)|g' packaging/systemd/vinilod.service \
 		> $(DATADIR)/systemd/user/vinilod.service
 	chmod 644 $(DATADIR)/systemd/user/vinilod.service
+	install -d $(DATADIR)/dbus-1/services
+	sed -e 's|@BINDIR@|$(BINDIR)|g' packaging/dbus/$(APPID).service \
+		> $(DATADIR)/dbus-1/services/$(APPID).service
+	chmod 644 $(DATADIR)/dbus-1/services/$(APPID).service
+	@# Leftover names from earlier installs: GNOME may keep showing those
+	@# icons, and they still say `Exec=vinilo`.
+	rm -f $(DATADIR)/applications/vinilo.desktop \
+		$(DATADIR)/applications/slipmat.desktop \
+		$(DATADIR)/applications/Slipmat.desktop
 	install -Dm644 data/icons/hicolor/scalable/apps/$(APPID).svg \
 		$(DATADIR)/icons/hicolor/scalable/apps/$(APPID).svg
 	install -Dm644 data/icons/hicolor/scalable/apps/$(AGUJA).svg \
@@ -185,6 +196,19 @@ dev-install:
 		gtk-update-icon-cache -q -t -f $(DATADIR)/icons/hicolor; \
 	fi
 	-update-desktop-database -q $(DATADIR)/applications
+	@if grep -q '@BINDIR@' $(DATADIR)/applications/$(APPID).desktop; then \
+		echo "error: @BINDIR@ was not substituted in $(APPID).desktop"; \
+		exit 1; \
+	fi
+	@echo "Desktop Exec: $$(grep '^Exec=' $(DATADIR)/applications/$(APPID).desktop)"
+
+# Pull this tree and reinstall. A local `cargo build` often dirties
+# Cargo.lock; that is exactly what blocked `git pull` and left the app
+# grid launching an old `Exec=vinilo` desktop file (a no-op on GNOME's PATH).
+update:
+	git restore -- Cargo.lock 2>/dev/null || git checkout -- Cargo.lock
+	git pull --ff-only origin main
+	$(MAKE) install
 
 uninstall:
 	rm -f $(BINDIR)/vinilo
@@ -192,8 +216,12 @@ uninstall:
 	rm -f $(BINDIR)/aguja
 	rm -rf $(DATADIR)/vinilo
 	rm -f $(DATADIR)/systemd/user/vinilod.service
+	rm -f $(DATADIR)/dbus-1/services/$(APPID).service
 	rm -f $(DATADIR)/applications/$(APPID).desktop
 	rm -f $(DATADIR)/applications/$(AGUJA).desktop
+	rm -f $(DATADIR)/applications/vinilo.desktop \
+		$(DATADIR)/applications/slipmat.desktop \
+		$(DATADIR)/applications/Slipmat.desktop
 	rm -f $(DATADIR)/icons/hicolor/scalable/apps/$(APPID).svg
 	rm -f $(DATADIR)/icons/hicolor/scalable/apps/$(AGUJA).svg
 	rm -f $(DATADIR)/icons/hicolor/symbolic/apps/$(APPID)-symbolic.svg
