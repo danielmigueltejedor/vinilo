@@ -177,7 +177,7 @@ impl AppModel {
         cookies.set_accept_policy(CookieAcceptPolicy::Always);
 
         let webview = WebView::builder().network_session(&session).build();
-        if let Some(settings) = webview.settings() {
+        if let Some(settings) = webkit6::prelude::WebViewExt::settings(&webview) {
             settings.set_user_agent(Some(CHROME_UA));
         }
         webview.load_uri(setup::login_url(provider));
@@ -306,7 +306,7 @@ async fn dump_cookies(manager: &webkit6::CookieManager, provider: Provider) -> b
     setup::looks_signed_in(provider, &names)
 }
 
-fn from_soup(cookie: &mut soup3::Cookie) -> NetscapeCookie {
+fn from_soup(cookie: &mut webkit6::soup::Cookie) -> NetscapeCookie {
     let domain = cookie.domain().unwrap_or_default().to_string();
     let host_only = !domain.starts_with('.');
     let expires = cookie.expires().map(|date| date.to_unix()).unwrap_or(0);

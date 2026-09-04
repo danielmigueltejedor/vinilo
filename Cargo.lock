@@ -3246,7 +3246,6 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
- "soup3",
  "tokio",
  "tracing",
  "tracing-subscriber",

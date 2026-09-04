@@ -27,4 +27,3 @@ ashpd = { version = "0.13.13", default-features = false, features = [
     "tokio",
 ] }
 webkit6 = "0.6"
-soup3 = "0.9"
