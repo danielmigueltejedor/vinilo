@@ -8,6 +8,9 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use anyhow::{Context, Result};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::net::{UnixListener, UnixStream};
+use tokio::sync::broadcast;
 use vinilo_core::artwork;
 use vinilo_core::catalog;
 use vinilo_core::entry::Entry;
@@ -19,9 +22,6 @@ use vinilo_core::music::types::Artwork;
 use vinilo_core::player::protocol::{Command, Event as PlayerEvent, PlaybackState};
 use vinilo_core::player::{Incoming, sidecar};
 use vinilo_core::queue::{Start, queue_from_ids, start_index, unresolvable_ids};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::net::{UnixListener, UnixStream};
-use tokio::sync::broadcast;
 
 use crate::bus;
 use crate::heal;
@@ -160,11 +160,7 @@ impl Daemon {
         let Some(item) = model.player.now_playing.as_ref() else {
             return;
         };
-        let Some(id) = item
-            .catalog_id
-            .clone()
-            .or_else(|| item.id.clone())
-        else {
+        let Some(id) = item.catalog_id.clone().or_else(|| item.id.clone()) else {
             return;
         };
         if self.last_listen.borrow().as_deref() == Some(id.as_str()) {
@@ -956,7 +952,10 @@ fn answer(
             None
         }
         Request::Play { ids, index, start } => {
-            if ids.iter().any(|id| vinilo_core::streams::StreamHit::is_stream_id(id)) {
+            if ids
+                .iter()
+                .any(|id| vinilo_core::streams::StreamHit::is_stream_id(id))
+            {
                 play_streams(daemon, ids, index);
                 None
             } else {
@@ -1521,10 +1520,8 @@ fn search_catalog(
 }
 
 fn play_streams(daemon: &Rc<Daemon>, ids: Vec<String>, index: usize) {
-    let hits: Vec<vinilo_core::streams::StreamHit> = ids
-        .iter()
-        .filter_map(|id| stream_hit(daemon, id))
-        .collect();
+    let hits: Vec<vinilo_core::streams::StreamHit> =
+        ids.iter().filter_map(|id| stream_hit(daemon, id)).collect();
     if hits.is_empty() {
         daemon.publish(Event::Error {
             detail: "Nothing here can be streamed".into(),
@@ -1543,21 +1540,22 @@ fn play_streams(daemon: &Rc<Daemon>, ids: Vec<String>, index: usize) {
         };
         let first = rest[0].clone();
         let dir_first = dir.clone();
-        let path = match tokio::task::spawn_blocking(move || crate::ytdlp::download(&first, &dir_first))
-            .await
-        {
-            Ok(Ok(path)) => path,
-            Ok(Err(detail)) => {
-                daemon.publish(Event::Error { detail });
-                return;
-            }
-            Err(err) => {
-                daemon.publish(Event::Error {
-                    detail: format!("{err}"),
-                });
-                return;
-            }
-        };
+        let path =
+            match tokio::task::spawn_blocking(move || crate::ytdlp::download(&first, &dir_first))
+                .await
+            {
+                Ok(Ok(path)) => path,
+                Ok(Err(detail)) => {
+                    daemon.publish(Event::Error { detail });
+                    return;
+                }
+                Err(err) => {
+                    daemon.publish(Event::Error {
+                        detail: format!("{err}"),
+                    });
+                    return;
+                }
+            };
         if daemon.sidecar.borrow().is_some() {
             daemon.send(Command::Pause);
         }
@@ -1584,16 +1582,42 @@ fn stream_hit(daemon: &Daemon, id: &str) -> Option<vinilo_core::streams::StreamH
     if let Some(hit) = daemon.stream_hits.borrow().get(id).cloned() {
         return Some(hit);
     }
-    let video = id.strip_prefix("yt:")?;
-    Some(vinilo_core::streams::StreamHit {
-        id: id.to_owned(),
-        title: video.to_owned(),
-        artist: String::new(),
-        album: String::new(),
-        duration_ms: 0,
-        artwork: None,
-        play_query: format!("https://www.youtube.com/watch?v={video}"),
-    })
+    // After a daemon restart the search cache is gone. Reconstruct a
+    // playable target from the id so a click still reaches yt-dlp.
+    if let Some(video) = id.strip_prefix("yt:") {
+        return Some(vinilo_core::streams::StreamHit {
+            id: id.to_owned(),
+            title: video.to_owned(),
+            artist: String::new(),
+            album: String::new(),
+            duration_ms: 0,
+            artwork: None,
+            play_query: format!("https://www.youtube.com/watch?v={video}"),
+        });
+    }
+    if let Some(track) = id.strip_prefix("sp:") {
+        return Some(vinilo_core::streams::StreamHit {
+            id: id.to_owned(),
+            title: track.to_owned(),
+            artist: String::new(),
+            album: String::new(),
+            duration_ms: 0,
+            artwork: None,
+            play_query: format!("https://open.spotify.com/track/{track}"),
+        });
+    }
+    if let Some(track) = id.strip_prefix("td:") {
+        return Some(vinilo_core::streams::StreamHit {
+            id: id.to_owned(),
+            title: track.to_owned(),
+            artist: String::new(),
+            album: String::new(),
+            duration_ms: 0,
+            artwork: None,
+            play_query: format!("https://tidal.com/browse/track/{track}"),
+        });
+    }
+    None
 }
 
 /// Fetch an album, artist or playlist and announce it.
@@ -1665,8 +1689,9 @@ fn open_page(daemon: &Rc<Daemon>, kind: PageKind, id: String) {
 
         match fetched {
             Ok((header, entries)) => {
-                let unchanged = vinilo_core::page_cache::load(kind, &id)
-                    .is_some_and(|cached| vinilo_core::page_cache::same(&cached, &header, &entries));
+                let unchanged = vinilo_core::page_cache::load(kind, &id).is_some_and(|cached| {
+                    vinilo_core::page_cache::same(&cached, &header, &entries)
+                });
                 vinilo_core::page_cache::save(kind, &id, &header, &entries);
                 if !unchanged {
                     daemon.publish(Event::Page {

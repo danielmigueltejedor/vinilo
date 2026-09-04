@@ -52,6 +52,17 @@ impl StreamHit {
     pub fn is_stream_id(id: &str) -> bool {
         id.starts_with("yt:") || id.starts_with("sp:") || id.starts_with("td:")
     }
+
+    /// What to type into yt-dlp if the service URL itself cannot be extracted.
+    pub fn youtube_search_spec(&self) -> String {
+        let q = format!("{} {}", self.artist, self.title);
+        let q = q.trim();
+        if q.is_empty() {
+            format!("ytsearch1:{}", self.play_query)
+        } else {
+            format!("ytsearch1:{q}")
+        }
+    }
 }
 
 pub fn http() -> reqwest::Client {
@@ -122,10 +133,7 @@ pub async fn search_spotify(http: &reqwest::Client, query: &str) -> Result<Vec<S
 }
 
 fn spotify_tracks(value: &Value) -> Vec<StreamHit> {
-    let Some(items) = value
-        .pointer("/tracks/items")
-        .and_then(Value::as_array)
-    else {
+    let Some(items) = value.pointer("/tracks/items").and_then(Value::as_array) else {
         return Vec::new();
     };
     items
@@ -147,16 +155,13 @@ fn spotify_tracks(value: &Value) -> Vec<StreamHit> {
                 .and_then(Value::as_str)
                 .unwrap_or("")
                 .to_owned();
-            let duration_ms = item
-                .get("duration_ms")
-                .and_then(Value::as_u64)
-                .unwrap_or(0);
+            let duration_ms = item.get("duration_ms").and_then(Value::as_u64).unwrap_or(0);
             let artwork = item
                 .pointer("/album/images/0/url")
                 .and_then(Value::as_str)
                 .map(str::to_owned);
             Some(StreamHit {
-                play_query: format!("{artist} {title}"),
+                play_query: format!("https://open.spotify.com/track/{id}"),
                 id: format!("sp:{id}"),
                 title,
                 artist,
@@ -169,12 +174,13 @@ fn spotify_tracks(value: &Value) -> Vec<StreamHit> {
 }
 
 async fn spotify_token(http: &reqwest::Client) -> Result<String> {
-    let res = http
+    let mut req = http
         .get("https://open.spotify.com/get_access_token?reason=transport&productType=web_player")
-        .header("Accept", "application/json")
-        .send()
-        .await
-        .context("spotify token")?;
+        .header("Accept", "application/json");
+    if let Some(cookie) = crate::setup::cookie_header(crate::provider::Provider::Spotify) {
+        req = req.header("Cookie", cookie);
+    }
+    let res = req.send().await.context("spotify token")?;
     if !res.status().is_success() {
         anyhow::bail!("Spotify token {}", res.status());
     }
@@ -215,9 +221,11 @@ fn tidal_tracks(value: &Value) -> Vec<StreamHit> {
         .iter()
         .filter_map(|item| {
             let track = item.get("resource").unwrap_or(item);
-            let id = track
-                .get("id")
-                .and_then(|v| v.as_u64().map(|n| n.to_string()).or_else(|| v.as_str().map(str::to_owned)))?;
+            let id = track.get("id").and_then(|v| {
+                v.as_u64()
+                    .map(|n| n.to_string())
+                    .or_else(|| v.as_str().map(str::to_owned))
+            })?;
             let title = track
                 .get("title")
                 .and_then(Value::as_str)
@@ -249,7 +257,7 @@ fn tidal_tracks(value: &Value) -> Vec<StreamHit> {
                     )
                 });
             Some(StreamHit {
-                play_query: format!("{artist} {title}"),
+                play_query: format!("https://tidal.com/browse/track/{id}"),
                 id: format!("td:{id}"),
                 title,
                 artist,
@@ -315,6 +323,7 @@ mod tests {
         let hits = spotify_tracks(&json);
         assert_eq!(hits[0].id, "sp:abc");
         assert_eq!(hits[0].artist, "Aitana");
-        assert_eq!(hits[0].play_query, "Aitana Pa Mal");
+        assert_eq!(hits[0].play_query, "https://open.spotify.com/track/abc");
+        assert_eq!(hits[0].youtube_search_spec(), "ytsearch1:Aitana Pa Mal");
     }
 }

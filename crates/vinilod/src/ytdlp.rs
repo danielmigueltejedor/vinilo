@@ -10,10 +10,23 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
 
+use vinilo_core::provider::Provider;
+use vinilo_core::setup;
 use vinilo_core::streams::{StreamHit, youtube_hit_from_json};
 
 pub fn missing_hint() -> String {
-    "yt-dlp is not installed. On Arch: sudo pacman -S yt-dlp".into()
+    "yt-dlp is not installed. On Arch: sudo pacman -S yt-dlp ffmpeg".into()
+}
+
+fn cookie_args() -> Vec<String> {
+    let provider = vinilo_core::provider::load().unwrap_or(Provider::YoutubeMusic);
+    setup::ytdlp_cookie_args(provider)
+}
+
+fn apply_cookies(cmd: &mut Command) {
+    for arg in cookie_args() {
+        cmd.arg(arg);
+    }
 }
 
 pub fn available() -> bool {
@@ -34,16 +47,16 @@ pub fn search(query: &str) -> Result<Vec<StreamHit>, String> {
         return Err(missing_hint());
     }
     let spec = format!("ytsearch20:{query}");
-    let output = Command::new("yt-dlp")
-        .args([
-            "-j",
-            "--flat-playlist",
-            "--no-warnings",
-            "--no-playlist",
-            &spec,
-        ])
-        .output()
-        .map_err(|err| format!("yt-dlp: {err}"))?;
+    let mut cmd = Command::new("yt-dlp");
+    cmd.args([
+        "-j",
+        "--flat-playlist",
+        "--no-warnings",
+        "--no-playlist",
+        &spec,
+    ]);
+    apply_cookies(&mut cmd);
+    let output = cmd.output().map_err(|err| format!("yt-dlp: {err}"))?;
     if !output.status.success() {
         let err = String::from_utf8_lossy(&output.stderr);
         return Err(format!("yt-dlp search failed: {}", err.trim()));
@@ -76,29 +89,44 @@ pub fn download(hit: &StreamHit, dir: &Path) -> Result<PathBuf, String> {
         return Ok(existing);
     }
     let template = dir.join(format!("{stem}.%(ext)s"));
-    let target = if hit.id.starts_with("yt:") {
-        hit.play_query.clone()
-    } else {
-        format!("ytsearch1:{}", hit.play_query)
-    };
-    let output = Command::new("yt-dlp")
-        .args([
-            "-f",
-            "bestaudio[ext=m4a]/bestaudio/best",
-            "-o",
-            &template.to_string_lossy(),
-            "--no-playlist",
-            "--no-warnings",
-            "--newline",
-            &target,
-        ])
-        .output()
-        .map_err(|err| format!("yt-dlp: {err}"))?;
+    try_download(&hit.play_query, &template);
+    if existing_file(dir, &stem).is_none() && !hit.id.starts_with("yt:") {
+        try_download(&hit.youtube_search_spec(), &template);
+    }
+    existing_file(dir, &stem).ok_or_else(|| "yt-dlp wrote no file".into())
+}
+
+fn try_download(target: &str, template: &Path) {
+    // Prefer an mp3 rodio can always open. Falls back to the raw audio
+    // stream if ffmpeg is missing — that still plays when the file is
+    // vorbis/mp3/m4a.
+    if run_download(target, template, true).is_err() {
+        let _ = run_download(target, template, false);
+    }
+}
+
+fn run_download(target: &str, template: &Path, extract_mp3: bool) -> Result<(), String> {
+    let mut cmd = Command::new("yt-dlp");
+    cmd.args([
+        "-f",
+        "bestaudio[ext=m4a]/bestaudio[ext=mp3]/bestaudio/best",
+        "-o",
+        &template.to_string_lossy(),
+        "--no-playlist",
+        "--no-warnings",
+        "--newline",
+    ]);
+    if extract_mp3 {
+        cmd.args(["-x", "--audio-format", "mp3", "--audio-quality", "0"]);
+    }
+    apply_cookies(&mut cmd);
+    cmd.arg(target);
+    let output = cmd.output().map_err(|err| format!("yt-dlp: {err}"))?;
     if !output.status.success() {
         let err = String::from_utf8_lossy(&output.stderr);
         return Err(format!("could not fetch audio: {}", err.trim()));
     }
-    existing_file(dir, &stem).ok_or_else(|| "yt-dlp wrote no file".into())
+    Ok(())
 }
 
 fn existing_file(dir: &Path, stem: &str) -> Option<PathBuf> {

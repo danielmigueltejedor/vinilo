@@ -10,7 +10,11 @@ license.workspace = true
 libpulse-binding = { version = "2", default-features = false }
 vinilo-core = { path = "../vinilo-core" }
 # Local files. MusicKit cannot open a path; this is the decoder that can.
-rodio = "0.19"
+rodio = { version = "0.19", features = [
+    "symphonia-isomp4",
+    "symphonia-vorbis",
+    "symphonia-mp3",
+] }
 lofty = "0.22"
 
 anyhow.workspace = true

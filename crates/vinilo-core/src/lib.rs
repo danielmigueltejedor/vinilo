@@ -24,6 +24,7 @@ pub mod player;
 pub mod provider;
 pub mod queue;
 pub mod session;
+pub mod setup;
 pub mod sort;
 pub mod streams;
 pub mod unplayable;

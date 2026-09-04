@@ -23,7 +23,7 @@ license=('GPL-3.0-or-later')
 # link against it. A missing runtime dependency fails at launch; a missing build
 # one fails at the link, which is harder to read.
 makedepends=('cargo' 'nodejs' 'npm' 'git' 'pkgconf' 'librsvg'
-             'gtk4' 'libadwaita' 'libpulse')
+             'gtk4' 'libadwaita' 'libpulse' 'webkitgtk-6.0')
 source=("$_pkgname::git+$url.git")
 sha256sums=('SKIP')
 options=('!debug' '!lto')
@@ -80,7 +80,7 @@ package_vinilo-daemon-git() {
   # `libpulse` is the daemon's own now: volume is the audio server's stream
   # volume, not a gain inside MusicKit — see crates/vinilod/src/mixer.rs.
   depends=('gtk3' 'nss' 'alsa-lib' 'libcups' 'libxkbcommon' 'mesa' 'libdrm'
-           'libseccomp' 'libpulse')
+           'libseccomp' 'libpulse' 'yt-dlp' 'ffmpeg')
   provides=("vinilo-daemon=$pkgver")
   # **Not `vinilo`, however much it looks like it should be.** The release
   # package does own these same sidecar paths — but `vinilo-git` *provides*
@@ -123,7 +123,7 @@ package_vinilo-daemon-git() {
 package_vinilo-git() {
   pkgdesc="A native GNOME client for Apple Music (latest commit)"
   depends=("vinilo-daemon-git=$pkgver-$pkgrel"
-           'gtk4' 'libadwaita' 'librsvg' 'hicolor-icon-theme')
+           'gtk4' 'libadwaita' 'librsvg' 'hicolor-icon-theme' 'webkitgtk-6.0')
   provides=("$_pkgname=$pkgver")
   conflicts=("$_pkgname")
 

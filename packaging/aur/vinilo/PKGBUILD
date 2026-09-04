@@ -11,7 +11,7 @@ arch=('x86_64')          # Widevine on Linux is x86_64 only
 url="https://github.com/SoftARV/Slipmat"
 license=('GPL-3.0-or-later')
 makedepends=('cargo' 'nodejs' 'npm' 'git' 'pkgconf' 'librsvg'
-             'gtk4' 'libadwaita' 'libpulse')
+             'gtk4' 'libadwaita' 'libpulse' 'webkitgtk-6.0')
 source=("$pkgbase-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
 sha256sums=('ad026864baeea9d8f16b35539bbc903cda7df4c368962294167e3bd5115667d9')
 options=('!debug' '!lto')
@@ -38,7 +38,7 @@ check() {
 package_vinilo-daemon() {
   pkgdesc="Vinilo's playback daemon and hidden Chromium sidecar"
   depends=('gtk3' 'nss' 'alsa-lib' 'libcups' 'libxkbcommon' 'mesa' 'libdrm'
-           'libseccomp' 'libpulse')
+           'libseccomp' 'libpulse' 'yt-dlp' 'ffmpeg')
 
   cd "$srcdir/Vinilo-$pkgver"
   install -Dm755 target/release/vinilod "$pkgdir/usr/bin/vinilod"
@@ -59,7 +59,7 @@ package_vinilo-daemon() {
 package_vinilo() {
   pkgdesc="A native GNOME client for Apple Music"
   depends=("vinilo-daemon=$pkgver-$pkgrel"
-           'gtk4' 'libadwaita' 'librsvg' 'hicolor-icon-theme')
+           'gtk4' 'libadwaita' 'librsvg' 'hicolor-icon-theme' 'webkitgtk-6.0')
 
   cd "$srcdir/Vinilo-$pkgver"
   local appid=dev.danielmiguelt.Vinilo

@@ -25,7 +25,8 @@
 //! | [`playback`] | pushing mirrored state to the bar, MPRIS, notifications |
 //! | [`supervise`] | keeping the sidecar alive and folding in its events |
 //! | [`status`] | what the pane shows when it is not showing music |
-//! | [`chrome`] | the menu, its accelerators, and the three dialogs |
+//! | [`chrome`] | the menu, its accelerators, and the first-run dialogs |
+//! | [`source_login`] | catalogue sign-in window, matching Apple Music's |
 //!
 //! The split is by *what a thing does*, not by layer, so a change usually lands
 //! in one file. The reducer stays here because it is the map from action to
@@ -78,6 +79,7 @@ mod pins;
 mod playback;
 mod queue;
 mod row_menu;
+mod source_login;
 mod status;
 mod supervise;
 mod view;
@@ -128,6 +130,10 @@ pub struct AppModel {
     /// The first-run gate, while it is up. `Some` exactly when the app is
     /// blocked, which is what stops it being presented twice.
     onboarding: Option<adw::Dialog>,
+    /// Catalogue WebKit login window, while it is up.
+    catalog_login: Option<source_login::CatalogLogin>,
+    /// True while cookies are being dumped, so Done and auto-detect cannot race.
+    catalog_login_busy: bool,
     /// The language picker, while a first run has not chosen English or Spanish.
     language_picker: Option<adw::Dialog>,
     /// The music-source picker, after language and before Apple's sign-in.
@@ -431,6 +437,14 @@ impl LibraryAction {
 pub enum AppMsg {
     Quit,
     SignIn,
+    /// Opens the catalogue login window (Spotify / YouTube Music / Tidal).
+    CatalogSignIn,
+    /// The login window landed on the signed-in site, or the user pressed Done.
+    CatalogLoginFinished,
+    /// Cookies are on disk; close the gate and go to Search.
+    CatalogSignedIn,
+    /// The login window was closed without finishing.
+    CatalogLoginClosed,
     /// Asks first — see `confirm_sign_out`.
     SignOut,
     SignOutConfirmed,
@@ -1540,6 +1554,8 @@ impl Component for AppModel {
             pending_start: None,
             mirror: Mirror::default(),
             onboarding: None,
+            catalog_login: None,
+            catalog_login_busy: false,
             language_picker: None,
             provider_picker: None,
             refresh_nav_headers: false,
@@ -1824,19 +1840,49 @@ impl AppModel {
                 }
             }
             AppMsg::SignIn => self.ask(Request::SignIn),
+            AppMsg::CatalogSignIn => {
+                let provider = self.settings.provider;
+                if provider.is_catalog() {
+                    self.present_catalog_login(&sender, root, provider);
+                }
+            }
+            AppMsg::CatalogLoginFinished => self.finish_catalog_login(&sender),
+            AppMsg::CatalogSignedIn => {
+                let provider = self.settings.provider;
+                self.catalog_login_busy = false;
+                vinilo_core::setup::mark_configured(provider);
+                self.close_catalog_login();
+                Self::fill_primary_menu(&self.primary_menu, provider);
+                self.handle(AppMsg::FocusCatalogSearch, &sender, root);
+            }
+            AppMsg::CatalogLoginClosed => {
+                self.catalog_login_busy = false;
+                self.catalog_login = None;
+            }
             AppMsg::SignOut => {
                 // The menu item is always there; asking to sign out when you
                 // already are should do nothing rather than prompt.
-                if matches!(self.stage, Stage::Ready) {
+                if self.settings.provider.is_catalog() {
+                    if vinilo_core::setup::is_configured(self.settings.provider) {
+                        self.confirm_sign_out(&sender, root);
+                    }
+                } else if matches!(self.stage, Stage::Ready) {
                     self.confirm_sign_out(&sender, root);
                 }
             }
             AppMsg::SignOutConfirmed => {
-                tracing::info!("signing out");
-                // The sidecar drops Apple's session — cookies and all, not just
-                // MusicKit's token — and its `authorizationStatusDidChange`
-                // confirms it rather than us assuming.
-                self.ask(Request::SignOut);
+                if self.settings.provider.is_catalog() {
+                    tracing::info!(provider = ?self.settings.provider, "signing out of catalogue");
+                    self.close_catalog_login();
+                    vinilo_core::setup::clear(self.settings.provider);
+                    Self::fill_primary_menu(&self.primary_menu, self.settings.provider);
+                } else {
+                    tracing::info!("signing out");
+                    // The sidecar drops Apple's session — cookies and all, not just
+                    // MusicKit's token — and its `authorizationStatusDidChange`
+                    // confirms it rather than us assuming.
+                    self.ask(Request::SignOut);
+                }
             }
             AppMsg::PlayPause => self.transport(Transport::PlayPause),
             AppMsg::Next => self.transport(Transport::Next),
@@ -2653,7 +2699,8 @@ impl AppModel {
         self.loading_playlists = false;
         self.loading_library = false;
         self.loading_discover = false;
-        self.discover.fill(vinilo_core::discover::Discover::default());
+        self.discover
+            .fill(vinilo_core::discover::Discover::default());
         self.tried_albums = false;
         self.tried_artists = false;
         self.tried_playlists = false;
@@ -2704,23 +2751,33 @@ impl AppModel {
     /// Driven from one place rather than from each site that changes `stage`,
     /// because there are four of them — tokens arriving, an authorization
     /// change, a hook attaching, and signing out — and three of them would have
-    /// been easy to forget.
+    /// been easy to forget. Catalogue sources use the same gate: unconfigured
+    /// means the Sign In window, exactly as SignedOut means Apple's.
     fn sync_onboarding(&mut self, sender: &ComponentSender<Self>, root: &adw::ApplicationWindow) {
         if !self.settings.language_chosen || !self.settings.provider_chosen {
             return;
         }
-        if !self.settings.provider.needs_apple() {
-            if let Some(dialog) = self.onboarding.take() {
-                dialog.force_close();
+        let provider = self.settings.provider;
+        let needs_gate = if provider.needs_apple() {
+            matches!(self.stage, Stage::SignedOut)
+        } else if provider.is_catalog() {
+            !vinilo_core::setup::is_configured(provider)
+        } else {
+            false
+        };
+        match (needs_gate, self.onboarding.is_some()) {
+            (true, false) => {
+                self.onboarding = Some(if provider.needs_apple() {
+                    self.present_onboarding(sender, root)
+                } else {
+                    self.present_catalog_onboarding(sender, root, provider)
+                });
             }
-            return;
-        }
-        match (matches!(self.stage, Stage::SignedOut), &self.onboarding) {
-            (true, None) => self.onboarding = Some(self.present_onboarding(sender, root)),
-            (false, Some(dialog)) => {
-                // `can_close` is false, so it will not go on its own.
-                dialog.force_close();
-                self.onboarding = None;
+            (false, true) => {
+                if let Some(dialog) = self.onboarding.take() {
+                    // `can_close` is false, so it will not go on its own.
+                    dialog.force_close();
+                }
             }
             _ => {}
         }
@@ -2784,11 +2841,15 @@ impl AppModel {
         self.locale_tick = self.locale_tick.wrapping_add(1);
         self.refresh_nav_headers = true;
 
-        if !provider.needs_apple() {
-            self.stage = Stage::Ready;
+        if changed {
             if let Some(dialog) = self.onboarding.take() {
                 dialog.force_close();
             }
+            self.close_catalog_login();
+        }
+
+        if !provider.needs_apple() {
+            self.stage = Stage::Ready;
         }
 
         if changed {
@@ -2797,7 +2858,6 @@ impl AppModel {
 
         if provider.is_catalog() {
             self.handle(AppMsg::SetView(View::Search), sender, root);
-            self.present_catalog_setup(sender, root, provider);
         } else if matches!(provider, vinilo_core::provider::Provider::Local) {
             self.handle(AppMsg::SetView(View::Songs), sender, root);
         }

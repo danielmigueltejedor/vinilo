@@ -40,7 +40,7 @@ Para **Apple Music** necesitas una suscripción activa, una máquina **x86_64** 
 
 Para **archivos locales** basta con el propio Vinilo: MP3, FLAC, Ogg, WAV y demás que rodio sepa abrir. No hace falta sidecar ni cuenta.
 
-Para **Spotify, YouTube Music y Tidal** hace falta `yt-dlp` (`pacman -S yt-dlp`). Vinilo busca en el catálogo de cada servicio y reproduce el audio; no es el cliente oficial de Spotify/Tidal (esos cierran el stream con DRM).
+Para **Spotify, YouTube Music y Tidal** Vinilo abre una **ventana de inicio de sesión** (como Apple Music). Después busca en el catálogo y reproduce el audio con `yt-dlp`. No es el cliente oficial: esos servicios cierran el stream con DRM en Linux. Hace falta `yt-dlp` y, para convertir a MP3, `ffmpeg`. También `webkitgtk-6.0` para la ventana de login.
 
 ## Compilar e instalar
 
@@ -63,7 +63,7 @@ cd vinilo
 
 # 2. Dependencias (Arch). No hace falta sudo para make.
 sudo pacman -S --needed base-devel pkgconf rust gtk4 libadwaita librsvg \
-                        nodejs npm libpulse alsa-lib yt-dlp
+                        nodejs npm libpulse alsa-lib yt-dlp ffmpeg webkitgtk-6.0
 
 # 3. Compila, descarga el sidecar (~200 MB) e instala en ~/.local
 make install
@@ -126,12 +126,12 @@ make check                                   # fmt + clippy + test
 
 1. Elige **English** o **Español**.
 2. Elige de dónde sale la música: **Apple Music**, **este equipo**, **Spotify**, **YouTube Music** o **Tidal**.
-3. Si elegiste Apple Music, inicia sesión. Se abre la página de Apple en una ventana aparte (incluido el 2FA). Después se oculta.
-4. La biblioteca de Apple aparece desde la caché en los siguientes arranques. Los archivos locales se reproducen en cuanto los abres.
+3. Si elegiste Apple Music, Spotify, YouTube Music o Tidal, se abre una **ventana de inicio de sesión** que no puedes saltarte (igual que Apple Music). Cierra sesión desde el menú para volver a configurarla.
+4. La biblioteca de Apple aparece desde la caché en los siguientes arranques. En Spotify / YouTube Music / Tidal busca una canción y pulsa: suena de verdad si tienes `yt-dlp` (y `ffmpeg` ayuda). Los archivos locales se reproducen en cuanto los abres.
 
 Una instalación que ya tenía idioma elegido no vuelve a preguntar la fuente: se queda en Apple Music, que es lo que ya usabas.
 
-El idioma queda en `~/.config/vinilo/locale` y la fuente en `~/.config/vinilo/provider`.
+El idioma queda en `~/.config/vinilo/locale`, la fuente en `~/.config/vinilo/provider` y las sesiones de catálogo en `~/.config/vinilo/configured` más `cookies-*.txt`.
 
 ## Cómo funciona
 
@@ -160,7 +160,7 @@ Apple Music pasa por el reproductor MusicKit de Apple con el CDM oficial de Goog
 - **Sin reproducción sin conexión de Apple Music.** El CDM de Linux no admite licencias persistentes.
 - **~200 MB en disco** para el sidecar de Chromium, solo si usas Apple Music.
 - **Solo x86_64** para Apple Music, mientras Widevine en Linux ARM no esté estable.
-- **Spotify, YouTube Music y Tidal** buscan en su catálogo; el audio llega con yt-dlp, no con el DRM oficial.
+- **Spotify, YouTube Music y Tidal** abren una ventana de inicio de sesión; el audio llega con yt-dlp (no con el DRM oficial de esos servicios).
 - **`aguja` necesita una sesión de escritorio** si usas Apple Music: Chromium pide un servidor de pantalla.
 
 ## Créditos
