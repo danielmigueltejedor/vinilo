@@ -199,9 +199,10 @@ pub fn set_accent(accent: Accent) {
     // A favourite is yellow everywhere else it appears — Apple's own star, the
     // one on your phone — so it does not follow the accent. Hard-coded to
     // Adwaita's yellow rather than a `.warning`, which means something else.
+    // `color` on `image` is what tints a symbolic icon in GTK 4.
     let css = format!(
         "{accent_rules}
-         .favorite-star {{ color: #f5c211; }}
+         image.favorite-star {{ color: #f5c211; }}
 
          /* Padding rather than a margin: the backdrop is a background, and a
             margin would leave an untinted frame around it.
@@ -717,13 +718,12 @@ mod tests {
 
     #[test]
     fn a_playlist_page_tints_from_its_own_class() {
-        let css = page_backdrop_css(
-            "page-bg-3",
-            Some("url(\"file:///tmp/x.png\")"),
-            true,
-        );
+        let css = page_backdrop_css("page-bg-3", Some("url(\"file:///tmp/x.png\")"), true);
         assert!(css.contains(".page-bg-3"), "{css}");
-        assert!(!css.contains(".np-bar"), "must not recolour the player: {css}");
+        assert!(
+            !css.contains(".np-bar"),
+            "must not recolour the player: {css}"
+        );
         let cleared = page_backdrop_css("page-bg-3", None, true);
         assert!(cleared.contains("background-image: none"));
     }

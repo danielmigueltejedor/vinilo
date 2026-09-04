@@ -861,6 +861,20 @@ mod tests {
     }
 
     #[test]
+    fn in_favorites_from_the_library_endpoint_is_the_star() {
+        let json = r#"{
+            "id": "i.abc",
+            "attributes": {"name": "Bloom", "inFavorites": true}
+        }"#;
+        let track = Track::from(serde_json::from_str::<Resource<SongAttributes>>(json).unwrap());
+        assert!(track.favorite);
+
+        let json = r#"{"id": "i.abc", "attributes": {"name": "Bloom"}}"#;
+        let track = Track::from(serde_json::from_str::<Resource<SongAttributes>>(json).unwrap());
+        assert!(!track.favorite);
+    }
+
+    #[test]
     fn an_empty_relationship_means_not_in_the_library() {
         let json = r#"{"id": "1", "attributes": {"name": "x"},
                        "relationships": {"library": {"data": []}}}"#;

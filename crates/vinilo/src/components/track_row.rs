@@ -17,9 +17,9 @@ use relm4::prelude::*;
 use relm4::typed_view::list::RelmListItem;
 use relm4::{gtk, view};
 
-use crate::components::{CurrentTrack, DeadTracks, RowRegistry, TrackOverrides, overridden};
 use crate::components::cover::Cover;
 use crate::components::grid_item::{ArtRegistry, ArtRequest, register, unregister};
+use crate::components::{CurrentTrack, DeadTracks, RowRegistry, TrackOverrides, overridden};
 
 pub use vinilo_core::entry::Entry;
 
@@ -282,43 +282,49 @@ impl RelmListItem for LibraryItem {
                     },
                 },
 
-                // Only ever visible for a favourited track. Read straight off
-                // `inFavorites`, which the library endpoint returns — no
-                // read-back, no request per row.
-                #[name = "star"]
-                gtk::Image {
-                    set_icon_name: Some("starred-symbolic"),
-                    set_visible: false,
-                    // Yellow, not the accent: a favourite is a star everywhere
-                    // else it appears, including on the phone this syncs with.
-                    add_css_class: "favorite-star",
-                },
-
-                // The same menu the right-click opens, as a button.
-                //
-                // A context menu you can only reach by right-clicking is a
-                // context menu a touchscreen cannot reach at all — and a
-                // trackpad user has to know is there. Always visible rather
-                // than on hover, for the same reason.
-                // A plain Button, not a MenuButton: a MenuButton owns its
-                // popover, and this one has to come from the same place the
-                // right-click menu does or the two will drift apart.
-                #[name = "menu_button"]
-                gtk::Button {
-                    set_icon_name: "view-more-symbolic",
-                    set_tooltip_text: Some(vinilo_core::i18n::t(
-                        vinilo_core::i18n::Key::TrackOptions,
-                    )),
-                    set_valign: gtk::Align::Center,
-                    add_css_class: "flat",
-                    add_css_class: "circular",
-                },
-
                 #[name = "trailing"]
                 gtk::Label {
                     set_valign: gtk::Align::Center,
                     add_css_class: "numeric",
                     add_css_class: "dim-label",
+                },
+
+                // Star then the ⋮, as one cluster at the end of the row.
+                // Duration used to sit *after* the menu, so the star was not
+                // next to the control it belongs with.
+                gtk::Box {
+                    set_orientation: gtk::Orientation::Horizontal,
+                    set_spacing: 0,
+                    set_valign: gtk::Align::Center,
+
+                    #[name = "star"]
+                    gtk::Image {
+                        set_icon_name: Some("starred-symbolic"),
+                        set_pixel_size: 16,
+                        set_visible: false,
+                        set_valign: gtk::Align::Center,
+                        set_margin_end: 2,
+                        set_tooltip_text: Some(vinilo_core::i18n::t(
+                            vinilo_core::i18n::Key::Favourite,
+                        )),
+                        // Yellow, not the accent: a favourite is a star everywhere
+                        // else it appears, including on the phone this syncs with.
+                        add_css_class: "favorite-star",
+                    },
+
+                    #[name = "menu_button"]
+                    gtk::Button {
+                        // A plain Button, not a MenuButton: a MenuButton owns
+                        // its popover, and this one has to come from the same
+                        // place the right-click menu does or the two will drift.
+                        set_icon_name: "view-more-symbolic",
+                        set_tooltip_text: Some(vinilo_core::i18n::t(
+                            vinilo_core::i18n::Key::TrackOptions,
+                        )),
+                        set_valign: gtk::Align::Center,
+                        add_css_class: "flat",
+                        add_css_class: "circular",
+                    },
                 },
 
                 #[name = "chevron"]

@@ -50,7 +50,14 @@ El `Makefile` vive **dentro del repositorio**. Si ejecutas `make install` desde 
 make: *** No hay ninguna regla para construir el objetivo 'install'.  Alto.
 ```
 
-Eso no es un fallo de pacman: no hay Makefile en el directorio de trabajo.
+Eso no es un fallo de pacman: no hay Makefile en el directorio de trabajo. `git pull` y `make install` van **dentro del clon**, nunca desde `~`:
+
+```bash
+cd ~/vinilo   # o la carpeta donde está el Makefile
+git pull
+pkill vinilo; pkill vinilod
+make install
+```
 
 Primero publica el código en GitHub (en Cursor: **Create repo**). Hasta que ese remoto exista, `git clone` fallará: el proyecto vive aquí, no todavía en github.com.
 
