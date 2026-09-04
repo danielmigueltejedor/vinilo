@@ -290,6 +290,8 @@ pub enum Key {
     ToastUnstreamable,
     LikedSongs,
     YourTopTracks,
+    SpotifyNotSignedIn,
+    SpotifyTokenRefused,
 }
 
 /// Resolve `key` in the current language.
@@ -553,6 +555,12 @@ fn en(key: Key) -> &'static str {
         Key::ToastUnstreamable => "Nothing here can be streamed",
         Key::LikedSongs => "Liked Songs",
         Key::YourTopTracks => "Your Top Tracks",
+        Key::SpotifyNotSignedIn => {
+            "Spotify is not signed in. Open Sign In from the menu and log in again."
+        }
+        Key::SpotifyTokenRefused => {
+            "Spotify would not issue a token. Sign in again from the menu if this keeps happening."
+        }
     }
 }
 
@@ -792,6 +800,12 @@ fn es(key: Key) -> &'static str {
         Key::ToastUnstreamable => "Aquí no hay nada que se pueda reproducir",
         Key::LikedSongs => "Canciones que te gustan",
         Key::YourTopTracks => "Tus temas más reproducidos",
+        Key::SpotifyNotSignedIn => {
+            "Spotify no tiene sesión. Abre Iniciar sesión en el menú y entra otra vez."
+        }
+        Key::SpotifyTokenRefused => {
+            "Spotify no ha emitido un token. Vuelve a iniciar sesión desde el menú si sigue pasando."
+        }
     }
 }
 

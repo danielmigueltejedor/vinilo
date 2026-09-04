@@ -6,6 +6,9 @@
 //! Playback is still `yt-dlp` — Spotify does not offer a legal Linux stream.
 //! This module is the catalogue: search, liked songs, playlists, albums, and
 //! the Listen Now shelves. Tokens never leave this process.
+//!
+//! The web player no longer hands out a token from `get_access_token` alone.
+//! We mint the same TOTP the site uses, then call `/api/token`.
 
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -22,12 +25,15 @@ use crate::music::types::{Album, Artist, Artwork, Playlist, Track, TrackId};
 use crate::provider::Provider;
 use crate::streams::{self, StreamHit};
 
+mod totp;
+
 const API: &str = "https://api.spotify.com/v1";
-const TOKEN_URLS: &[&str] = &[
+const LEGACY_TOKEN_URLS: &[&str] = &[
     "https://open.spotify.com/get_access_token?reason=transport&productType=web_player",
     "https://open.spotify.com/get_access_token?reason=init&productType=web_player",
     "https://open.spotify.com/get_access_token?reason=transport&productType=web-player",
 ];
+const PLAYER_TOKEN: &str = "https://open.spotify.com/api/token";
 
 struct CachedToken {
     access: String,
@@ -288,53 +294,141 @@ async fn token(http: &reqwest::Client) -> Result<String> {
     {
         return Ok(cached.access.clone());
     }
-    let cookie = crate::setup::session_cookie(Provider::Spotify);
-    if cookie.is_none() {
-        anyhow::bail!("Spotify is not signed in. Open Sign In from the menu and log in again.");
-    }
-    let mut last_err = anyhow::anyhow!("Spotify token missing accessToken");
-    for url in TOKEN_URLS {
-        match fetch_token(http, url, cookie.as_deref()).await {
-            Ok((access, anonymous, ttl)) => {
-                if anonymous {
-                    tracing::warn!("spotify web token is anonymous — library calls will fail");
-                }
-                if let Ok(mut guard) = TOKEN.lock() {
-                    *guard = Some(CachedToken {
-                        access: access.clone(),
-                        expires: Instant::now() + ttl,
-                    });
-                }
+    let Some(cookie) = crate::setup::session_cookie(Provider::Spotify) else {
+        anyhow::bail!("{}", i18n::t(Key::SpotifyNotSignedIn));
+    };
+    for url in LEGACY_TOKEN_URLS {
+        match fetch_token_url(http, url, &cookie).await {
+            Ok((access, false, ttl)) => {
+                store_token(&access, ttl);
                 return Ok(access);
             }
-            Err(err) => last_err = err,
+            Ok((_, true, _)) => {
+                tracing::warn!(url, "spotify legacy token was anonymous");
+            }
+            Err(err) => {
+                tracing::debug!(url, %err, "spotify legacy token failed");
+            }
         }
     }
-    Err(last_err).context(
-        "Spotify would not issue a token. Sign in again from the menu if this keeps happening.",
-    )
+    match fetch_totp_token(http, &cookie).await {
+        Ok((access, ttl)) => {
+            store_token(&access, ttl);
+            Ok(access)
+        }
+        Err(err) => Err(err).context(i18n::t(Key::SpotifyTokenRefused)),
+    }
 }
 
-async fn fetch_token(
+fn store_token(access: &str, ttl: Duration) {
+    if let Ok(mut guard) = TOKEN.lock() {
+        *guard = Some(CachedToken {
+            access: access.to_owned(),
+            expires: Instant::now() + ttl,
+        });
+    }
+}
+
+async fn fetch_totp_token(http: &reqwest::Client, cookie: &str) -> Result<(String, Duration)> {
+    let secret = totp::current_secret(http).await;
+    let server_time = totp::server_time(http).await;
+    let mut last_err = anyhow::anyhow!("spotify /api/token: no accessToken");
+    for skew in [0i64, -30, 30] {
+        let at = if skew < 0 {
+            server_time.saturating_sub(skew.unsigned_abs())
+        } else {
+            server_time.saturating_add(skew as u64)
+        };
+        let otp = totp::totp_from_cipher(&secret.cipher, at);
+        tracing::info!(
+            ver = secret.version,
+            reason_skew = skew,
+            "requesting spotify web-player token"
+        );
+        for reason in ["transport", "init"] {
+            match fetch_player_token(http, cookie, reason, &otp, secret.version, at).await {
+                Ok((access, false, ttl)) => {
+                    return Ok((access, ttl));
+                }
+                Ok((_, true, _)) => {
+                    last_err = anyhow::anyhow!("spotify /api/token returned an anonymous token");
+                    tracing::warn!(reason, "spotify totp token was anonymous");
+                }
+                Err(err) => {
+                    tracing::warn!(reason, %err, "spotify totp token failed");
+                    last_err = err;
+                }
+            }
+        }
+    }
+    Err(last_err)
+}
+
+async fn fetch_player_token(
+    http: &reqwest::Client,
+    cookie: &str,
+    reason: &str,
+    otp: &str,
+    totp_ver: u32,
+    server_time: u64,
+) -> Result<(String, bool, Duration)> {
+    let ver = totp_ver.to_string();
+    let mut pairs: Vec<(&str, String)> = vec![
+        ("reason", reason.to_owned()),
+        ("productType", "web-player".into()),
+        ("totp", otp.to_owned()),
+        ("totpServer", otp.to_owned()),
+        ("totpVer", ver),
+    ];
+    if totp_ver < 10 {
+        let date = totp::utc_ymd(server_time);
+        let client_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0);
+        let build_ver = format!("web-player_{date}_{}_{:x}", server_time * 1000, client_ms);
+        pairs.push(("sTime", server_time.to_string()));
+        pairs.push(("cTime", client_ms.to_string()));
+        pairs.push(("buildDate", date));
+        pairs.push(("buildVer", build_ver));
+    }
+    send_token(player_token_request(http, PLAYER_TOKEN, cookie).query(&pairs)).await
+}
+
+async fn fetch_token_url(
     http: &reqwest::Client,
     url: &str,
-    cookie: Option<&str>,
+    cookie: &str,
 ) -> Result<(String, bool, Duration)> {
-    let mut req = http
-        .get(url)
+    send_token(player_token_request(http, url, cookie)).await
+}
+
+fn player_token_request(
+    http: &reqwest::Client,
+    url: &str,
+    cookie: &str,
+) -> reqwest::RequestBuilder {
+    http.get(url)
         .header("Accept", "application/json")
         .header("App-Platform", "WebPlayer")
         .header("Referer", "https://open.spotify.com/")
-        .header("Origin", "https://open.spotify.com");
-    if let Some(cookie) = cookie {
-        req = req.header("Cookie", cookie);
-    }
+        .header("Origin", "https://open.spotify.com")
+        .header("Cookie", cookie)
+}
+
+async fn send_token(req: reqwest::RequestBuilder) -> Result<(String, bool, Duration)> {
     let res = req.send().await.context("spotify token")?;
     let status = res.status();
+    let body = res.text().await.unwrap_or_default();
     if !status.is_success() {
+        tracing::warn!(
+            %status,
+            body = %clip_body(&body),
+            "spotify token http error"
+        );
         anyhow::bail!("Spotify token {status}");
     }
-    let value: Value = res.json().await.context("spotify token json")?;
+    let value: Value = serde_json::from_str(&body).context("spotify token json")?;
     let access = value
         .get("accessToken")
         .or_else(|| value.get("access_token"))
@@ -364,6 +458,17 @@ async fn fetch_token(
         Duration::from_secs(50 * 60)
     };
     Ok((access, anonymous, ttl))
+}
+
+fn clip_body(body: &str) -> String {
+    const MAX: usize = 400;
+    let trimmed = body.trim();
+    if trimmed.chars().count() <= MAX {
+        trimmed.to_owned()
+    } else {
+        let clipped: String = trimmed.chars().take(MAX).collect();
+        format!("{clipped}…")
+    }
 }
 
 async fn api_get(http: &reqwest::Client, token: &str, url: &str) -> Result<Value> {
