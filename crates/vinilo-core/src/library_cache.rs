@@ -63,12 +63,38 @@ struct Writing<'a> {
 }
 
 fn cache_file() -> Option<PathBuf> {
-    Some(crate::paths::cache_dir()?.join("library.json"))
+    crate::paths::cache_file("library")
+}
+
+fn rescue_foreign_legacy() {
+    let Some(legacy) = crate::paths::legacy_cache_file("library") else {
+        return;
+    };
+    let Ok(raw) = std::fs::read_to_string(&legacy) else {
+        return;
+    };
+    let cache = parse(&raw);
+    if cache.is_empty() {
+        return;
+    }
+    let Some(stem) = crate::provider::Provider::parse(&cache.provider).and_then(|p| p.cache_stem())
+    else {
+        return;
+    };
+    let Some(dest) = crate::paths::cache_dir().map(|d| d.join(format!("library-{stem}.json")))
+    else {
+        return;
+    };
+    if dest.exists() {
+        return;
+    }
+    let _ = std::fs::rename(&legacy, dest);
 }
 
 /// What we had last time. Any problem yields an empty library, which means the
 /// app starts on a spinner exactly as it used to — never an error.
 pub fn load() -> Library {
+    rescue_foreign_legacy();
     let Some(path) = cache_file() else {
         return Library::default();
     };

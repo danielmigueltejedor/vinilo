@@ -21,6 +21,27 @@ pub fn cache_dir() -> Option<PathBuf> {
     Some(xdg("XDG_CACHE_HOME", ".cache")?.join("vinilo"))
 }
 
+/// A cache file that belongs to the current music source.
+///
+/// Apple Music keeps the original name (`library.json`) so switching away
+/// and back does not throw away the library. Spotify writes `library-spotify.json`.
+pub fn cache_file(base: &str) -> Option<PathBuf> {
+    Some(cache_dir()?.join(cache_name(base)))
+}
+
+/// The unscoped name, used to rescue data that landed in `library.json`
+/// before caches were split per source.
+pub fn legacy_cache_file(base: &str) -> Option<PathBuf> {
+    Some(cache_dir()?.join(format!("{base}.json")))
+}
+
+fn cache_name(base: &str) -> String {
+    match crate::provider::load().unwrap_or_default().cache_stem() {
+        None => format!("{base}.json"),
+        Some(stem) => format!("{base}-{stem}.json"),
+    }
+}
+
 /// Cached cover art. A subdirectory so `prune` can clear it without touching
 /// the library cache beside it.
 pub fn artwork_dir() -> Option<PathBuf> {

@@ -574,6 +574,10 @@ fn save_session(daemon: &Daemon) {
             .queue_position
             .min(songs.len().saturating_sub(1)),
         position_ms: model.player.position_ms,
+        provider: vinilo_core::provider::load()
+            .unwrap_or_default()
+            .as_str()
+            .to_owned(),
         songs,
     });
 }
@@ -958,24 +962,29 @@ fn answer(
             None
         }
         Request::Play { ids, index, start } => {
-            if ids
-                .iter()
-                .any(|id| vinilo_core::streams::StreamHit::is_stream_id(id))
-            {
+            let provider = vinilo_core::provider::load().unwrap_or_default();
+            if provider.is_catalog() {
                 play_streams(daemon, ids, index);
                 None
             } else {
+                let songs: Vec<String> = ids
+                    .into_iter()
+                    .filter(|id| !vinilo_core::streams::StreamHit::is_stream_id(id))
+                    .collect();
+                if songs.is_empty() {
+                    return Some(Event::Error {
+                        detail: "Those tracks belong to another music source".into(),
+                    });
+                }
                 stop_local(daemon);
-                play(daemon, &ids, index, start.into());
+                play(daemon, &songs, index, start.into());
                 None
             }
         }
         Request::PlayFiles { paths, index } => play_files(daemon, paths, index),
         Request::Enqueue { ids, next } => {
-            if ids
-                .iter()
-                .any(|id| vinilo_core::streams::StreamHit::is_stream_id(id))
-            {
+            let provider = vinilo_core::provider::load().unwrap_or_default();
+            if provider.is_catalog() {
                 if daemon.local.borrow().is_active() {
                     enqueue_streams(daemon, ids);
                     return None;
@@ -991,7 +1000,12 @@ fn answer(
             // Filtered, because a dead id rejects the whole insert the same way
             // it rejects a whole queue.
             let dead = daemon.model.borrow().dead_ids.clone();
-            let songs: Vec<String> = ids.into_iter().filter(|id| !dead.contains(id)).collect();
+            let songs: Vec<String> = ids
+                .into_iter()
+                .filter(|id| {
+                    !dead.contains(id) && !vinilo_core::streams::StreamHit::is_stream_id(id)
+                })
+                .collect();
             if songs.is_empty() {
                 return Some(Event::Error {
                     detail: "Nothing here can be streamed".into(),
@@ -1891,7 +1905,10 @@ fn stream_hit(daemon: &Daemon, id: &str) -> Option<vinilo_core::streams::StreamH
 /// arrives as an [`Event::Page`] on every subscriber, which is also what lets a
 /// second client show a page the first one opened.
 fn open_page(daemon: &Rc<Daemon>, kind: PageKind, id: String) {
-    if vinilo_core::spotify::Ref::parse(&id).is_some() {
+    let provider = vinilo_core::provider::load().unwrap_or_default();
+    if provider == vinilo_core::provider::Provider::Spotify
+        && vinilo_core::spotify::Ref::parse(&id).is_some()
+    {
         open_spotify_page(daemon, kind, id);
         return;
     }
@@ -2105,6 +2122,14 @@ fn restore_session(daemon: &Daemon) {
     let Some(session) = vinilo_core::session::load() else {
         return;
     };
+    if !vinilo_core::session::playable_on_current_source(&session) {
+        tracing::info!(
+            provider = %session.provider,
+            tracks = session.songs.len(),
+            "saved session is for another music source — not restoring"
+        );
+        return;
+    }
     let start = session.start.min(session.songs.len().saturating_sub(1));
     tracing::info!(
         tracks = session.songs.len(),
@@ -2439,6 +2464,7 @@ mod tests {
                 songs: vec!["old-catalog-id".into()],
                 start: 0,
                 position_ms: 42_000,
+                provider: String::new(),
             });
             let library = vinilo_core::paths::cache_dir()
                 .expect("test cache directory")

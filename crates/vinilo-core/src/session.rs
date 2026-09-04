@@ -28,6 +28,10 @@ pub struct Session {
     /// when the app closed cleanly.
     #[serde(default)]
     pub position_ms: u64,
+    /// Which source wrote this queue. Restoring Spotify ids into MusicKit is
+    /// how switching back to Apple Music played nothing.
+    #[serde(default)]
+    pub provider: String,
 }
 
 fn path() -> Option<PathBuf> {
@@ -61,6 +65,27 @@ fn parse(raw: &str) -> Option<Session> {
             tracing::warn!(?err, "could not read the saved session");
             None
         }
+    }
+}
+
+/// True when this queue belongs to the source that is about to play.
+///
+/// A Spotify session restored into MusicKit is a queue of `sp:` ids that
+/// Apple refuses, which is why switching back looked like playback was dead
+/// even though the library had loaded.
+pub fn playable_on_current_source(session: &Session) -> bool {
+    let current = crate::provider::load().unwrap_or_default();
+    let has_streams = session
+        .songs
+        .iter()
+        .any(|id| crate::streams::StreamHit::is_stream_id(id));
+    match current {
+        crate::provider::Provider::AppleMusic => {
+            let ours = session.provider.is_empty() || session.provider == current.as_str();
+            ours && !has_streams
+        }
+        crate::provider::Provider::Local => false,
+        other => session.provider == other.as_str() || (session.provider.is_empty() && has_streams),
     }
 }
 
@@ -100,6 +125,7 @@ mod tests {
             songs: vec!["1440857781".into(), "1440857782".into()],
             start: 1,
             position_ms: 42_000,
+            provider: "apple-music".into(),
         };
         let back = parse(&serde_json::to_string(&saved).unwrap()).unwrap();
         assert_eq!(back.songs, saved.songs);
@@ -127,5 +153,27 @@ mod tests {
         let s = parse(r#"{"songs":["1"]}"#).unwrap();
         assert_eq!(s.start, 0);
         assert_eq!(s.position_ms, 0);
+        assert!(s.provider.is_empty());
+    }
+
+    #[test]
+    fn a_spotify_queue_is_not_restored_onto_apple_music() {
+        let spotify = Session {
+            songs: vec!["sp:abc".into()],
+            start: 0,
+            position_ms: 0,
+            provider: "spotify".into(),
+        };
+        assert!(
+            !playable_on_current_source(&spotify),
+            "tests run with no provider file, which is Apple Music"
+        );
+        let apple = Session {
+            songs: vec!["1440857781".into()],
+            start: 0,
+            position_ms: 0,
+            provider: String::new(),
+        };
+        assert!(playable_on_current_source(&apple));
     }
 }

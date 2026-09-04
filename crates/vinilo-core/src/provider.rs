@@ -64,10 +64,7 @@ impl Provider {
     }
 
     pub fn index(self) -> u32 {
-        Self::ALL
-            .iter()
-            .position(|p| *p == self)
-            .unwrap_or(0) as u32
+        Self::ALL.iter().position(|p| *p == self).unwrap_or(0) as u32
     }
 
     pub fn is_available(self) -> bool {
@@ -87,6 +84,19 @@ impl Provider {
     /// Search-and-play catalogues that are not Apple Music or local files.
     pub fn is_catalog(self) -> bool {
         matches!(self, Self::Spotify | Self::YoutubeMusic | Self::Tidal)
+    }
+
+    /// Stem for caches that must not be shared across sources. Apple Music
+    /// keeps the original filenames (`library.json`) so an existing library
+    /// is still there after a round trip through Spotify.
+    pub fn cache_stem(self) -> Option<&'static str> {
+        match self {
+            Self::AppleMusic => None,
+            Self::Local => Some("local"),
+            Self::Spotify => Some("spotify"),
+            Self::YoutubeMusic => Some("youtube-music"),
+            Self::Tidal => Some("tidal"),
+        }
     }
 }
 
@@ -155,5 +165,7 @@ mod tests {
         assert!(Provider::Spotify.is_catalog());
         assert_eq!(Provider::from_index(2), Provider::Spotify);
         assert_eq!(Provider::Tidal.index(), 4);
+        assert_eq!(Provider::AppleMusic.cache_stem(), None);
+        assert_eq!(Provider::Spotify.cache_stem(), Some("spotify"));
     }
 }

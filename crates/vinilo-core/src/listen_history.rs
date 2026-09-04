@@ -20,7 +20,7 @@ struct File {
 }
 
 fn path() -> Option<std::path::PathBuf> {
-    Some(crate::paths::cache_dir()?.join("recent.json"))
+    crate::paths::cache_file("recent")
 }
 
 pub fn load() -> Vec<Track> {

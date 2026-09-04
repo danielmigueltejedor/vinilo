@@ -89,10 +89,38 @@ impl Discover {
 }
 
 fn cache_file() -> Option<std::path::PathBuf> {
-    Some(crate::paths::cache_dir()?.join("discover.json"))
+    crate::paths::cache_file("discover")
+}
+
+fn rescue_foreign_legacy() {
+    let Some(legacy) = crate::paths::legacy_cache_file("discover") else {
+        return;
+    };
+    let Ok(raw) = std::fs::read_to_string(&legacy) else {
+        return;
+    };
+    let Ok(cache) = serde_json::from_str::<Discover>(&raw) else {
+        return;
+    };
+    if cache.is_empty() {
+        return;
+    }
+    let Some(stem) = crate::provider::Provider::parse(&cache.provider).and_then(|p| p.cache_stem())
+    else {
+        return;
+    };
+    let Some(dest) = crate::paths::cache_dir().map(|d| d.join(format!("discover-{stem}.json")))
+    else {
+        return;
+    };
+    if dest.exists() {
+        return;
+    }
+    let _ = std::fs::rename(&legacy, dest);
 }
 
 pub fn load() -> Discover {
+    rescue_foreign_legacy();
     let Some(path) = cache_file() else {
         return Discover::default();
     };
