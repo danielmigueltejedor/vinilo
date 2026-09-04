@@ -189,6 +189,13 @@ pub enum Key {
     ProviderTidalSub,
     ProviderNote,
     ProviderRestart,
+    CatalogSetupBody,
+    CatalogSetupYtOk,
+    CatalogSetupYtMissing,
+    CatalogSetupContinue,
+    SearchSpotifyBody,
+    SearchYoutubeBody,
+    SearchTidalBody,
     EmptyLibraryBodyLocal,
     EmptyLibraryBodyCatalog,
     SearchSpotify,
@@ -384,7 +391,7 @@ fn en(key: Key) -> &'static str {
         Key::Language => "Language",
         Key::LanguageSub => "Interface language. Takes effect immediately.",
         Key::MusicSource => "Music source",
-        Key::MusicSourceSub => "Where Vinilo searches and plays. Switching to or from Apple Music needs a restart.",
+        Key::MusicSourceSub => "Where Vinilo searches and plays. Changing source restarts the player.",
         Key::ProviderTitle => "Where is your music?",
         Key::ProviderBody => "Pick a catalogue. Apple Music uses your subscription. Spotify, YouTube Music and Tidal search their catalogues here; audio is fetched with yt-dlp (install it with pacman). Files on this computer always play.",
         Key::ProviderApple => "Apple Music",
@@ -392,13 +399,20 @@ fn en(key: Key) -> &'static str {
         Key::ProviderLocal => "This computer",
         Key::ProviderLocalSub => "Files you open, and folders you drop on Vinilo",
         Key::ProviderSpotify => "Spotify",
-        Key::ProviderSpotifySub => "Search Spotify and play",
+        Key::ProviderSpotifySub => "Search Spotify and play with yt-dlp",
         Key::ProviderYoutube => "YouTube Music",
-        Key::ProviderYoutubeSub => "Search YouTube Music and play",
+        Key::ProviderYoutubeSub => "Search YouTube Music and play with yt-dlp",
         Key::ProviderTidal => "Tidal",
-        Key::ProviderTidalSub => "Search Tidal and play",
+        Key::ProviderTidalSub => "Search Tidal and play with yt-dlp",
         Key::ProviderNote => "You can change this later in Preferences. For Spotify, YouTube Music and Tidal you need yt-dlp on PATH (sudo pacman -S yt-dlp).",
-        Key::ProviderRestart => "Close Vinilo and open it again so the new source can start.",
+        Key::ProviderRestart => "Could not switch source while another Vinilo window is open.",
+        Key::CatalogSetupBody => "Vinilo cannot log into this service. There is no official playback API, so there is nothing to open in a browser. Search here; audio is fetched with yt-dlp. Apple Music is the one source that uses your subscription.",
+        Key::CatalogSetupYtOk => "yt-dlp is installed. Search a song and click it to play.",
+        Key::CatalogSetupYtMissing => "yt-dlp is not on PATH. On Arch: sudo pacman -S yt-dlp. Search will work; playback will not until it is installed.",
+        Key::CatalogSetupContinue => "Search",
+        Key::SearchSpotifyBody => "Find a Spotify track and click it. Audio is fetched with yt-dlp — there is no Spotify login.",
+        Key::SearchYoutubeBody => "Find a YouTube Music track and click it. Audio is fetched with yt-dlp.",
+        Key::SearchTidalBody => "Find a Tidal track and click it. Audio is fetched with yt-dlp — there is no Tidal login.",
         Key::EmptyLibraryBodyLocal => {
             "Open an audio file with Vinilo, drop a folder on the window, or set Vinilo as the default player for music in GNOME Settings."
         }
@@ -589,7 +603,7 @@ fn es(key: Key) -> &'static str {
         Key::Language => "Idioma",
         Key::LanguageSub => "Idioma de la interfaz. Se aplica al momento.",
         Key::MusicSource => "Fuente de música",
-        Key::MusicSourceSub => "De dónde busca y reproduce Vinilo. Pasar a Apple Music o salir de ella pide reiniciar.",
+        Key::MusicSourceSub => "De dónde busca y reproduce Vinilo. Cambiar de fuente reinicia el reproductor.",
         Key::ProviderTitle => "¿Dónde está tu música?",
         Key::ProviderBody => "Elige un catálogo. Apple Music usa tu suscripción. Spotify, YouTube Music y Tidal se buscan aquí; el audio se obtiene con yt-dlp (instálalo con pacman). Los archivos de este equipo siempre suenan.",
         Key::ProviderApple => "Apple Music",
@@ -597,13 +611,20 @@ fn es(key: Key) -> &'static str {
         Key::ProviderLocal => "Este equipo",
         Key::ProviderLocalSub => "Archivos que abras y carpetas que sueltes en Vinilo",
         Key::ProviderSpotify => "Spotify",
-        Key::ProviderSpotifySub => "Busca en Spotify y reproduce",
+        Key::ProviderSpotifySub => "Busca en Spotify y reproduce con yt-dlp",
         Key::ProviderYoutube => "YouTube Music",
-        Key::ProviderYoutubeSub => "Busca en YouTube Music y reproduce",
+        Key::ProviderYoutubeSub => "Busca en YouTube Music y reproduce con yt-dlp",
         Key::ProviderTidal => "Tidal",
-        Key::ProviderTidalSub => "Busca en Tidal y reproduce",
+        Key::ProviderTidalSub => "Busca en Tidal y reproduce con yt-dlp",
         Key::ProviderNote => "Puedes cambiarlo más tarde en Preferencias. Para Spotify, YouTube Music y Tidal hace falta yt-dlp en el PATH (sudo pacman -S yt-dlp).",
-        Key::ProviderRestart => "Cierra Vinilo y ábrelo de nuevo para que arranque la fuente nueva.",
+        Key::ProviderRestart => "No se puede cambiar de fuente con otra ventana de Vinilo abierta.",
+        Key::CatalogSetupBody => "Vinilo no puede iniciar sesión en este servicio. No hay API oficial de reproducción, así que no se abre el navegador. Buscas aquí; el audio se obtiene con yt-dlp. Apple Music es la única fuente que usa tu suscripción.",
+        Key::CatalogSetupYtOk => "yt-dlp está instalado. Busca una canción y pulsa para reproducirla.",
+        Key::CatalogSetupYtMissing => "yt-dlp no está en el PATH. En Arch: sudo pacman -S yt-dlp. La búsqueda funciona; la reproducción no, hasta que lo instales.",
+        Key::CatalogSetupContinue => "Buscar",
+        Key::SearchSpotifyBody => "Busca un tema de Spotify y pulsa. El audio se obtiene con yt-dlp: no hay inicio de sesión en Spotify.",
+        Key::SearchYoutubeBody => "Busca un tema de YouTube Music y pulsa. El audio se obtiene con yt-dlp.",
+        Key::SearchTidalBody => "Busca un tema de Tidal y pulsa. El audio se obtiene con yt-dlp: no hay inicio de sesión en Tidal.",
         Key::EmptyLibraryBodyLocal => {
             "Abre un archivo de audio con Vinilo, suelta una carpeta en la ventana o pon Vinilo como reproductor de música predeterminado en Ajustes de GNOME."
         }
@@ -747,6 +768,35 @@ pub fn catalog_search(provider: crate::provider::Provider) -> &'static str {
     })
 }
 
+pub fn catalog_search_body(provider: crate::provider::Provider) -> &'static str {
+    t(match provider {
+        crate::provider::Provider::Spotify => Key::SearchSpotifyBody,
+        crate::provider::Provider::YoutubeMusic => Key::SearchYoutubeBody,
+        crate::provider::Provider::Tidal => Key::SearchTidalBody,
+        crate::provider::Provider::AppleMusic | crate::provider::Provider::Local => {
+            Key::SearchAppleMusicBody
+        }
+    })
+}
+
+pub fn catalog_heading(provider: crate::provider::Provider) -> &'static str {
+    t(match provider {
+        crate::provider::Provider::Spotify => Key::ProviderSpotify,
+        crate::provider::Provider::YoutubeMusic => Key::ProviderYoutube,
+        crate::provider::Provider::Tidal => Key::ProviderTidal,
+        crate::provider::Provider::Local => Key::ProviderLocal,
+        crate::provider::Provider::AppleMusic => Key::AppleMusic,
+    })
+}
+
+pub fn searching_catalog(provider: crate::provider::Provider) -> String {
+    let name = catalog_heading(provider);
+    match current() {
+        Language::English => format!("Searching {name}"),
+        Language::Spanish => format!("Buscando en {name}"),
+    }
+}
+
 pub fn no_library_songs(query: &str) -> String {
     match current() {
         Language::English => format!(
@@ -780,9 +830,14 @@ pub fn no_library_playlists(query: &str) -> String {
 }
 
 pub fn no_catalog(query: &str) -> String {
+    no_catalog_for(query, crate::provider::load().unwrap_or_default())
+}
+
+pub fn no_catalog_for(query: &str, provider: crate::provider::Provider) -> String {
+    let name = catalog_heading(provider);
     match current() {
-        Language::English => format!("Apple Music has nothing matching “{query}”."),
-        Language::Spanish => format!("Apple Music no tiene nada que coincida con «{query}»."),
+        Language::English => format!("{name} has nothing matching “{query}”."),
+        Language::Spanish => format!("{name} no tiene nada que coincida con «{query}»."),
     }
 }
 

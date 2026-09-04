@@ -132,6 +132,9 @@ pub struct AppModel {
     language_picker: Option<adw::Dialog>,
     /// The music-source picker, after language and before Apple's sign-in.
     provider_picker: Option<adw::Dialog>,
+    /// Redraw sidebar group titles after the source changes ("Apple Music"
+    /// becoming "Spotify").
+    refresh_nav_headers: bool,
     /// Files GApplication delivered before the daemon was connected.
     pending_files: Vec<PathBuf>,
     /// Bumped when the interface language changes so `#[watch]` labels refresh.
@@ -537,6 +540,8 @@ pub enum AppMsg {
     ChooseProvider(vinilo_core::provider::Provider),
     SetLanguage(u32),
     SetProvider(u32),
+    /// Close the catalogue setup dialog and put the caret in Search.
+    FocusCatalogSearch,
     /// The hide-timer fired: the panel has been up long enough.
     HideVolumeOsd,
     /// A sidebar row was selected, by position. What it does depends on what
@@ -944,7 +949,12 @@ impl Component for AppModel {
                                                 #[watch]
                                                 set_title: {
                                                     let _ = model.locale_tick;
-                                                    model.view.title()
+                                                    match model.view {
+                                                        View::Search => i18n::catalog_search(
+                                                            model.settings.provider,
+                                                        ),
+                                                        other => other.title(),
+                                                    }
                                                 },
                                             },
 
@@ -1242,7 +1252,7 @@ impl Component for AppModel {
                                             #[watch]
                                             set_description: Some({
                                                 let _ = model.locale_tick;
-                                                i18n::t(Key::SearchAppleMusicBody)
+                                                i18n::catalog_search_body(model.settings.provider)
                                             }),
                                         },
 
@@ -1285,7 +1295,10 @@ impl Component for AppModel {
                                                 View::Albums => i18n::no_library_albums(model.query()),
                                                 View::Artists => i18n::no_library_artists(model.query()),
                                                 View::Playlists => i18n::no_library_playlists(model.query()),
-                                                View::Search => i18n::no_catalog(model.query()),
+                                                View::Search => i18n::no_catalog_for(
+                                                    model.query(),
+                                                    model.settings.provider,
+                                                ),
                                             }
                                             }),
                                         },
@@ -1458,7 +1471,11 @@ impl Component for AppModel {
             all_tracks: Vec::new(),
             library_query: String::new(),
             catalog_query: String::new(),
-            view: View::from(settings.section),
+            view: if settings.provider.is_catalog() {
+                View::Search
+            } else {
+                View::from(settings.section)
+            },
             sorts: view::Sorts {
                 songs: view::Sort {
                     by: SortBy::parse(&settings.sort).valid_for(View::Songs.sortable()),
@@ -1525,6 +1542,7 @@ impl Component for AppModel {
             onboarding: None,
             language_picker: None,
             provider_picker: None,
+            refresh_nav_headers: false,
             pending_files: Vec::new(),
             locale_tick: 0,
             primary_menu: gtk::gio::Menu::new(),
@@ -1651,6 +1669,9 @@ impl Component for AppModel {
         // for the section title — an unmapped widget cannot take the caret, and
         // that is the whole reason this is a flag rather than a `grab_focus`
         // at the call site.
+        if std::mem::take(&mut self.refresh_nav_headers) {
+            widgets.nav_list.invalidate_headers();
+        }
         if std::mem::take(&mut self.sync_entry) {
             widgets.search_entry.set_text(self.query());
         }
@@ -2065,12 +2086,20 @@ impl AppModel {
             AppMsg::ShowAbout => show_about(root),
             AppMsg::OpenSupport => chrome::open_support(root),
             AppMsg::ChooseLanguage(language) => self.apply_language(language, true),
-            AppMsg::ChooseProvider(provider) => self.apply_provider(provider),
+            AppMsg::ChooseProvider(provider) => self.apply_provider(provider, &sender, root),
             AppMsg::SetLanguage(index) => {
                 self.apply_language(Language::from_index(index), true);
             }
             AppMsg::SetProvider(index) => {
-                self.apply_provider(vinilo_core::provider::Provider::from_index(index));
+                self.apply_provider(
+                    vinilo_core::provider::Provider::from_index(index),
+                    &sender,
+                    root,
+                );
+            }
+            AppMsg::FocusCatalogSearch => {
+                self.handle(AppMsg::SetView(View::Search), &sender, root);
+                self.focus_search = true;
             }
             AppMsg::ThemeFlipped => {
                 for page in &self.pages {
@@ -2734,19 +2763,55 @@ impl AppModel {
         }
     }
 
-    fn apply_provider(&mut self, provider: vinilo_core::provider::Provider) {
-        let restart = self.settings.provider_chosen
-            && self.settings.provider.needs_sidecar() != provider.needs_sidecar();
+    fn apply_provider(
+        &mut self,
+        provider: vinilo_core::provider::Provider,
+        sender: &ComponentSender<Self>,
+        root: &adw::ApplicationWindow,
+    ) {
+        if self.settings.provider_chosen && self.settings.provider == provider {
+            return;
+        }
+        let changed = self.settings.provider != provider || !self.settings.provider_chosen;
+
         self.settings.provider = provider;
         self.settings.provider_chosen = true;
+        if provider.is_catalog() {
+            self.settings.section = crate::settings::Section::Catalog;
+        }
         self.settings.save();
         Self::fill_primary_menu(&self.primary_menu, provider);
+        self.locale_tick = self.locale_tick.wrapping_add(1);
+        self.refresh_nav_headers = true;
+
         if !provider.needs_apple() {
             self.stage = Stage::Ready;
+            if let Some(dialog) = self.onboarding.take() {
+                dialog.force_close();
+            }
         }
-        if restart {
-            self.toast(i18n::t(Key::ProviderRestart));
+
+        if changed {
+            self.forget_session(sender);
         }
+
+        if provider.is_catalog() {
+            self.handle(AppMsg::SetView(View::Search), sender, root);
+            self.present_catalog_setup(sender, root, provider);
+        } else if matches!(provider, vinilo_core::provider::Provider::Local) {
+            self.handle(AppMsg::SetView(View::Songs), sender, root);
+        }
+
+        if changed {
+            // vinilod reads the source only at boot. Closing the window leaves
+            // it running with Apple's sidecar, which is why Preferences looked
+            // like they did nothing. Quit it; Lost reconnects a fresh process.
+            if let Some(handle) = &self.daemon {
+                tracing::info!(?provider, "restarting vinilod for the new music source");
+                handle.send(vinilo_core::ipc::Request::Quit);
+            }
+        }
+
         if !self.pending_files.is_empty() {
             let paths = std::mem::take(&mut self.pending_files);
             self.play_files(paths);

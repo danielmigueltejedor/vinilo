@@ -104,7 +104,9 @@ impl AppModel {
             daemon::Incoming::Lost(why) => {
                 tracing::warn!(%why, "lost the daemon");
                 self.daemon = None;
-                self.stage = Stage::Connecting;
+                if self.settings.provider.needs_apple() {
+                    self.stage = Stage::Connecting;
+                }
                 let attempt = self.redials;
                 self.redials += 1;
                 reconnect(sender, redial_delay(attempt));

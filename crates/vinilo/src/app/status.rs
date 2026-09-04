@@ -122,14 +122,13 @@ impl AppModel {
             return self.headline();
         }
         match self.view {
-            View::Search => i18n::t(Key::SearchingCatalog),
-            View::Discover => i18n::t(Key::LoadingDiscover),
-            View::Albums => i18n::t(Key::LoadingAlbums),
-            View::Artists => i18n::t(Key::LoadingArtists),
-            View::Playlists => i18n::t(Key::LoadingPlaylists),
-            View::Songs => i18n::t(Key::LoadingLibrary),
+            View::Search => i18n::searching_catalog(self.settings.provider),
+            View::Discover => i18n::t(Key::LoadingDiscover).into(),
+            View::Albums => i18n::t(Key::LoadingAlbums).into(),
+            View::Artists => i18n::t(Key::LoadingArtists).into(),
+            View::Playlists => i18n::t(Key::LoadingPlaylists).into(),
+            View::Songs => i18n::t(Key::LoadingLibrary).into(),
         }
-        .into()
     }
 
     pub(super) fn page(&self) -> &'static str {

@@ -241,7 +241,9 @@ fn section_row(view: View) -> &'static super::view::Row {
 fn sidebar_headers(widgets: &Widgets, library_row: i32, playlists_row: i32) {
     widgets.nav_list.set_header_func(move |row, _before| {
         let title = match row.index() {
-            0 => vinilo_core::i18n::t(vinilo_core::i18n::Key::AppleMusic),
+            0 => vinilo_core::i18n::catalog_heading(
+                vinilo_core::provider::load().unwrap_or_default(),
+            ),
             index if index == library_row => {
                 vinilo_core::i18n::t(vinilo_core::i18n::Key::Library)
             }

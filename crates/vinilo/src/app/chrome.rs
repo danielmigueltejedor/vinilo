@@ -790,6 +790,85 @@ impl AppModel {
         dialog
     }
 
+    /// What Spotify / YouTube Music / Tidal actually are in this app: search
+    /// plus yt-dlp, not a browser login. Shown whenever that source is chosen
+    /// so "I picked Spotify and Apple Music came back" cannot be the surprise.
+    pub(super) fn present_catalog_setup(
+        &self,
+        sender: &ComponentSender<Self>,
+        parent: &adw::ApplicationWindow,
+        provider: vinilo_core::provider::Provider,
+    ) {
+        let ytdlp = std::process::Command::new("yt-dlp")
+            .arg("--version")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+
+        let page = adw::StatusPage::builder()
+            .icon_name("system-search-symbolic")
+            .title(i18n::catalog_heading(provider))
+            .description(t(Key::CatalogSetupBody))
+            .build();
+
+        let button = gtk::Button::builder()
+            .label(t(Key::CatalogSetupContinue))
+            .halign(gtk::Align::Center)
+            .css_classes(["suggested-action", "pill"])
+            .build();
+
+        let note = gtk::Label::builder()
+            .label(t(if ytdlp {
+                Key::CatalogSetupYtOk
+            } else {
+                Key::CatalogSetupYtMissing
+            }))
+            .justify(gtk::Justification::Center)
+            .wrap(true)
+            .max_width_chars(46)
+            .css_classes(["caption", "dim-label"])
+            .build();
+
+        let column = gtk::Box::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .halign(gtk::Align::Center)
+            .spacing(18)
+            .build();
+        column.append(&button);
+        column.append(&note);
+        page.set_child(Some(&column));
+
+        let view = adw::ToolbarView::builder().content(&page).build();
+        let header = adw::HeaderBar::builder()
+            .show_start_title_buttons(false)
+            .show_end_title_buttons(true)
+            .css_classes(["flat"])
+            .build();
+        header.set_title_widget(Some(&gtk::Label::new(None)));
+        view.add_top_bar(&header);
+
+        let dialog = adw::Dialog::builder()
+            .child(&view)
+            .content_width(520)
+            .can_close(true)
+            .build();
+        {
+            let dialog = dialog.clone();
+            button.connect_clicked(move |_| {
+                dialog.close();
+            });
+        }
+        {
+            let sender = sender.clone();
+            dialog.connect_closed(move |_| {
+                sender.input(AppMsg::FocusCatalogSearch);
+            });
+        }
+        dialog.present(Some(parent));
+    }
+
     pub(super) fn fill_primary_menu(menu: &gtk::gio::Menu, provider: vinilo_core::provider::Provider) {
         menu.remove_all();
         let section = gtk::gio::Menu::new();
