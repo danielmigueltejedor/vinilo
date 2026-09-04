@@ -13,9 +13,9 @@ use crate::paths;
 
 /// Where the music is coming from.
 ///
-/// Apple Music and files on this computer are what play today. Spotify,
-/// YouTube Music and Tidal are named so the first-run picker can be honest
-/// about the roadmap instead of pretending they stream.
+/// Apple Music, files on this computer, and the three catalogues Vinilo
+/// searches in-app. Playback of Spotify, YouTube Music and Tidal goes through
+/// `yt-dlp` (the same path Nuclear-style players use for DRM'd services).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Provider {
     #[default]
@@ -27,6 +27,14 @@ pub enum Provider {
 }
 
 impl Provider {
+    pub const ALL: [Self; 5] = [
+        Self::AppleMusic,
+        Self::Local,
+        Self::Spotify,
+        Self::YoutubeMusic,
+        Self::Tidal,
+    ];
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::AppleMusic => "apple-music",
@@ -48,9 +56,22 @@ impl Provider {
         }
     }
 
-    /// Apple Music and files on disk. The others are listed, not wired.
+    pub fn from_index(index: u32) -> Self {
+        Self::ALL
+            .get(index as usize)
+            .copied()
+            .unwrap_or(Self::AppleMusic)
+    }
+
+    pub fn index(self) -> u32 {
+        Self::ALL
+            .iter()
+            .position(|p| *p == self)
+            .unwrap_or(0) as u32
+    }
+
     pub fn is_available(self) -> bool {
-        matches!(self, Self::AppleMusic | Self::Local)
+        true
     }
 
     /// Whether MusicKit (and therefore the Chromium sidecar) is required.
@@ -61,6 +82,11 @@ impl Provider {
     /// Whether Apple's own sign-in has to run before anything can play.
     pub fn needs_apple(self) -> bool {
         matches!(self, Self::AppleMusic)
+    }
+
+    /// Search-and-play catalogues that are not Apple Music or local files.
+    pub fn is_catalog(self) -> bool {
+        matches!(self, Self::Spotify | Self::YoutubeMusic | Self::Tidal)
     }
 }
 
@@ -126,5 +152,8 @@ mod tests {
         assert!(Provider::AppleMusic.needs_apple());
         assert!(!Provider::Local.needs_sidecar());
         assert!(!Provider::Spotify.needs_apple());
+        assert!(Provider::Spotify.is_catalog());
+        assert_eq!(Provider::from_index(2), Provider::Spotify);
+        assert_eq!(Provider::Tidal.index(), 4);
     }
 }

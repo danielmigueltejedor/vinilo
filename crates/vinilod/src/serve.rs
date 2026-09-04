@@ -4,6 +4,7 @@
 //! The socket, the sidecar, and the loop that keeps them agreeing.
 
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::rc::Rc;
 
 use anyhow::{Context, Result};
@@ -104,6 +105,9 @@ pub struct Daemon {
     /// Last catalog id written to the listen history, so a 500ms tick does not
     /// rewrite the same song.
     pub last_listen: RefCell<Option<String>>,
+    /// Search hits for Spotify / YouTube Music / Tidal, keyed by the id we
+    /// minted (`yt:`, `sp:`, `td:`), so a later Play can fetch audio.
+    pub stream_hits: RefCell<HashMap<String, vinilo_core::streams::StreamHit>>,
 }
 
 impl Daemon {
@@ -212,7 +216,7 @@ pub async fn run() -> Result<()> {
     let local_only = vinilo_core::provider::load().is_some_and(|p| !p.needs_sidecar());
 
     let (sidecar_handle, incoming) = if local_only {
-        tracing::info!("music source is local files — not starting MusicKit");
+        tracing::info!("music source does not need MusicKit — not starting the sidecar");
         (None, None)
     } else {
         let (handle, incoming) = sidecar::spawn().context("spawning the sidecar")?;
@@ -242,6 +246,7 @@ pub async fn run() -> Result<()> {
         quitting: tokio::sync::Notify::new(),
         mixer: crate::mixer::Mixer::start(),
         last_listen: RefCell::new(None),
+        stream_hits: RefCell::new(HashMap::new()),
     });
 
     // After the `Rc` exists: MPRIS holds one so a button on a bar can reach the
@@ -918,9 +923,14 @@ fn answer(
             None
         }
         Request::Play { ids, index, start } => {
-            stop_local(daemon);
-            play(daemon, &ids, index, start.into());
-            None
+            if ids.iter().any(|id| vinilo_core::streams::StreamHit::is_stream_id(id)) {
+                play_streams(daemon, ids, index);
+                None
+            } else {
+                stop_local(daemon);
+                play(daemon, &ids, index, start.into());
+                None
+            }
         }
         Request::PlayFiles { paths, index } => play_files(daemon, paths, index),
         Request::Enqueue { ids, next } => {
@@ -1336,6 +1346,11 @@ fn songs(tracks: Vec<vinilo_core::music::types::Track>) -> Vec<Entry> {
 /// else. The answer carries the query it belongs to, because somebody types
 /// faster than Apple replies.
 fn search(daemon: &Rc<Daemon>, query: String, filter: CatalogFilter, offset: usize) {
+    let provider = vinilo_core::provider::load().unwrap_or_default();
+    if provider.is_catalog() {
+        search_catalog(daemon, provider, query, offset);
+        return;
+    }
     let Some(client) = daemon.client() else {
         daemon.publish(Event::Error {
             detail: "Not signed in yet".into(),
@@ -1356,8 +1371,6 @@ fn search(daemon: &Rc<Daemon>, query: String, filter: CatalogFilter, offset: usi
                     query,
                     entries,
                     offset,
-                    // A short page is the last page: Apple gave us fewer than
-                    // it caps at, so there is nothing behind it.
                     more: paged >= catalog::CATALOG_LIMIT as usize,
                 });
             }
@@ -1369,6 +1382,182 @@ fn search(daemon: &Rc<Daemon>, query: String, filter: CatalogFilter, offset: usi
             }
         }
     });
+}
+
+fn search_catalog(
+    daemon: &Rc<Daemon>,
+    provider: vinilo_core::provider::Provider,
+    query: String,
+    offset: usize,
+) {
+    if offset > 0 {
+        daemon.publish(Event::Results {
+            query,
+            entries: Vec::new(),
+            offset,
+            more: false,
+        });
+        return;
+    }
+    let daemon = daemon.clone();
+    tokio::task::spawn_local(async move {
+        let hits = match provider {
+            vinilo_core::provider::Provider::YoutubeMusic => {
+                let q = query.clone();
+                match tokio::task::spawn_blocking(move || crate::ytdlp::search(&q)).await {
+                    Ok(Ok(hits)) => hits,
+                    Ok(Err(detail)) => {
+                        daemon.publish(Event::Error { detail });
+                        return;
+                    }
+                    Err(err) => {
+                        daemon.publish(Event::Error {
+                            detail: format!("{err}"),
+                        });
+                        return;
+                    }
+                }
+            }
+            vinilo_core::provider::Provider::Spotify => {
+                let http = vinilo_core::streams::http();
+                match vinilo_core::streams::search_spotify(&http, &query).await {
+                    Ok(hits) => hits,
+                    Err(err) => {
+                        tracing::warn!(?err, "spotify search failed, trying YouTube");
+                        let q = query.clone();
+                        match tokio::task::spawn_blocking(move || crate::ytdlp::search(&q)).await {
+                            Ok(Ok(hits)) => hits,
+                            Ok(Err(detail)) => {
+                                daemon.publish(Event::Error { detail });
+                                return;
+                            }
+                            Err(err) => {
+                                daemon.publish(Event::Error {
+                                    detail: format!("{err}"),
+                                });
+                                return;
+                            }
+                        }
+                    }
+                }
+            }
+            vinilo_core::provider::Provider::Tidal => {
+                let http = vinilo_core::streams::http();
+                match vinilo_core::streams::search_tidal(&http, &query).await {
+                    Ok(hits) => hits,
+                    Err(err) => {
+                        tracing::warn!(?err, "tidal search failed, trying YouTube");
+                        let q = query.clone();
+                        match tokio::task::spawn_blocking(move || crate::ytdlp::search(&q)).await {
+                            Ok(Ok(hits)) => hits,
+                            Ok(Err(detail)) => {
+                                daemon.publish(Event::Error { detail });
+                                return;
+                            }
+                            Err(err) => {
+                                daemon.publish(Event::Error {
+                                    detail: format!("{err}"),
+                                });
+                                return;
+                            }
+                        }
+                    }
+                }
+            }
+            vinilo_core::provider::Provider::AppleMusic
+            | vinilo_core::provider::Provider::Local => Vec::new(),
+        };
+        for hit in &hits {
+            daemon
+                .stream_hits
+                .borrow_mut()
+                .insert(hit.id.clone(), hit.clone());
+        }
+        let entries: Vec<Entry> = hits
+            .into_iter()
+            .map(vinilo_core::streams::StreamHit::into_entry)
+            .collect();
+        tracing::info!(%query, rows = entries.len(), ?provider, "searched catalogue");
+        daemon.publish(Event::Results {
+            query,
+            entries,
+            offset: 0,
+            more: false,
+        });
+    });
+}
+
+fn play_streams(daemon: &Rc<Daemon>, ids: Vec<String>, index: usize) {
+    let hits: Vec<vinilo_core::streams::StreamHit> = ids
+        .iter()
+        .filter_map(|id| stream_hit(daemon, id))
+        .collect();
+    if hits.is_empty() {
+        daemon.publish(Event::Error {
+            detail: "Nothing here can be streamed".into(),
+        });
+        return;
+    }
+    let start = index.min(hits.len().saturating_sub(1));
+    let rest: Vec<vinilo_core::streams::StreamHit> = hits[start..].to_vec();
+    let daemon = daemon.clone();
+    tokio::task::spawn_local(async move {
+        let Some(dir) = vinilo_core::paths::cache_dir().map(|p| p.join("streams")) else {
+            daemon.publish(Event::Error {
+                detail: "No cache directory".into(),
+            });
+            return;
+        };
+        let first = rest[0].clone();
+        let dir_first = dir.clone();
+        let path = match tokio::task::spawn_blocking(move || crate::ytdlp::download(&first, &dir_first))
+            .await
+        {
+            Ok(Ok(path)) => path,
+            Ok(Err(detail)) => {
+                daemon.publish(Event::Error { detail });
+                return;
+            }
+            Err(err) => {
+                daemon.publish(Event::Error {
+                    detail: format!("{err}"),
+                });
+                return;
+            }
+        };
+        if daemon.sidecar.borrow().is_some() {
+            daemon.send(Command::Pause);
+        }
+        if let Err(detail) = daemon.local.borrow_mut().play_paths(vec![path], 0) {
+            daemon.publish(Event::Error { detail });
+            return;
+        }
+        publish_local(&daemon);
+        for hit in rest.into_iter().skip(1) {
+            let dir = dir.clone();
+            match tokio::task::spawn_blocking(move || crate::ytdlp::download(&hit, &dir)).await {
+                Ok(Ok(path)) => daemon.local.borrow_mut().append_path(path),
+                Ok(Err(err)) => tracing::warn!(%err, "skipping a catalogue track"),
+                Err(err) => tracing::warn!(?err, "skipping a catalogue track"),
+            }
+        }
+    });
+}
+
+fn stream_hit(daemon: &Daemon, id: &str) -> Option<vinilo_core::streams::StreamHit> {
+    if let Some(hit) = daemon.stream_hits.borrow().get(id).cloned() {
+        return Some(hit);
+    }
+    let video = id.strip_prefix("yt:")?;
+    Some(vinilo_core::streams::StreamHit {
+        id: id.to_owned(),
+        title: video.to_owned(),
+        artist: String::new(),
+        album: String::new(),
+        duration_ms: 0,
+        artwork: None,
+        play_query: format!("https://www.youtube.com/watch?v={video}"),
+    })
 }
 
 /// Fetch an album, artist or playlist and announce it.
@@ -1684,6 +1873,7 @@ mod tests {
             local: RefCell::new(crate::local::Player::new()),
             last_listen: RefCell::new(None),
             quitting: tokio::sync::Notify::new(),
+            stream_hits: RefCell::new(HashMap::new()),
         })
     }
 

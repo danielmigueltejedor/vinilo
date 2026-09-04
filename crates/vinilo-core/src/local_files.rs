@@ -22,7 +22,7 @@ const MAX_FILES: usize = 2_000;
 /// becomes a queue of flacs.
 const AUDIO_EXT: &[&str] = &[
     "mp3", "flac", "ogg", "oga", "opus", "m4a", "aac", "wav", "wave", "aiff", "aif", "ape", "mpc",
-    "mp2", "wma", "wv",
+    "mp2", "wma", "wv", "webm", "mka", "weba",
 ];
 
 /// True when this path is a file whose extension we recognise.

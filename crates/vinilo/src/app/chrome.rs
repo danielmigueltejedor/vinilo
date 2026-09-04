@@ -539,11 +539,11 @@ impl AppModel {
             .model(&gtk::StringList::new(&[
                 t(Key::ProviderApple),
                 t(Key::ProviderLocal),
+                t(Key::ProviderSpotify),
+                t(Key::ProviderYoutube),
+                t(Key::ProviderTidal),
             ]))
-            .selected(match self.settings.provider {
-                vinilo_core::provider::Provider::Local => 1,
-                _ => 0,
-            })
+            .selected(self.settings.provider.index())
             .build();
         {
             let sender = sender.clone();
@@ -659,8 +659,7 @@ impl AppModel {
         dialog
     }
 
-    /// First-run music source. Apple Music and files on this computer play
-    /// today; the others are named so the choice is the product, not a lie.
+    /// First-run music source. Every catalogue is a real choice.
     pub(super) fn present_provider_picker(
         &self,
         sender: &ComponentSender<Self>,
@@ -711,19 +710,50 @@ impl AppModel {
         }
         list.append(&local);
 
-        for title in [
-            t(Key::ProviderSpotify),
-            t(Key::ProviderYoutube),
-            t(Key::ProviderTidal),
-        ] {
-            let row = adw::ActionRow::builder()
-                .title(title)
-                .subtitle(t(Key::ProviderComingLater))
-                .activatable(false)
-                .sensitive(false)
-                .build();
-            list.append(&row);
+        let spotify = adw::ActionRow::builder()
+            .title(t(Key::ProviderSpotify))
+            .subtitle(t(Key::ProviderSpotifySub))
+            .activatable(true)
+            .build();
+        spotify.add_prefix(&gtk::Image::from_icon_name("audio-headphones-symbolic"));
+        spotify.add_suffix(&gtk::Image::from_icon_name("go-next-symbolic"));
+        {
+            let sender = sender.clone();
+            spotify.connect_activated(move |_| {
+                sender.input(AppMsg::ChooseProvider(Provider::Spotify));
+            });
         }
+        list.append(&spotify);
+
+        let youtube = adw::ActionRow::builder()
+            .title(t(Key::ProviderYoutube))
+            .subtitle(t(Key::ProviderYoutubeSub))
+            .activatable(true)
+            .build();
+        youtube.add_prefix(&gtk::Image::from_icon_name("video-display-symbolic"));
+        youtube.add_suffix(&gtk::Image::from_icon_name("go-next-symbolic"));
+        {
+            let sender = sender.clone();
+            youtube.connect_activated(move |_| {
+                sender.input(AppMsg::ChooseProvider(Provider::YoutubeMusic));
+            });
+        }
+        list.append(&youtube);
+
+        let tidal = adw::ActionRow::builder()
+            .title(t(Key::ProviderTidal))
+            .subtitle(t(Key::ProviderTidalSub))
+            .activatable(true)
+            .build();
+        tidal.add_prefix(&gtk::Image::from_icon_name("audio-x-generic-symbolic"));
+        tidal.add_suffix(&gtk::Image::from_icon_name("go-next-symbolic"));
+        {
+            let sender = sender.clone();
+            tidal.connect_activated(move |_| {
+                sender.input(AppMsg::ChooseProvider(Provider::Tidal));
+            });
+        }
+        list.append(&tidal);
 
         let note = gtk::Label::builder()
             .label(t(Key::ProviderNote))

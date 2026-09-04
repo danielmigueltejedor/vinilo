@@ -21,6 +21,7 @@ mod mixer;
 mod serve;
 mod state;
 mod watchdog;
+mod ytdlp;
 
 use anyhow::{Context, Result};
 use tracing_subscriber::EnvFilter;

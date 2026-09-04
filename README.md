@@ -12,7 +12,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 Reproductor nativo de música para Linux, con interfaz en **inglés** o **español**.
 
-Vinilo es un fork de [Slipmat](https://github.com/SoftARV/Slipmat) de Miguel Rincon. En el primer arranque eliges **de dónde sale la música**: Apple Music o los archivos de este equipo. Spotify, YouTube Music y Tidal están en el selector porque son el rumbo; hoy no transmiten.
+Vinilo es un fork de [Slipmat](https://github.com/SoftARV/Slipmat) de Miguel Rincon. En el primer arranque eliges **de dónde sale la música**: Apple Music, este equipo, Spotify, YouTube Music o Tidal.
 
 Apple no publica cliente para Linux, y Widevine impide una pila 100 % nativa para el catálogo. Vinilo dibuja su propia interfaz en Rust (GTK4 / libadwaita) y deja el motor web oculto solo para descifrar Apple Music. Los archivos locales se reproducen en el propio demonio, sin Chromium.
 
@@ -32,13 +32,15 @@ La primera vez eliges idioma y fuente. Luego puedes cambiarlos en **Preferencias
 - **Escuchar ahora.** Recién reproducido, listas hechas para ti y éxitos, con Apple Music si responde y con tu biblioteca si no.
 - **Listas rápidas.** Las playlists que ya abriste se quedan en caché; las filas muestran la carátula de cada canción.
 - **Archivos de este equipo.** Ábrelo desde Archivos, suelta una carpeta, o pon Vinilo como reproductor predeterminado. Funciona con Apple Music y también en solitario.
-- **Idioma y fuente en Preferencias.** Inglés y español; Apple Music o este equipo.
+- **Idioma y fuente en Preferencias.** Inglés y español; Apple Music, este equipo, Spotify, YouTube Music o Tidal.
 
 ## Requisitos
 
 Para **Apple Music** necesitas una suscripción activa, una máquina **x86_64** (Widevine en Linux solo existe ahí) y red cada vez que reproduces. Esa instalación descarga una vez castLabs Electron (~200 MB de Chromium) para el CDM Widevine.
 
 Para **archivos locales** basta con el propio Vinilo: MP3, FLAC, Ogg, WAV y demás que rodio sepa abrir. No hace falta sidecar ni cuenta.
+
+Para **Spotify, YouTube Music y Tidal** hace falta `yt-dlp` (`pacman -S yt-dlp`). Vinilo busca en el catálogo de cada servicio y reproduce el audio; no es el cliente oficial de Spotify/Tidal (esos cierran el stream con DRM).
 
 ## Compilar e instalar
 
@@ -61,7 +63,7 @@ cd vinilo
 
 # 2. Dependencias (Arch). No hace falta sudo para make.
 sudo pacman -S --needed base-devel pkgconf rust gtk4 libadwaita librsvg \
-                        nodejs npm libpulse alsa-lib
+                        nodejs npm libpulse alsa-lib yt-dlp
 
 # 3. Compila, descarga el sidecar (~200 MB) e instala en ~/.local
 make install
@@ -123,7 +125,7 @@ make check                                   # fmt + clippy + test
 ## Primer arranque
 
 1. Elige **English** o **Español**.
-2. Elige de dónde sale la música: **Apple Music** o **este equipo**. Spotify, YouTube Music y Tidal aparecen como «próximamente».
+2. Elige de dónde sale la música: **Apple Music**, **este equipo**, **Spotify**, **YouTube Music** o **Tidal**.
 3. Si elegiste Apple Music, inicia sesión. Se abre la página de Apple en una ventana aparte (incluido el 2FA). Después se oculta.
 4. La biblioteca de Apple aparece desde la caché en los siguientes arranques. Los archivos locales se reproducen en cuanto los abres.
 
@@ -158,7 +160,7 @@ Apple Music pasa por el reproductor MusicKit de Apple con el CDM oficial de Goog
 - **Sin reproducción sin conexión de Apple Music.** El CDM de Linux no admite licencias persistentes.
 - **~200 MB en disco** para el sidecar de Chromium, solo si usas Apple Music.
 - **Solo x86_64** para Apple Music, mientras Widevine en Linux ARM no esté estable.
-- **Spotify, YouTube Music y Tidal** están en el selector y aún no reproducen.
+- **Spotify, YouTube Music y Tidal** buscan en su catálogo; el audio llega con yt-dlp, no con el DRM oficial.
 - **`aguja` necesita una sesión de escritorio** si usas Apple Music: Chromium pide un servidor de pantalla.
 
 ## Créditos

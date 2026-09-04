@@ -182,11 +182,18 @@ pub enum Key {
     ProviderLocal,
     ProviderLocalSub,
     ProviderSpotify,
+    ProviderSpotifySub,
     ProviderYoutube,
+    ProviderYoutubeSub,
     ProviderTidal,
-    ProviderComingLater,
+    ProviderTidalSub,
     ProviderNote,
+    ProviderRestart,
     EmptyLibraryBodyLocal,
+    EmptyLibraryBodyCatalog,
+    SearchSpotify,
+    SearchYoutube,
+    SearchTidal,
     Notifications,
     NotifyTrackChange,
     NotifyTrackChangeSub,
@@ -377,20 +384,26 @@ fn en(key: Key) -> &'static str {
         Key::Language => "Language",
         Key::LanguageSub => "Interface language. Takes effect immediately.",
         Key::MusicSource => "Music source",
-        Key::MusicSourceSub => "Where Vinilo plays from. Changing this takes effect the next time the app starts.",
+        Key::MusicSourceSub => "Where Vinilo searches and plays. Switching to or from Apple Music needs a restart.",
         Key::ProviderTitle => "Where is your music?",
-        Key::ProviderBody => "Vinilo can play Apple Music or the files on this computer. Spotify, YouTube Music and Tidal will join later — pick one that works today.",
+        Key::ProviderBody => "Pick a catalogue. Apple Music uses your subscription. Spotify, YouTube Music and Tidal search their catalogues here; audio is fetched with yt-dlp (install it with pacman). Files on this computer always play.",
         Key::ProviderApple => "Apple Music",
         Key::ProviderAppleSub => "Your library and the full catalogue",
         Key::ProviderLocal => "This computer",
         Key::ProviderLocalSub => "Files you open, and folders you drop on Vinilo",
         Key::ProviderSpotify => "Spotify",
+        Key::ProviderSpotifySub => "Search Spotify and play",
         Key::ProviderYoutube => "YouTube Music",
+        Key::ProviderYoutubeSub => "Search YouTube Music and play",
         Key::ProviderTidal => "Tidal",
-        Key::ProviderComingLater => "Coming later",
-        Key::ProviderNote => "You can change this later in Preferences. Local files play with every source — open a song from Files, or set Vinilo as the default player.",
+        Key::ProviderTidalSub => "Search Tidal and play",
+        Key::ProviderNote => "You can change this later in Preferences. For Spotify, YouTube Music and Tidal you need yt-dlp on PATH (sudo pacman -S yt-dlp).",
+        Key::ProviderRestart => "Close Vinilo and open it again so the new source can start.",
         Key::EmptyLibraryBodyLocal => {
             "Open an audio file with Vinilo, drop a folder on the window, or set Vinilo as the default player for music in GNOME Settings."
+        }
+        Key::EmptyLibraryBodyCatalog => {
+            "This source has no saved library in Vinilo. Open Search, type a song, and click it to play."
         }
         Key::Notifications => "Notifications",
         Key::NotifyTrackChange => "Notify on track change",
@@ -420,6 +433,9 @@ fn en(key: Key) -> &'static str {
         Key::SearchAppleMusicBody => {
             "Find songs from the whole catalogue, not just your library."
         }
+        Key::SearchSpotify => "Search Spotify",
+        Key::SearchYoutube => "Search YouTube Music",
+        Key::SearchTidal => "Search Tidal",
         Key::EmptyLibrary => "Nothing here yet",
         Key::EmptyLibraryBody => {
             "Vinilo refreshes your library after sign-in. Use Reload to try again. You can also open a file on this computer — Vinilo plays those too."
@@ -485,8 +501,8 @@ fn en(key: Key) -> &'static str {
             "A native GNOME music player for Linux.\n\n\
              Apple Music plays through Apple's own MusicKit player using \
              Google's Widevine CDM, in a hidden helper process. Files on this \
-             computer play natively. Spotify, YouTube Music and Tidal are on \
-             the way.\n\n\
+             computer play natively. Spotify, YouTube Music and Tidal search \
+             their catalogues in the app; audio is fetched with yt-dlp.\n\n\
              Fork of Slipmat by Miguel Rincon."
         }
         Key::RefreshingLibrary => "Refreshing library…",
@@ -573,20 +589,26 @@ fn es(key: Key) -> &'static str {
         Key::Language => "Idioma",
         Key::LanguageSub => "Idioma de la interfaz. Se aplica al momento.",
         Key::MusicSource => "Fuente de música",
-        Key::MusicSourceSub => "De dónde reproduce Vinilo. El cambio se aplica al volver a abrir la aplicación.",
+        Key::MusicSourceSub => "De dónde busca y reproduce Vinilo. Pasar a Apple Music o salir de ella pide reiniciar.",
         Key::ProviderTitle => "¿Dónde está tu música?",
-        Key::ProviderBody => "Vinilo puede reproducir Apple Music o los archivos de este equipo. Spotify, YouTube Music y Tidal llegarán después — elige una que funcione hoy.",
+        Key::ProviderBody => "Elige un catálogo. Apple Music usa tu suscripción. Spotify, YouTube Music y Tidal se buscan aquí; el audio se obtiene con yt-dlp (instálalo con pacman). Los archivos de este equipo siempre suenan.",
         Key::ProviderApple => "Apple Music",
         Key::ProviderAppleSub => "Tu biblioteca y todo el catálogo",
         Key::ProviderLocal => "Este equipo",
         Key::ProviderLocalSub => "Archivos que abras y carpetas que sueltes en Vinilo",
         Key::ProviderSpotify => "Spotify",
+        Key::ProviderSpotifySub => "Busca en Spotify y reproduce",
         Key::ProviderYoutube => "YouTube Music",
+        Key::ProviderYoutubeSub => "Busca en YouTube Music y reproduce",
         Key::ProviderTidal => "Tidal",
-        Key::ProviderComingLater => "Próximamente",
-        Key::ProviderNote => "Puedes cambiarlo más tarde en Preferencias. Los archivos locales se reproducen con cualquier fuente: abre una canción desde Archivos o pon Vinilo como reproductor predeterminado.",
+        Key::ProviderTidalSub => "Busca en Tidal y reproduce",
+        Key::ProviderNote => "Puedes cambiarlo más tarde en Preferencias. Para Spotify, YouTube Music y Tidal hace falta yt-dlp en el PATH (sudo pacman -S yt-dlp).",
+        Key::ProviderRestart => "Cierra Vinilo y ábrelo de nuevo para que arranque la fuente nueva.",
         Key::EmptyLibraryBodyLocal => {
             "Abre un archivo de audio con Vinilo, suelta una carpeta en la ventana o pon Vinilo como reproductor de música predeterminado en Ajustes de GNOME."
+        }
+        Key::EmptyLibraryBodyCatalog => {
+            "Esta fuente no guarda una biblioteca en Vinilo. Abre Buscar, escribe una canción y pulsa para reproducirla."
         }
         Key::Notifications => "Notificaciones",
         Key::NotifyTrackChange => "Avisar al cambiar de canción",
@@ -617,6 +639,9 @@ fn es(key: Key) -> &'static str {
         Key::SearchAppleMusicBody => {
             "Encuentra canciones de todo el catálogo, no solo de tu biblioteca."
         }
+        Key::SearchSpotify => "Buscar en Spotify",
+        Key::SearchYoutube => "Buscar en YouTube Music",
+        Key::SearchTidal => "Buscar en Tidal",
         Key::EmptyLibrary => "Todavía no hay nada aquí",
         Key::EmptyLibraryBody => {
             "Vinilo actualiza tu biblioteca después de iniciar sesión. Usa Recargar para intentarlo de nuevo. También puedes abrir un archivo de este equipo: Vinilo los reproduce también."
@@ -683,7 +708,7 @@ fn es(key: Key) -> &'static str {
              Apple Music pasa por el reproductor MusicKit de Apple con el CDM \
              Widevine de Google, en un proceso auxiliar oculto. Los archivos \
              de este equipo se reproducen de forma nativa. Spotify, YouTube \
-             Music y Tidal están en camino.\n\n\
+             Music y Tidal se buscan en la app; el audio se obtiene con yt-dlp.\n\n\
              Fork de Slipmat, de Miguel Rincon."
         }
         Key::RefreshingLibrary => "Actualizando la biblioteca…",
@@ -709,6 +734,17 @@ pub fn tracks_n(n: usize) -> String {
         Language::English => format!("{n} tracks"),
         Language::Spanish => format!("{n} canciones"),
     }
+}
+
+pub fn catalog_search(provider: crate::provider::Provider) -> &'static str {
+    t(match provider {
+        crate::provider::Provider::Spotify => Key::SearchSpotify,
+        crate::provider::Provider::YoutubeMusic => Key::SearchYoutube,
+        crate::provider::Provider::Tidal => Key::SearchTidal,
+        crate::provider::Provider::AppleMusic | crate::provider::Provider::Local => {
+            Key::SearchAppleMusic
+        }
+    })
 }
 
 pub fn no_library_songs(query: &str) -> String {

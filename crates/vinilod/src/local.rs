@@ -102,6 +102,14 @@ impl Player {
         self.start_current()
     }
 
+    /// Add a file to a queue that is already playing, without restarting.
+    pub fn append_path(&mut self, path: PathBuf) {
+        if !self.active {
+            return;
+        }
+        self.queue.push(read_track(&path));
+    }
+
     pub fn play(&mut self) {
         if let Some(sink) = self.sink.as_ref() {
             sink.play();

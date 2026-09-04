@@ -973,7 +973,9 @@ impl Component for AppModel {
                                                     View::Albums => i18n::t(Key::SearchAlbums),
                                                     View::Artists => i18n::t(Key::SearchArtists),
                                                     View::Playlists => i18n::t(Key::SearchPlaylists),
-                                                    View::Search => i18n::t(Key::SearchAppleMusic),
+                                                    View::Search => i18n::catalog_search(
+                                                        model.settings.provider,
+                                                    ),
                                                 }
                                                 }),
                                                 connect_search_changed[sender] => move |entry| {
@@ -1235,7 +1237,7 @@ impl Component for AppModel {
                                             #[watch]
                                             set_title: {
                                                 let _ = model.locale_tick;
-                                                i18n::t(Key::SearchAppleMusic)
+                                                i18n::catalog_search(model.settings.provider)
                                             },
                                             #[watch]
                                             set_description: Some({
@@ -1256,6 +1258,8 @@ impl Component for AppModel {
                                                 let _ = model.locale_tick;
                                                 if model.settings.provider.needs_apple() {
                                                     i18n::t(Key::EmptyLibraryBody)
+                                                } else if model.settings.provider.is_catalog() {
+                                                    i18n::t(Key::EmptyLibraryBodyCatalog)
                                                 } else {
                                                     i18n::t(Key::EmptyLibraryBodyLocal)
                                                 }
@@ -2066,11 +2070,7 @@ impl AppModel {
                 self.apply_language(Language::from_index(index), true);
             }
             AppMsg::SetProvider(index) => {
-                let provider = match index {
-                    1 => vinilo_core::provider::Provider::Local,
-                    _ => vinilo_core::provider::Provider::AppleMusic,
-                };
-                self.apply_provider(provider);
+                self.apply_provider(vinilo_core::provider::Provider::from_index(index));
             }
             AppMsg::ThemeFlipped => {
                 for page in &self.pages {
@@ -2735,15 +2735,17 @@ impl AppModel {
     }
 
     fn apply_provider(&mut self, provider: vinilo_core::provider::Provider) {
-        if !provider.is_available() {
-            return;
-        }
+        let restart = self.settings.provider_chosen
+            && self.settings.provider.needs_sidecar() != provider.needs_sidecar();
         self.settings.provider = provider;
         self.settings.provider_chosen = true;
         self.settings.save();
         Self::fill_primary_menu(&self.primary_menu, provider);
         if !provider.needs_apple() {
             self.stage = Stage::Ready;
+        }
+        if restart {
+            self.toast(i18n::t(Key::ProviderRestart));
         }
         if !self.pending_files.is_empty() {
             let paths = std::mem::take(&mut self.pending_files);
