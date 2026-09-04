@@ -27,17 +27,11 @@ fn clears_account_state(stage: &DaemonStage) -> bool {
     matches!(stage, DaemonStage::SignedOut)
 }
 
-pub(super) fn connect(sender: &ComponentSender<AppModel>) {
-    reconnect(sender, std::time::Duration::ZERO);
-}
-
-/// Connect after `delay` and stream the daemon's events for as long as it lasts.
-///
-/// A **streaming** command, not a `oneshot_command`: the receiver stays alive
-/// for the whole session, which is the one case CLAUDE.md reserves `command`
-/// for. `drop_on_shutdown` no longer guards against an orphaned Chromium — the
-/// daemon owns that — but it still stops a dead window holding a socket.
-pub(super) fn reconnect(sender: &ComponentSender<AppModel>, delay: std::time::Duration) {
+pub(super) fn reconnect(
+    sender: &ComponentSender<AppModel>,
+    delay: std::time::Duration,
+    session: u64,
+) {
     sender.command(move |out, shutdown| {
         shutdown
             .register(async move {
@@ -45,7 +39,7 @@ pub(super) fn reconnect(sender: &ComponentSender<AppModel>, delay: std::time::Du
                     tokio::time::sleep(delay).await;
                 }
                 let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-                tokio::spawn(daemon::connect(tx));
+                tokio::spawn(daemon::connect(tx, session));
                 while let Some(message) = rx.recv().await {
                     if out.send(CommandMsg::Daemon(message)).is_err() {
                         break; // the component is gone
@@ -57,6 +51,13 @@ pub(super) fn reconnect(sender: &ComponentSender<AppModel>, delay: std::time::Du
 }
 
 impl AppModel {
+    /// Start one connection attempt. Each call bumps `daemon_session` so a
+    /// `Lost` from the previous socket cannot wipe the new handle or redial.
+    pub(super) fn dial(&mut self, sender: &ComponentSender<Self>, delay: std::time::Duration) {
+        self.daemon_session = self.daemon_session.wrapping_add(1);
+        reconnect(sender, delay, self.daemon_session);
+    }
+
     /// Ask the daemon for something.
     ///
     /// Fire-and-forget, and deliberately: the answer comes back as an event
@@ -77,8 +78,17 @@ impl AppModel {
 
     pub(super) fn on_daemon(&mut self, message: daemon::Incoming, sender: &ComponentSender<Self>) {
         match message {
-            daemon::Incoming::Connected(handle) => {
+            daemon::Incoming::Connected { handle, session } => {
+                if session != self.daemon_session {
+                    tracing::debug!(
+                        session,
+                        current = self.daemon_session,
+                        "ignored a stale daemon connection"
+                    );
+                    return;
+                }
                 tracing::info!("connected to vinilod");
+                self.switching_source = false;
                 self.redials = 0;
                 self.daemon = Some(handle);
                 // Everything at once, so the window is right before the first
@@ -101,21 +111,26 @@ impl AppModel {
                 // disagreeing, which a restart will not fix and silence hides.
                 tracing::warn!(%line, "daemon sent something this build cannot read");
             }
-            daemon::Incoming::Lost(why) => {
+            daemon::Incoming::Lost { why, session } => {
+                if session != self.daemon_session {
+                    tracing::debug!(
+                        session,
+                        current = self.daemon_session,
+                        "ignored a stale daemon loss"
+                    );
+                    return;
+                }
                 tracing::warn!(%why, "lost the daemon");
                 self.daemon = None;
                 if self.switching_source {
-                    // apply_provider is already tearing this process down.
-                    // Redialling here would attach to the dying Spotify daemon
-                    // and Apple Music Play would go nowhere.
-                    return;
+                    tracing::info!("lost vinilod while switching music source — dialling again");
                 }
                 if self.settings.provider.needs_apple() {
                     self.stage = Stage::Connecting;
                 }
                 let attempt = self.redials;
                 self.redials += 1;
-                reconnect(sender, redial_delay(attempt));
+                self.dial(sender, redial_delay(attempt));
             }
         }
     }

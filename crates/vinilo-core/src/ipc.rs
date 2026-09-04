@@ -97,13 +97,16 @@ fn signal_pid(pid: u32, sig: i32) {
     }
 }
 
-/// True when the live daemon was booted for a different source — or for none,
-/// which is an older build that cannot tell us.
+/// True when the live daemon was booted for a different source.
+///
+/// A missing stamp is not a reason to kill anyone: the replacement we just
+/// started has not written it yet, and killing it is how switching sources
+/// spun forever.
 pub fn source_needs_replace(
     running: Option<crate::provider::Provider>,
     wanted: crate::provider::Provider,
 ) -> bool {
-    running != Some(wanted)
+    running.is_some_and(|source| source != wanted)
 }
 
 fn ask_daemon_to_quit(path: &std::path::Path) {
@@ -117,6 +120,55 @@ fn ask_daemon_to_quit(path: &std::path::Path) {
     let _ = stream.flush();
 }
 
+/// Drop the socket and stamp only if this process still owns them.
+///
+/// A dying Spotify daemon must not unlink the socket a new Apple Music daemon
+/// has already bound, or every client reconnects into a loop.
+pub fn release_runtime_if_ours() {
+    if running_pid() != Some(std::process::id()) {
+        return;
+    }
+    if let Some(path) = socket_path() {
+        let _ = std::fs::remove_file(path);
+    }
+    clear_runtime_identity();
+}
+
+struct SpawnLock(Option<std::fs::File>);
+
+impl SpawnLock {
+    fn acquire() -> Self {
+        use std::os::fd::AsRawFd;
+
+        let Some(path) = runtime_dir().map(|dir| dir.join("vinilo.lock")) else {
+            return Self(None);
+        };
+        let Ok(file) = std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .open(path)
+        else {
+            return Self(None);
+        };
+        unsafe {
+            libc::flock(file.as_raw_fd(), libc::LOCK_EX);
+        }
+        Self(Some(file))
+    }
+}
+
+impl Drop for SpawnLock {
+    fn drop(&mut self) {
+        use std::os::fd::AsRawFd;
+
+        if let Some(file) = &self.0 {
+            unsafe {
+                libc::flock(file.as_raw_fd(), libc::LOCK_UN);
+            }
+        }
+    }
+}
+
 /// Stop a live `vinilod` so the next connect starts one for the current source.
 ///
 /// Preferences rewrite the provider file and send Quit, but a daemon stuck in
@@ -124,6 +176,7 @@ fn ask_daemon_to_quit(path: &std::path::Path) {
 /// `connect()` can attach to the dying process. Switching Spotify → Apple
 /// Music then talks to a sidecar-less daemon, which is why Play did nothing.
 pub fn stop_running_daemon() {
+    let target = running_pid();
     let path = socket_path();
     if let Some(path) = &path {
         ask_daemon_to_quit(path);
@@ -132,15 +185,18 @@ pub fn stop_running_daemon() {
     let deadline = std::time::Instant::now() + std::time::Duration::from_millis(1500);
     while std::time::Instant::now() < deadline {
         let socket_gone = path.as_ref().is_none_or(|p| !p.exists());
-        let pid_dead = running_pid().is_none_or(|pid| !pid_is_alive(pid));
-        if socket_gone && pid_dead {
-            clear_runtime_identity();
+        let pid_gone = target.is_none_or(|pid| !pid_is_alive(pid));
+        if socket_gone && pid_gone {
+            if running_pid() == target {
+                clear_runtime_identity();
+            }
             return;
         }
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
 
-    if let Some(pid) = running_pid()
+    if let Some(pid) = target
+        && running_pid() == Some(pid)
         && pid != std::process::id()
         && pid_is_vinilod(pid)
         && pid_is_alive(pid)
@@ -148,16 +204,22 @@ pub fn stop_running_daemon() {
         tracing::warn!(pid, "vinilod ignored Quit — stopping it");
         signal_pid(pid, libc::SIGTERM);
         std::thread::sleep(std::time::Duration::from_millis(400));
-        if pid_is_alive(pid) {
+        if running_pid() == Some(pid) && pid_is_alive(pid) {
             signal_pid(pid, libc::SIGKILL);
             std::thread::sleep(std::time::Duration::from_millis(100));
         }
     }
 
+    if running_pid() != target && running_pid().is_some() {
+        // A replacement already claimed the runtime files.
+        return;
+    }
     if let Some(path) = path {
         let _ = std::fs::remove_file(path);
     }
-    clear_runtime_identity();
+    if running_pid() == target {
+        clear_runtime_identity();
+    }
 }
 
 /// Connect to the daemon, starting it if it is not there.
@@ -182,6 +244,8 @@ pub fn connect_or_spawn(exe: &std::path::Path) -> std::io::Result<std::os::unix:
             "XDG_RUNTIME_DIR is not set, so there is nowhere to put the socket",
         )
     })?;
+
+    let _lock = SpawnLock::acquire();
 
     let wanted = crate::provider::load().unwrap_or_default();
     if let Ok(stream) = UnixStream::connect(&path) {
@@ -787,7 +851,7 @@ mod tests {
     #[test]
     fn a_daemon_for_another_source_is_replaced() {
         use crate::provider::Provider;
-        assert!(source_needs_replace(None, Provider::AppleMusic));
+        assert!(!source_needs_replace(None, Provider::AppleMusic));
         assert!(source_needs_replace(
             Some(Provider::Spotify),
             Provider::AppleMusic

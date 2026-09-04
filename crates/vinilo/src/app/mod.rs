@@ -87,7 +87,6 @@ mod wiring;
 mod writes;
 
 use chrome::{icon, register_actions, show_about, show_shortcuts};
-use supervise::connect;
 
 pub use view::{CatalogFilter, SearchScope, SortBy, View};
 use view::{SidebarRow, sidebar_rows};
@@ -159,8 +158,12 @@ pub struct AppModel {
     daemon: Option<daemon::Handle>,
     /// Consecutive failed dials, for the redial backoff.
     redials: u32,
+    /// Generation of the live (or in-flight) daemon socket. A `Lost` from an
+    /// older connection must not clear the new handle — that is the reconnect
+    /// storm when switching Spotify → Apple Music.
+    daemon_session: u64,
     /// True between choosing a new source and attaching to the daemon that
-    /// belongs to it. `Lost` must not redial the dying process in that window.
+    /// belongs to it.
     switching_source: bool,
     toaster: adw::ToastOverlay,
     /// The volume panel. Its widgets rather than its state, which is the two
@@ -1573,6 +1576,7 @@ impl Component for AppModel {
             menu_sender: sender.clone(),
             daemon: None,
             redials: 0,
+            daemon_session: 0,
             switching_source: false,
             toaster: adw::ToastOverlay::new(),
             volume_osd: osd::VolumeOsd::new(),
@@ -1630,7 +1634,7 @@ impl Component for AppModel {
         // every pin still says "Unavailable".
         model.refresh_pin_names();
 
-        connect(&sender);
+        model.dial(&sender, std::time::Duration::ZERO);
         // Whatever the daemon had last time, until it says otherwise.
         model.reload_from_cache(&sender);
 
@@ -2656,10 +2660,9 @@ impl AppModel {
             }
             CommandMsg::Daemon(message) => self.on_daemon(message, &sender),
             CommandMsg::SourceSwitched => {
-                self.switching_source = false;
                 self.redials = 0;
                 tracing::info!("music source daemon stopped — connecting");
-                connect(&sender);
+                self.dial(&sender, std::time::Duration::ZERO);
             }
         }
     }
@@ -2891,6 +2894,9 @@ impl AppModel {
         if changed {
             tracing::info!(?provider, "restarting vinilod for the new music source");
             self.switching_source = true;
+            // Invalidate the live connection before Quit, so its `Lost` cannot
+            // start a second dial beside SourceSwitched.
+            self.daemon_session = self.daemon_session.wrapping_add(1);
             if let Some(handle) = self.daemon.take() {
                 handle.send(vinilo_core::ipc::Request::Quit);
             }

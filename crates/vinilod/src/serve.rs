@@ -378,7 +378,6 @@ pub async fn run() -> Result<()> {
     // the process is gone and the session file still says where the last track
     // change left off.
     let leaving = daemon.clone();
-    let socket = path.clone();
     tokio::task::spawn_local(async move {
         let Ok(mut term) =
             tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
@@ -397,10 +396,9 @@ pub async fn run() -> Result<()> {
         };
         tracing::info!(why, "shutting down");
         save_session(&leaving);
-        // The socket outlives the process that made it, and a leftover one
-        // answers for a daemon that is not running.
-        let _ = std::fs::remove_file(&socket);
-        vinilo_core::ipc::clear_runtime_identity();
+        // Only if we still own them. Unlinking after a replacement has bound
+        // the path is how switching Spotify → Apple Music never finished.
+        vinilo_core::ipc::release_runtime_if_ours();
         std::process::exit(0);
     });
 

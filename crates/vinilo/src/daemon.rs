@@ -13,9 +13,9 @@
 
 use std::path::PathBuf;
 
-use vinilo_core::ipc::{Event, Request};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::{mpsc, oneshot};
+use vinilo_core::ipc::{Event, Request};
 
 /// A cheap, cloneable handle for sending requests.
 ///
@@ -43,7 +43,10 @@ impl Handle {
 /// What the connection reports upward.
 #[derive(Debug)]
 pub enum Incoming {
-    Connected(Handle),
+    Connected {
+        handle: Handle,
+        session: u64,
+    },
     /// Boxed: an `Event::Rows` can carry hundreds of entries, and an enum is
     /// as large as its largest variant wherever it is passed.
     Event(Box<Event>),
@@ -52,7 +55,10 @@ pub enum Incoming {
     /// transient error.
     Unparsed(String),
     /// The connection ended. Always the last message.
-    Lost(String),
+    Lost {
+        why: String,
+        session: u64,
+    },
 }
 
 /// Where the daemon binary is.
@@ -71,18 +77,24 @@ fn daemon_path() -> PathBuf {
 ///
 /// Blocking `connect_or_spawn` runs on a worker thread: it may start a process
 /// and wait for a socket, and neither belongs on the GTK thread (rule 8).
-pub async fn connect(out: mpsc::UnboundedSender<Incoming>) {
+pub async fn connect(out: mpsc::UnboundedSender<Incoming>, session: u64) {
     let stream =
         match tokio::task::spawn_blocking(|| vinilo_core::ipc::connect_or_spawn(&daemon_path()))
             .await
         {
             Ok(Ok(stream)) => stream,
             Ok(Err(err)) => {
-                let _ = out.send(Incoming::Lost(err.to_string()));
+                let _ = out.send(Incoming::Lost {
+                    why: err.to_string(),
+                    session,
+                });
                 return;
             }
             Err(err) => {
-                let _ = out.send(Incoming::Lost(err.to_string()));
+                let _ = out.send(Incoming::Lost {
+                    why: err.to_string(),
+                    session,
+                });
                 return;
             }
         };
@@ -93,7 +105,10 @@ pub async fn connect(out: mpsc::UnboundedSender<Incoming>) {
     {
         Ok(stream) => stream,
         Err(err) => {
-            let _ = out.send(Incoming::Lost(err.to_string()));
+            let _ = out.send(Incoming::Lost {
+                why: err.to_string(),
+                session,
+            });
             return;
         }
     };
@@ -125,7 +140,7 @@ pub async fn connect(out: mpsc::UnboundedSender<Incoming>) {
     // Subscribed before the handle goes up, so nothing the model sends can
     // arrive before the events it will be answered by.
     handle.send(Request::Subscribe);
-    if out.send(Incoming::Connected(handle)).is_err() {
+    if out.send(Incoming::Connected { handle, session }).is_err() {
         return;
     }
 
@@ -142,11 +157,17 @@ pub async fn connect(out: mpsc::UnboundedSender<Incoming>) {
                 }
             }
             Ok(None) => {
-                let _ = out.send(Incoming::Lost("the daemon closed the connection".into()));
+                let _ = out.send(Incoming::Lost {
+                    why: "the daemon closed the connection".into(),
+                    session,
+                });
                 return;
             }
             Err(err) => {
-                let _ = out.send(Incoming::Lost(err.to_string()));
+                let _ = out.send(Incoming::Lost {
+                    why: err.to_string(),
+                    session,
+                });
                 return;
             }
         }
