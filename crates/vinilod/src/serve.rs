@@ -1441,6 +1441,15 @@ fn refresh_catalog_library(daemon: &Rc<Daemon>, provider: vinilo_core::provider:
                     finish_library_refresh(&daemon, generation);
                     return;
                 }
+                if library.songs.is_empty()
+                    && library.albums.is_empty()
+                    && library.artists.is_empty()
+                    && library.playlists.is_empty()
+                {
+                    tracing::warn!("spotify library fetch was empty — keeping what was cached");
+                    finish_library_refresh(&daemon, generation);
+                    return;
+                }
                 tracing::info!(
                     songs = library.songs.len(),
                     albums = library.albums.len(),
@@ -1465,24 +1474,29 @@ fn refresh_catalog_library(daemon: &Rc<Daemon>, provider: vinilo_core::provider:
             }
             Ok(Err(err)) => {
                 tracing::warn!(?err, "spotify library refresh failed");
-                if daemon.model.borrow().library.tracks.is_empty() {
-                    daemon.publish(Event::Error {
-                        detail: format!("{err}"),
-                    });
+                let detail = format!("{err}");
+                if should_surface_spotify_error(&detail)
+                    && daemon.model.borrow().library.tracks.is_empty()
+                    && vinilo_core::library_cache::load().is_empty()
+                {
+                    daemon.publish(Event::Error { detail });
                 }
             }
             Err(_) => {
-                tracing::warn!("spotify library refresh timed out");
-                if daemon.model.borrow().library.tracks.is_empty() {
-                    daemon.publish(Event::Error {
-                        detail: vinilo_core::i18n::t(vinilo_core::i18n::Key::SpotifyRateLimited)
-                            .into(),
-                    });
-                }
+                tracing::warn!("spotify library refresh timed out — keeping what was cached");
             }
         }
         finish_library_refresh(&daemon, generation);
     });
+}
+
+fn should_surface_spotify_error(detail: &str) -> bool {
+    let lower = detail.to_ascii_lowercase();
+    lower.contains("429")
+        || lower.contains("rate-limited")
+        || lower.contains("rate limited")
+        || lower.contains("sign in")
+        || lower.contains("iniciar sesión")
 }
 
 fn discover_spotify(daemon: &Rc<Daemon>) {
@@ -1502,9 +1516,6 @@ fn discover_spotify(daemon: &Rc<Daemon>) {
     if vinilo_core::spotify::cooling_down() {
         vinilo_core::discover::save(&homemade);
         daemon.publish(Event::Discover(homemade));
-        daemon.publish(Event::Error {
-            detail: vinilo_core::i18n::t(vinilo_core::i18n::Key::SpotifyRateLimited).into(),
-        });
         return;
     }
     let daemon = daemon.clone();
@@ -1550,17 +1561,11 @@ fn discover_spotify(daemon: &Rc<Daemon>) {
                 tracing::warn!(?err, "spotify discover failed");
                 vinilo_core::discover::save(&homemade);
                 daemon.publish(Event::Discover(homemade));
-                daemon.publish(Event::Error {
-                    detail: format!("{err}"),
-                });
             }
             Err(_) => {
-                tracing::warn!("spotify discover timed out");
+                tracing::warn!("spotify discover timed out — keeping homemade shelves");
                 vinilo_core::discover::save(&homemade);
                 daemon.publish(Event::Discover(homemade));
-                daemon.publish(Event::Error {
-                    detail: vinilo_core::i18n::t(vinilo_core::i18n::Key::SpotifyRateLimited).into(),
-                });
             }
         }
     });
@@ -1737,10 +1742,8 @@ fn search_catalog(
                     Err(_) => {
                         tracing::warn!("spotify search timed out");
                         daemon.publish(Event::Error {
-                            detail: vinilo_core::i18n::t(
-                                vinilo_core::i18n::Key::SpotifyRateLimited,
-                            )
-                            .into(),
+                            detail: vinilo_core::i18n::t(vinilo_core::i18n::Key::SpotifyTimeout)
+                                .into(),
                         });
                         daemon.publish(Event::Results {
                             query,

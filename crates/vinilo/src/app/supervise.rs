@@ -105,8 +105,21 @@ impl AppModel {
                     self.play_files(paths);
                 }
             }
-            daemon::Incoming::Event(event) => self.on_event(*event, sender),
-            daemon::Incoming::Unparsed(line) => {
+            daemon::Incoming::Event { event, session } => {
+                if session != self.daemon_session {
+                    tracing::debug!(
+                        session,
+                        current = self.daemon_session,
+                        "ignored a stale daemon event"
+                    );
+                    return;
+                }
+                self.on_event(*event, sender);
+            }
+            daemon::Incoming::Unparsed { line, session } => {
+                if session != self.daemon_session {
+                    return;
+                }
                 // Loudly, per rule 4: this is `ipc.rs` and this build
                 // disagreeing, which a restart will not fix and silence hides.
                 tracing::warn!(%line, "daemon sent something this build cannot read");

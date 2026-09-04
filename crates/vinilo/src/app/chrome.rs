@@ -8,6 +8,9 @@
 //! demand and own no state of their own — every change one of them makes goes
 //! straight back through an `AppMsg`, so the reducer stays the only writer.
 
+use std::cell::Cell;
+use std::rc::Rc;
+
 use relm4::adw::prelude::*;
 use relm4::{ComponentSender, adw, gtk};
 
@@ -533,8 +536,18 @@ impl AppModel {
             .build();
         {
             let sender = sender.clone();
-            language_row.connect_selected_notify(move |row| {
-                sender.input(AppMsg::SetLanguage(row.selected()));
+            let armed = Rc::new(Cell::new(false));
+            language_row.connect_selected_notify({
+                let armed = armed.clone();
+                move |row| {
+                    if !armed.get() {
+                        return;
+                    }
+                    sender.input(AppMsg::SetLanguage(row.selected()));
+                }
+            });
+            gtk::glib::timeout_add_local_once(std::time::Duration::from_millis(0), move || {
+                armed.set(true);
             });
         }
         language.add(&language_row);
@@ -556,8 +569,18 @@ impl AppModel {
             .build();
         {
             let sender = sender.clone();
-            source_row.connect_selected_notify(move |row| {
-                sender.input(AppMsg::SetProvider(row.selected()));
+            let armed = Rc::new(Cell::new(false));
+            source_row.connect_selected_notify({
+                let armed = armed.clone();
+                move |row| {
+                    if !armed.get() {
+                        return;
+                    }
+                    sender.input(AppMsg::SetProvider(row.selected()));
+                }
+            });
+            gtk::glib::timeout_add_local_once(std::time::Duration::from_millis(0), move || {
+                armed.set(true);
             });
         }
         source.add(&source_row);

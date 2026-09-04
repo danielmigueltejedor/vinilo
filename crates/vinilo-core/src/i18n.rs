@@ -294,6 +294,7 @@ pub enum Key {
     SpotifyTokenRefused,
     CatalogLoginFailed,
     SpotifyRateLimited,
+    SpotifyTimeout,
     SpotifyCatalogueChanged,
 }
 
@@ -568,6 +569,7 @@ fn en(key: Key) -> &'static str {
             "Could not keep the session. Stay on the signed-in page, then press Done."
         }
         Key::SpotifyRateLimited => "Spotify asked us to wait. Try Reload in a minute.",
+        Key::SpotifyTimeout => "Spotify did not answer in time. Try again.",
         Key::SpotifyCatalogueChanged => {
             "Spotify's catalogue API changed. Sign in again, then Reload."
         }
@@ -822,6 +824,7 @@ fn es(key: Key) -> &'static str {
         Key::SpotifyRateLimited => {
             "Spotify pide que esperemos. Prueba Recargar dentro de un minuto."
         }
+        Key::SpotifyTimeout => "Spotify no ha contestado a tiempo. Prueba otra vez.",
         Key::SpotifyCatalogueChanged => {
             "La API del catálogo de Spotify ha cambiado. Vuelve a iniciar sesión y pulsa Recargar."
         }

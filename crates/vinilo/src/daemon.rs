@@ -49,11 +49,17 @@ pub enum Incoming {
     },
     /// Boxed: an `Event::Rows` can carry hundreds of entries, and an enum is
     /// as large as its largest variant wherever it is passed.
-    Event(Box<Event>),
+    Event {
+        event: Box<Event>,
+        session: u64,
+    },
     /// A line we could not read. Kept distinct rather than dropped — it means
     /// `ipc.rs` and this build disagree, which is a version skew rather than a
     /// transient error.
-    Unparsed(String),
+    Unparsed {
+        line: String,
+        session: u64,
+    },
     /// The connection ended. Always the last message.
     Lost {
         why: String,
@@ -149,8 +155,11 @@ pub async fn connect(out: mpsc::UnboundedSender<Incoming>, session: u64) {
         match lines.next_line().await {
             Ok(Some(line)) => {
                 let message = match serde_json::from_str::<Event>(&line) {
-                    Ok(event) => Incoming::Event(Box::new(event)),
-                    Err(_) => Incoming::Unparsed(line),
+                    Ok(event) => Incoming::Event {
+                        event: Box::new(event),
+                        session,
+                    },
+                    Err(_) => Incoming::Unparsed { line, session },
                 };
                 if out.send(message).is_err() {
                     return; // the component is gone

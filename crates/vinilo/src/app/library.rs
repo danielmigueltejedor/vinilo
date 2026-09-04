@@ -94,6 +94,19 @@ impl AppModel {
             return;
         }
         let cached = vinilo_core::library_cache::load();
+        if cached.is_empty()
+            && (!self.all_tracks.is_empty()
+                || !self.albums.is_empty()
+                || !self.artists.is_empty()
+                || !self.playlists.is_empty())
+        {
+            tracing::info!(
+                songs = self.all_tracks.len(),
+                playlists = self.playlists.len(),
+                "keeping the library on screen; cache was empty"
+            );
+            return;
+        }
         tracing::info!(
             songs = cached.songs.len(),
             albums = cached.albums.len(),

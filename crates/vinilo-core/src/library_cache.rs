@@ -193,10 +193,14 @@ fn parse(raw: &str) -> Library {
 /// Persist what the model holds. Best-effort: a failure costs one slow launch
 /// and must never interrupt anything.
 ///
-/// An empty collection is written as empty, and read back as "not cached" — so
-/// saving after only the songs have arrived does not tell the next launch that
-/// there are no albums.
+/// Never write a completely empty library: a failed or truncated Spotify fetch
+/// would otherwise wipe songs the user can already see. Partial saves (songs
+/// without albums yet) are still written.
 pub fn save(songs: &[Track], albums: &[Album], artists: &[Artist], playlists: &[Playlist]) {
+    if songs.is_empty() && albums.is_empty() && artists.is_empty() && playlists.is_empty() {
+        tracing::debug!("not replacing the library cache with an empty fetch");
+        return;
+    }
     let Some(path) = cache_file() else { return };
     let Some(dir) = path.parent() else { return };
     let started = std::time::Instant::now();

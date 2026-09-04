@@ -182,6 +182,9 @@ fn fits_current_source(cache: &Discover) -> bool {
 }
 
 pub fn save(discover: &Discover) {
+    if discover.is_empty() {
+        return;
+    }
     let Some(path) = cache_file() else { return };
     let Some(dir) = path.parent() else { return };
     let mut writing = discover.clone();

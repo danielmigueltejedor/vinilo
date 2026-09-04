@@ -211,20 +211,31 @@ async fn query_once(
         anyhow::bail!("Spotify pathfinder {status} for {operation}");
     }
     let value: Value = serde_json::from_str(&text).context("spotify pathfinder json")?;
+    pathfinder_payload(value, operation)
+}
+
+/// GraphQL often answers `{ "data": null, "errors": [...] }`. Treating that as
+/// an empty library would overwrite songs we already had.
+pub(super) fn pathfinder_payload(value: Value, operation: &str) -> Result<Value> {
     if persisted_query_missing_in_body(&value) {
         anyhow::bail!("PersistedQueryNotFound");
     }
-    if value.get("data").is_none()
-        && let Some(errors) = value.get("errors").and_then(Value::as_array)
-        && let Some(first) = errors.first()
-    {
-        let msg = first
-            .get("message")
-            .and_then(Value::as_str)
-            .unwrap_or("GraphQL error");
-        anyhow::bail!("spotify pathfinder {operation}: {msg}");
+    match value.get("data") {
+        None | Some(Value::Null) => {
+            let msg = first_graphql_error(&value).unwrap_or("empty data");
+            anyhow::bail!("spotify pathfinder {operation}: {msg}");
+        }
+        Some(_) => Ok(value),
     }
-    Ok(value)
+}
+
+fn first_graphql_error(value: &Value) -> Option<&str> {
+    value
+        .get("errors")
+        .and_then(Value::as_array)
+        .and_then(|errors| errors.first())
+        .and_then(|err| err.get("message"))
+        .and_then(Value::as_str)
 }
 
 fn persisted_query_missing_in_body(value: &Value) -> bool {
@@ -308,4 +319,30 @@ fn random_hex(n: usize) -> String {
 
 pub fn page_limit() -> usize {
     50
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn null_data_is_not_an_empty_library() {
+        let value = json!({"data": null, "errors": [{"message": "Unauthorized"}]});
+        let err = pathfinder_payload(value, "libraryV3").unwrap_err();
+        assert!(err.to_string().contains("Unauthorized"));
+    }
+
+    #[test]
+    fn persisted_query_errors_are_distinct() {
+        let value = json!({"errors": [{"message": "PersistedQueryNotFound"}]});
+        let err = pathfinder_payload(value, "libraryV3").unwrap_err();
+        assert!(err.to_string().contains("PersistedQueryNotFound"));
+    }
+
+    #[test]
+    fn a_payload_with_data_is_kept() {
+        let value = json!({"data": {"me": {"libraryV3": {"items": []}}}});
+        assert!(pathfinder_payload(value, "libraryV3").is_ok());
+    }
 }

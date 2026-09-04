@@ -624,8 +624,11 @@ async fn liked_tracks_partner(
             serde_json::json!({ "offset": offset, "limit": limit }),
         )
         .await?;
-        let page = value
-            .pointer("/data/me/library/tracks/items")
+        let Some(tracks) = value.pointer("/data/me/library/tracks") else {
+            anyhow::bail!("fetchLibraryTracks missing me.library.tracks");
+        };
+        let page = tracks
+            .get("items")
             .and_then(Value::as_array)
             .cloned()
             .unwrap_or_default();
@@ -638,8 +641,8 @@ async fn liked_tracks_partner(
             }
         }
         offset += limit;
-        let total = value
-            .pointer("/data/me/library/tracks/totalCount")
+        let total = tracks
+            .get("totalCount")
             .and_then(Value::as_u64)
             .unwrap_or(0) as usize;
         if offset >= total || page.len() < limit {
@@ -692,7 +695,7 @@ async fn library_v3_playlists(
         let lib = value
             .pointer("/data/me/libraryV3")
             .cloned()
-            .unwrap_or(Value::Null);
+            .context("libraryV3 missing")?;
         if lib.get("__typename").and_then(Value::as_str) == Some("LibraryInvalidFilterIdError") {
             anyhow::bail!("libraryV3 rejected the Playlists filter");
         }
@@ -761,7 +764,7 @@ async fn library_v3_albums(
         let lib = value
             .pointer("/data/me/libraryV3")
             .cloned()
-            .unwrap_or(Value::Null);
+            .context("libraryV3 missing")?;
         if lib.get("__typename").and_then(Value::as_str) == Some("LibraryInvalidFilterIdError") {
             anyhow::bail!("libraryV3 rejected the Albums filter");
         }
@@ -830,7 +833,7 @@ async fn library_v3_artists(
         let lib = value
             .pointer("/data/me/libraryV3")
             .cloned()
-            .unwrap_or(Value::Null);
+            .context("libraryV3 missing")?;
         if lib.get("__typename").and_then(Value::as_str) == Some("LibraryInvalidFilterIdError") {
             anyhow::bail!("libraryV3 rejected the Artists filter");
         }
