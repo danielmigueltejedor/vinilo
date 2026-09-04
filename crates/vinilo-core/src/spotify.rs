@@ -133,6 +133,11 @@ pub async fn library(http: &reqwest::Client) -> Result<Library> {
         user_playlists(http, &token, 100),
         top_tracks(http, &token, 50),
     );
+    if liked.is_err() && albums.is_err() && artists.is_err() && playlists.is_err() {
+        return Err(liked.err().unwrap_or_else(|| {
+            anyhow::anyhow!("Spotify would not return a library for this session")
+        }));
+    }
     let songs = liked.unwrap_or_else(|err| {
         tracing::warn!(?err, "spotify liked songs");
         Vec::new()

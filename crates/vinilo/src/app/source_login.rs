@@ -272,13 +272,32 @@ impl AppModel {
         let cookies = login.cookies.clone();
         let sender = sender.clone();
         gtk::glib::spawn_future_local(async move {
-            let dumped = dump_cookies(&cookies, provider).await;
+            let mut dumped = dump_cookies_until_signed_in(&cookies, provider).await;
             if !dumped {
-                std::thread::spawn(move || import_browser_cookies(provider));
+                let _ = relm4::spawn_blocking(move || import_browser_cookies(provider)).await;
+                dumped = setup::looks_signed_in(provider, &setup::cookie_names(provider));
             }
-            sender.input(AppMsg::CatalogSignedIn);
+            sender.input(if dumped {
+                AppMsg::CatalogSignedIn
+            } else {
+                AppMsg::CatalogLoginFailed
+            });
         });
     }
+}
+
+async fn dump_cookies_until_signed_in(
+    manager: &webkit6::CookieManager,
+    provider: Provider,
+) -> bool {
+    for attempt in 0..8 {
+        if dump_cookies(manager, provider).await {
+            return true;
+        }
+        tracing::info!(attempt, ?provider, "catalogue cookies not ready yet");
+        gtk::glib::timeout_future(std::time::Duration::from_millis(400)).await;
+    }
+    false
 }
 
 async fn dump_cookies(manager: &webkit6::CookieManager, provider: Provider) -> bool {
@@ -298,12 +317,14 @@ async fn dump_cookies(manager: &webkit6::CookieManager, provider: Provider) -> b
     }
     jar.sort_by(|a, b| a.name.cmp(&b.name).then(a.domain.cmp(&b.domain)));
     jar.dedup_by(|a, b| a.name == b.name && a.domain == b.domain && a.path == b.path);
+    let names: Vec<String> = jar.iter().map(|c| c.name.clone()).collect();
     if let Err(err) = setup::write_netscape(&path, &jar) {
         tracing::warn!(?err, "could not write cookie jar");
         return false;
     }
-    let names: Vec<String> = jar.into_iter().map(|c| c.name).collect();
-    setup::looks_signed_in(provider, &names)
+    let signed_in = setup::looks_signed_in(provider, &names);
+    tracing::info!(?provider, ?names, signed_in, "dumped catalogue cookies");
+    signed_in
 }
 
 fn from_soup(cookie: &mut webkit6::soup::Cookie) -> NetscapeCookie {

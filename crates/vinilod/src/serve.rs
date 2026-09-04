@@ -108,6 +108,9 @@ pub struct Daemon {
     /// Search hits for Spotify / YouTube Music / Tidal, keyed by the id we
     /// minted (`yt:`, `sp:`, `td:`), so a later Play can fetch audio.
     pub stream_hits: RefCell<HashMap<String, vinilo_core::streams::StreamHit>>,
+    /// The source this process booted with. Preferences may rewrite the
+    /// provider file before we quit; the queue we save still belongs to this.
+    pub source: vinilo_core::provider::Provider,
 }
 
 impl Daemon {
@@ -209,7 +212,8 @@ pub async fn run() -> Result<()> {
     let listener = UnixListener::bind(&path).with_context(|| format!("binding {path:?}"))?;
     tracing::info!(socket = %path.display(), "listening");
 
-    let local_only = vinilo_core::provider::load().is_some_and(|p| !p.needs_sidecar());
+    let source = vinilo_core::provider::load().unwrap_or_default();
+    let local_only = !source.needs_sidecar();
 
     let (sidecar_handle, incoming) = if local_only {
         tracing::info!("music source does not need MusicKit — not starting the sidecar");
@@ -243,6 +247,7 @@ pub async fn run() -> Result<()> {
         mixer: crate::mixer::Mixer::start(),
         last_listen: RefCell::new(None),
         stream_hits: RefCell::new(vinilo_core::streams::load_hits()),
+        source,
     });
 
     // After the `Rc` exists: MPRIS holds one so a button on a bar can reach the
@@ -574,10 +579,7 @@ fn save_session(daemon: &Daemon) {
             .queue_position
             .min(songs.len().saturating_sub(1)),
         position_ms: model.player.position_ms,
-        provider: vinilo_core::provider::load()
-            .unwrap_or_default()
-            .as_str()
-            .to_owned(),
+        provider: daemon.source.as_str().to_owned(),
         songs,
     });
 }
@@ -2242,6 +2244,7 @@ mod tests {
             last_listen: RefCell::new(None),
             quitting: tokio::sync::Notify::new(),
             stream_hits: RefCell::new(HashMap::new()),
+            source: vinilo_core::provider::Provider::AppleMusic,
         })
     }
 

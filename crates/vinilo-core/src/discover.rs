@@ -105,7 +105,9 @@ fn rescue_foreign_legacy() {
     if cache.is_empty() {
         return;
     }
-    let Some(stem) = crate::provider::Provider::parse(&cache.provider).and_then(|p| p.cache_stem())
+    let Some(stem) = crate::provider::Provider::parse(&cache.provider)
+        .and_then(|p| p.cache_stem())
+        .or_else(|| infer_discover_stem(&cache))
     else {
         return;
     };
@@ -128,16 +130,54 @@ pub fn load() -> Discover {
         return Discover::default();
     };
     match serde_json::from_str::<Discover>(&raw) {
-        Ok(cache) if cache.version == VERSION && provider_matches(&cache.provider) => cache,
+        Ok(cache) if cache.version == VERSION && fits_current_source(&cache) => cache,
         _ => Discover::default(),
     }
 }
 
-fn provider_matches(cached: &str) -> bool {
+fn infer_discover_stem(cache: &Discover) -> Option<&'static str> {
+    for entry in cache
+        .recently_played
+        .iter()
+        .chain(&cache.recommended_playlists)
+        .chain(&cache.recently_added)
+        .chain(&cache.charts)
+    {
+        let id = entry.id();
+        if id.starts_with("sp:") {
+            return Some("spotify");
+        }
+        if id.starts_with("yt:") {
+            return Some("youtube-music");
+        }
+        if id.starts_with("td:") {
+            return Some("tidal");
+        }
+    }
+    cache.recommended_songs.iter().find_map(|t| {
+        let id = t.catalog_id.as_deref().unwrap_or(t.id.0.as_str());
+        if id.starts_with("sp:") {
+            Some("spotify")
+        } else if id.starts_with("yt:") {
+            Some("youtube-music")
+        } else if id.starts_with("td:") {
+            Some("tidal")
+        } else {
+            None
+        }
+    })
+}
+
+fn fits_current_source(cache: &Discover) -> bool {
     let current = crate::provider::load().unwrap_or_default();
+    let stamped = crate::provider::Provider::parse(&cache.provider);
+    let streams = infer_discover_stem(cache).is_some();
     match current {
-        crate::provider::Provider::AppleMusic => cached.is_empty() || cached == current.as_str(),
-        other => cached == other.as_str(),
+        crate::provider::Provider::AppleMusic => {
+            stamped.is_none_or(|p| p == crate::provider::Provider::AppleMusic) && !streams
+        }
+        crate::provider::Provider::Local => false,
+        other => stamped == Some(other) || (stamped.is_none() && streams),
     }
 }
 

@@ -77,8 +77,7 @@ fn rescue_foreign_legacy() {
     if cache.is_empty() {
         return;
     }
-    let Some(stem) = crate::provider::Provider::parse(&cache.provider).and_then(|p| p.cache_stem())
-    else {
+    let Some(stem) = cache_stem_of(&cache) else {
         return;
     };
     let Some(dest) = crate::paths::cache_dir().map(|d| d.join(format!("library-{stem}.json")))
@@ -102,17 +101,73 @@ pub fn load() -> Library {
         return Library::default();
     };
     let cache = parse(&raw);
-    if !provider_matches(&cache.provider) {
+    if cache.is_empty() {
+        return Library::default();
+    }
+    if !fits_current_source(&cache) {
         return Library::default();
     }
     cache
 }
 
-fn provider_matches(cached: &str) -> bool {
-    let current = crate::provider::load().unwrap_or_default();
+fn cache_stem_of(cache: &Library) -> Option<&'static str> {
+    crate::provider::Provider::parse(&cache.provider)
+        .and_then(|p| p.cache_stem())
+        .or_else(|| infer_catalog_stem(cache))
+}
+
+fn infer_catalog_stem(cache: &Library) -> Option<&'static str> {
+    for id in library_ids(cache) {
+        if let Some(stem) = stem_from_id(id) {
+            return Some(stem);
+        }
+    }
+    None
+}
+
+fn stem_from_id(id: &str) -> Option<&'static str> {
+    if id.starts_with("sp:") {
+        Some("spotify")
+    } else if id.starts_with("yt:") {
+        Some("youtube-music")
+    } else if id.starts_with("td:") {
+        Some("tidal")
+    } else {
+        None
+    }
+}
+
+fn library_ids(cache: &Library) -> impl Iterator<Item = &str> {
+    cache
+        .songs
+        .iter()
+        .flat_map(|t| {
+            t.catalog_id
+                .as_deref()
+                .into_iter()
+                .chain(Some(t.id.0.as_str()))
+        })
+        .chain(cache.albums.iter().map(|a| a.id.as_str()))
+        .chain(cache.playlists.iter().map(|p| p.id.as_str()))
+}
+
+fn has_stream_ids(cache: &Library) -> bool {
+    library_ids(cache).any(crate::streams::StreamHit::is_stream_id)
+}
+
+fn fits_current_source(cache: &Library) -> bool {
+    fits_source(cache, crate::provider::load().unwrap_or_default())
+}
+
+fn fits_source(cache: &Library, current: crate::provider::Provider) -> bool {
+    let stamped = crate::provider::Provider::parse(&cache.provider);
+    let streams = has_stream_ids(cache);
     match current {
-        crate::provider::Provider::AppleMusic => cached.is_empty() || cached == current.as_str(),
-        other => cached == other.as_str(),
+        crate::provider::Provider::AppleMusic => {
+            stamped.is_none_or(|p| p == crate::provider::Provider::AppleMusic) && !streams
+        }
+        crate::provider::Provider::Local => false,
+        other => stamped == Some(other) || (stamped.is_none() && streams),
     }
 }
 
@@ -303,5 +358,36 @@ mod tests {
         assert_eq!(back.songs.len(), 1);
         assert!(back.albums.is_empty());
         assert!(!back.is_empty());
+    }
+
+    #[test]
+    fn apple_music_rejects_a_spotify_library() {
+        let mut spotify = a_track();
+        spotify.catalog_id = Some("sp:abc".into());
+        spotify.id = TrackId("sp:abc".into());
+        let cache = Library {
+            version: VERSION,
+            provider: String::new(),
+            songs: vec![spotify],
+            ..Library::default()
+        };
+        assert!(
+            !fits_source(&cache, crate::provider::Provider::AppleMusic),
+            "stream ids left in library.json must not play through MusicKit"
+        );
+        assert!(fits_source(&cache, crate::provider::Provider::Spotify));
+        assert_eq!(infer_catalog_stem(&cache), Some("spotify"));
+    }
+
+    #[test]
+    fn apple_music_keeps_its_own_unstamped_cache() {
+        let cache = Library {
+            version: VERSION,
+            provider: String::new(),
+            songs: vec![a_track()],
+            ..Library::default()
+        };
+        assert!(fits_source(&cache, crate::provider::Provider::AppleMusic));
+        assert!(!fits_source(&cache, crate::provider::Provider::Spotify));
     }
 }

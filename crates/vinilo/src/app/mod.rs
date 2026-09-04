@@ -443,6 +443,8 @@ pub enum AppMsg {
     CatalogLoginFinished,
     /// Cookies are on disk; close the gate and go to Search.
     CatalogSignedIn,
+    /// The login window closed or finished without a usable session cookie.
+    CatalogLoginFailed,
     /// The login window was closed without finishing.
     CatalogLoginClosed,
     /// Asks first — see `confirm_sign_out`.
@@ -1853,7 +1855,16 @@ impl AppModel {
                 vinilo_core::setup::mark_configured(provider);
                 self.close_catalog_login();
                 Self::fill_primary_menu(&self.primary_menu, provider);
-                self.handle(AppMsg::FocusCatalogSearch, &sender, root);
+                // The daemon often booted before the cookie jar existed. Pull
+                // the library and Listen Now now that the session is on disk.
+                self.ask(Request::Refresh);
+                self.refresh_discover();
+                self.reload_from_cache(&sender);
+                self.handle(AppMsg::SetView(View::Discover), &sender, root);
+            }
+            AppMsg::CatalogLoginFailed => {
+                self.catalog_login_busy = false;
+                self.toast(i18n::t(Key::CatalogLoginFailed));
             }
             AppMsg::CatalogLoginClosed => {
                 self.catalog_login_busy = false;
@@ -2854,6 +2865,11 @@ impl AppModel {
 
         if changed {
             self.forget_session(sender);
+            // Paint the other source's cache immediately. Without this the
+            // sidebar stays empty (or worse, still shows Spotify rows that
+            // MusicKit will not play) until the new daemon finishes booting.
+            self.reload_from_cache(sender);
+            self.refresh_discover();
         }
 
         if provider.is_catalog() {

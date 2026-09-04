@@ -292,6 +292,7 @@ pub enum Key {
     YourTopTracks,
     SpotifyNotSignedIn,
     SpotifyTokenRefused,
+    CatalogLoginFailed,
 }
 
 /// Resolve `key` in the current language.
@@ -561,6 +562,9 @@ fn en(key: Key) -> &'static str {
         Key::SpotifyTokenRefused => {
             "Spotify would not issue a token. Sign in again from the menu if this keeps happening."
         }
+        Key::CatalogLoginFailed => {
+            "Could not keep the session. Stay on the signed-in page, then press Done."
+        }
     }
 }
 
@@ -805,6 +809,9 @@ fn es(key: Key) -> &'static str {
         }
         Key::SpotifyTokenRefused => {
             "Spotify no ha emitido un token. Vuelve a iniciar sesión desde el menú si sigue pasando."
+        }
+        Key::CatalogLoginFailed => {
+            "No se ha podido guardar la sesión. Quédate en la página ya iniciada y pulsa Listo."
         }
     }
 }

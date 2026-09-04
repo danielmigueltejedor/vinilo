@@ -111,7 +111,8 @@ pub fn looks_signed_in(provider: Provider, names: &[String]) -> bool {
             .any(|name| want.iter().any(|n| name.eq_ignore_ascii_case(n)))
     };
     match provider {
-        Provider::Spotify => has(&["sp_dc", "sp_key"]),
+        // `sp_key` alone is an anonymous visit. The web-player token needs `sp_dc`.
+        Provider::Spotify => has(&["sp_dc"]),
         Provider::YoutubeMusic => has(&[
             "SID",
             "SAPISID",
@@ -382,6 +383,10 @@ mod tests {
             &["sp_dc".into(), "sp_t".into()]
         ));
         assert!(!looks_signed_in(Provider::Spotify, &["sp_landing".into()]));
+        assert!(
+            !looks_signed_in(Provider::Spotify, &["sp_key".into()]),
+            "sp_key without sp_dc is not a logged-in session"
+        );
     }
 
     #[test]
