@@ -1003,10 +1003,7 @@ impl Client {
         for chunk in ids.chunks(25) {
             let joined = chunk.join(",");
             let path = if catalog {
-                format!(
-                    "/catalog/{}/{collection}?ids={joined}",
-                    self.storefront
-                )
+                format!("/catalog/{}/{collection}?ids={joined}", self.storefront)
             } else {
                 format!("/me/library/{collection}?ids={joined}")
             };
@@ -1031,9 +1028,7 @@ impl Client {
         let mut library_albums = Vec::new();
         let mut library_playlists = Vec::new();
 
-        let partition = |ids: Vec<String>,
-                         catalog: &mut Vec<String>,
-                         library: &mut Vec<String>| {
+        let partition = |ids: Vec<String>, catalog: &mut Vec<String>, library: &mut Vec<String>| {
             for id in ids {
                 if super::mixed::looks_library_id(&id) {
                     library.push(id);
@@ -1066,13 +1061,13 @@ impl Client {
             if let Some(entry) = resource.into_entry() {
                 if !entry.title().is_empty() {
                     out.push(entry);
+                    continue;
                 }
-                continue;
             }
-            if let Some(entry) = by_id.remove(&id) {
-                if !entry.title().is_empty() {
-                    out.push(entry);
-                }
+            if let Some(entry) = by_id.get(&id).cloned()
+                && !entry.title().is_empty()
+            {
+                out.push(entry);
             }
         }
         out
@@ -1084,15 +1079,18 @@ impl Client {
     ) -> Vec<super::mixed::TypedResource> {
         let mut items = super::mixed::contents_resources(group);
         let stubs = items.iter().all(|item| item.attributes.is_none());
+        let mut next = super::mixed::next_path(group);
         if items.is_empty() || stubs {
             if let Some(href) = super::mixed::contents_href(group) {
-                let (page, _) = self.fetch_typed_list(&href).await;
+                let (page, following) = self.fetch_typed_list(&href).await;
                 if page.iter().any(|item| item.attributes.is_some()) || items.is_empty() {
                     items = page;
+                    if next.is_none() {
+                        next = following;
+                    }
                 }
             }
         }
-        let mut next = super::mixed::next_path(group);
         for _ in 0..3 {
             let Some(path) = next.take() else {
                 break;
@@ -1130,17 +1128,23 @@ impl Client {
 
     async fn try_recommendations(&self) -> (Vec<Entry>, Vec<Track>) {
         let mut groups = Vec::new();
-        let mut path = Some("/me/recommendations?limit=10".to_string());
-        for _ in 0..4 {
-            let Some(next) = path.take() else {
-                break;
-            };
-            let (page, following) = self.fetch_typed_list(&next).await;
-            if page.is_empty() && following.is_none() && groups.is_empty() {
+        for start in ["/me/recommendations?limit=10", "/me/recommendations"] {
+            groups.clear();
+            let mut path = Some(start.to_string());
+            for _ in 0..4 {
+                let Some(next) = path.take() else {
+                    break;
+                };
+                let (page, following) = self.fetch_typed_list(&next).await;
+                if page.is_empty() && following.is_none() && groups.is_empty() {
+                    break;
+                }
+                groups.extend(page);
+                path = following;
+            }
+            if !groups.is_empty() {
                 break;
             }
-            groups.extend(page);
-            path = following;
         }
         if groups.is_empty() {
             tracing::warn!("Apple Music recommendations returned no groups");
@@ -1158,7 +1162,9 @@ impl Client {
         for entry in entries {
             match entry {
                 Entry::Song(track) if !track.title.is_empty() => {
-                    if !songs.iter().any(|s: &Track| s.catalog_id == track.catalog_id && s.id == track.id)
+                    if !songs
+                        .iter()
+                        .any(|s: &Track| s.catalog_id == track.catalog_id && s.id == track.id)
                     {
                         songs.push(track);
                     }
@@ -1198,7 +1204,7 @@ impl Client {
             let mut mixed = Vec::new();
             for key in ["songs", "albums", "playlists"] {
                 let list = super::mixed::chart_resources(results, key);
-                for entry in super::mixed::entries_from_list(list) {
+                for entry in self.hydrate_typed(list).await {
                     if entry.title().is_empty() {
                         continue;
                     }

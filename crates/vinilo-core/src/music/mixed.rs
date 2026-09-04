@@ -87,19 +87,26 @@ impl TypedResource {
 }
 
 pub(crate) fn entries_from_list(list: Vec<TypedResource>) -> Vec<Entry> {
-    list.into_iter().filter_map(TypedResource::into_entry).collect()
+    list.into_iter()
+        .filter_map(TypedResource::into_entry)
+        .collect()
 }
 
-/// Ids Apple sent without attributes, grouped by catalog collection.
+/// Ids that cannot become a tile yet, grouped by catalog collection.
 ///
-/// Recommendation `contents` often arrives as `{ id, type }` stubs. Those
-/// cannot become a tile until we fetch the real resource.
+/// Recommendation `contents` often arrives as `{ id, type }` stubs, or with
+/// attributes too thin to parse. Those cannot become a tile until we fetch
+/// the real resource.
 pub(crate) fn stub_ids(list: &[TypedResource]) -> (Vec<String>, Vec<String>, Vec<String>) {
     let mut songs = Vec::new();
     let mut albums = Vec::new();
     let mut playlists = Vec::new();
     for resource in list {
-        if resource.attributes.is_some() {
+        if resource
+            .clone()
+            .into_entry()
+            .is_some_and(|entry| !entry.title().is_empty())
+        {
             continue;
         }
         match resource.kind.as_str() {
@@ -110,6 +117,16 @@ pub(crate) fn stub_ids(list: &[TypedResource]) -> (Vec<String>, Vec<String>, Vec
         }
     }
     (songs, albums, playlists)
+}
+
+fn typed_list(value: &serde_json::Value) -> Vec<TypedResource> {
+    if let Ok(list) = serde_json::from_value::<Vec<TypedResource>>(value.clone()) {
+        return list;
+    }
+    if let Ok(one) = serde_json::from_value::<TypedResource>(value.clone()) {
+        return vec![one];
+    }
+    Vec::new()
 }
 
 /// `relationships.contents.data` on a personal-recommendation resource.
@@ -123,7 +140,7 @@ pub(crate) fn contents_resources(resource: &TypedResource) -> Vec<TypedResource>
     let Some(data) = contents.get("data") else {
         return Vec::new();
     };
-    serde_json::from_value::<Vec<TypedResource>>(data.clone()).unwrap_or_default()
+    typed_list(data)
 }
 
 pub(crate) fn contents_of(resource: &TypedResource) -> Vec<Entry> {
@@ -142,10 +159,15 @@ pub(crate) fn next_path(resource: &TypedResource) -> Option<String> {
 }
 
 pub(crate) fn api_path(href: &str) -> String {
-    href.strip_prefix("https://api.music.apple.com/v1")
+    let stripped = href
+        .strip_prefix("https://api.music.apple.com/v1")
         .or_else(|| href.strip_prefix("/v1"))
-        .unwrap_or(href)
-        .to_owned()
+        .unwrap_or(href);
+    if stripped.is_empty() || stripped.starts_with('/') || stripped.starts_with('?') {
+        stripped.to_owned()
+    } else {
+        format!("/{stripped}")
+    }
 }
 
 /// `relationships.contents.href`, stripped to a path `Client::get` can use.
@@ -160,9 +182,9 @@ pub(crate) fn contents_href(resource: &TypedResource) -> Option<String> {
 }
 
 /// Charts live under `results.{songs,albums,playlists}`, each either a list of
-/// chart objects with a `data` array, or (rarely) one object. Treating only
-/// arrays as valid is how an otherwise-good charts response became an empty
-/// Éxitos shelf.
+/// chart objects with a `data` array, one object, or (rarely) the resources
+/// themselves. Treating only arrays of wrappers as valid is how an
+/// otherwise-good charts response became an empty Éxitos shelf.
 pub(crate) fn chart_resources(results: &serde_json::Value, key: &str) -> Vec<TypedResource> {
     let Some(node) = results.get(key) else {
         return Vec::new();
@@ -174,12 +196,14 @@ pub(crate) fn chart_resources(results: &serde_json::Value, key: &str) -> Vec<Typ
     };
     let mut out = Vec::new();
     for chart in charts {
-        let Some(data) = chart.get("data") else {
-            continue;
-        };
-        if let Ok(list) = serde_json::from_value::<Vec<TypedResource>>(data.clone()) {
-            out.extend(list);
+        if let Some(data) = chart.get("data") {
+            let list = typed_list(data);
+            if !list.is_empty() {
+                out.extend(list);
+                continue;
+            }
         }
+        out.extend(typed_list(chart));
     }
     out
 }
@@ -347,6 +371,27 @@ mod tests {
             "/me/recommendations"
         );
         assert_eq!(api_path("/v1/catalog/es/charts"), "/catalog/es/charts");
-        assert_eq!(api_path("/catalog/es/songs?ids=1"), "/catalog/es/songs?ids=1");
+        assert_eq!(
+            api_path("/catalog/es/songs?ids=1"),
+            "/catalog/es/songs?ids=1"
+        );
+        assert_eq!(api_path("catalog/es/charts"), "/catalog/es/charts");
+    }
+
+    #[test]
+    fn charts_accept_a_bare_resource_list() {
+        let results = serde_json::json!({
+            "songs": [{
+                "id": "1",
+                "type": "songs",
+                "attributes": {
+                    "name": "One",
+                    "artistName": "Aitana",
+                    "playParams": { "id": "1", "kind": "song" }
+                }
+            }]
+        });
+        let songs = entries_from_list(chart_resources(&results, "songs"));
+        assert!(matches!(&songs[0], Entry::Song(t) if t.title == "One"));
     }
 }
