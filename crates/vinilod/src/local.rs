@@ -78,6 +78,20 @@ impl Player {
         self.active
     }
 
+    #[cfg(test)]
+    pub(crate) fn hold_for_test(&mut self, title: &str, artist: &str, art: Option<PathBuf>) {
+        self.active = true;
+        self.queue = vec![Track {
+            path: PathBuf::from("/tmp/local-file.flac"),
+            title: title.to_owned(),
+            artist: artist.to_owned(),
+            album: "Local album".into(),
+            duration_ms: 1_000,
+            art_path: art,
+        }];
+        self.index = 0;
+    }
+
     pub fn stop(&mut self) {
         if let Some(sink) = self.sink.as_ref() {
             sink.stop();
@@ -98,8 +112,9 @@ impl Player {
         self.ensure_output()?;
         self.queue = queue;
         self.index = index;
+        self.start_current()?;
         self.active = true;
-        self.start_current()
+        Ok(())
     }
 
     /// Add a file to a queue that is already playing, without restarting.
@@ -346,6 +361,7 @@ fn read_track(path: &Path) -> Track {
         .and_then(|s| s.to_str())
         .unwrap_or("Audio")
         .to_owned();
+    let folder_art = folder_cover(path);
     match lofty::read_from_path(path) {
         Ok(tagged) => {
             let duration_ms = tagged.properties().duration().as_millis() as u64;
@@ -360,7 +376,11 @@ fn read_track(path: &Path) -> Track {
             let album = tag
                 .and_then(|t| t.album().map(|s: std::borrow::Cow<'_, str>| s.into_owned()))
                 .unwrap_or_default();
-            let art_path = tag.and_then(write_picture);
+            let art_path = tagged
+                .tags()
+                .iter()
+                .find_map(write_picture)
+                .or(folder_art);
             Track {
                 path: path.to_path_buf(),
                 title,
@@ -376,9 +396,39 @@ fn read_track(path: &Path) -> Track {
             artist: String::new(),
             album: String::new(),
             duration_ms: 0,
-            art_path: None,
+            art_path: folder_art,
         },
     }
+}
+
+/// `cover.jpg` / `folder.png` beside the file, the convention every local
+/// player follows when the tags have no picture.
+fn folder_cover(audio: &Path) -> Option<PathBuf> {
+    let dir = audio.parent()?;
+    const NAMES: &[&str] = &[
+        "cover.jpg",
+        "cover.jpeg",
+        "cover.png",
+        "cover.webp",
+        "folder.jpg",
+        "folder.jpeg",
+        "folder.png",
+        "front.jpg",
+        "front.png",
+        "albumart.jpg",
+        "album.jpg",
+    ];
+    let entries = std::fs::read_dir(dir).ok()?;
+    let mut found: Vec<(usize, PathBuf)> = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let name = path.file_name()?.to_str()?.to_ascii_lowercase();
+        if let Some(rank) = NAMES.iter().position(|n| *n == name) {
+            found.push((rank, path));
+        }
+    }
+    found.sort_by_key(|(rank, _)| *rank);
+    found.into_iter().next().map(|(_, path)| path)
 }
 
 fn write_picture(tag: &lofty::tag::Tag) -> Option<PathBuf> {
@@ -403,4 +453,23 @@ fn write_picture(tag: &lofty::tag::Tag) -> Option<PathBuf> {
         std::fs::write(&path, picture.data()).ok()?;
     }
     Some(path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_cover_jpg_beside_the_file_is_used_when_tags_have_no_picture() {
+        let dir = std::env::temp_dir().join(format!("vinilo-local-art-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let audio = dir.join("track.mp3");
+        std::fs::write(&audio, b"not a real mp3").unwrap();
+        let cover = dir.join("cover.jpg");
+        std::fs::write(&cover, b"jpeg").unwrap();
+        let track = read_track(&audio);
+        assert_eq!(track.art_path.as_deref(), Some(cover.as_path()));
+        assert_eq!(track.title, "track");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

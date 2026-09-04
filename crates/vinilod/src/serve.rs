@@ -568,6 +568,19 @@ fn save_session(daemon: &Daemon) {
     });
 }
 
+/// Playback-shaped MusicKit events. Tokens, library writes and hook
+/// lifecycle still have to flow while a file is playing.
+fn is_musickit_playback(event: &PlayerEvent) -> bool {
+    matches!(
+        event,
+        PlayerEvent::NowPlaying { .. }
+            | PlayerEvent::PlaybackState { .. }
+            | PlayerEvent::Position { .. }
+            | PlayerEvent::Queue(_)
+            | PlayerEvent::Modes { .. }
+    )
+}
+
 fn on_event(daemon: &Rc<Daemon>, event: PlayerEvent) {
     // The name, not the payload: a `NowPlaying` carries the whole queue, and
     // 112 items per line is not observability.
@@ -669,6 +682,18 @@ fn on_event(daemon: &Rc<Daemon>, event: PlayerEvent) {
     }
 
     if signed_out {
+        return;
+    }
+
+    // Files on this computer own the now-playing bar. MusicKit stays paused
+    // with its last item, and every pause/nowPlaying/queue echo would put
+    // that Apple track back on the bar — title, artist and cover — while
+    // rodio is already playing the file.
+    if daemon.local.borrow().is_active() && is_musickit_playback(&event) {
+        tracing::debug!(
+            event = event_name(&event),
+            "local files own the player — ignoring MusicKit playback"
+        );
         return;
     }
 
@@ -1528,6 +1553,7 @@ fn play_streams(daemon: &Rc<Daemon>, ids: Vec<String>, index: usize) {
         if daemon.sidecar.borrow().is_some() {
             daemon.send(Command::Pause);
         }
+        *daemon.art_for.borrow_mut() = None;
         if let Err(detail) = daemon.local.borrow_mut().play_paths(vec![path], 0) {
             daemon.publish(Event::Error { detail });
             return;
@@ -2191,5 +2217,60 @@ mod tests {
             Some(Command::Seek { position_ms: 0 })
         ));
         assert!(daemon.restart_at.borrow().is_none());
+    }
+
+    #[test]
+    fn musickit_cannot_put_the_last_apple_track_over_a_local_file() {
+        let daemon = daemon();
+        populate_account_state(&daemon);
+        daemon.local.borrow_mut().hold_for_test(
+            "Local title",
+            "Local artist",
+            Some("/tmp/local-cover.jpg".into()),
+        );
+        publish_local(&daemon);
+
+        {
+            let model = daemon.model.borrow();
+            let item = model.player.now_playing.as_ref().expect("local item");
+            assert_eq!(item.title, "Local title");
+            assert_eq!(item.artist, "Local artist");
+            assert_eq!(
+                model.art_path.as_deref(),
+                Some(std::path::Path::new("/tmp/local-cover.jpg"))
+            );
+        }
+
+        // What MusicKit does after we Pause it: it still holds the last Apple
+        // track and echoes it. That used to overwrite the bar.
+        on_event(
+            &daemon,
+            PlayerEvent::NowPlaying {
+                item: Some(Item {
+                    title: "Apple title".into(),
+                    artist: "Apple artist".into(),
+                    artwork_template: Some(
+                        "https://is1-ssl.mzstatic.com/image/{w}x{h}bb.jpg".into(),
+                    ),
+                    ..Default::default()
+                }),
+                queue: Default::default(),
+            },
+        );
+        on_event(
+            &daemon,
+            PlayerEvent::PlaybackState {
+                state: PlaybackState::Paused,
+            },
+        );
+
+        let model = daemon.model.borrow();
+        let item = model.player.now_playing.as_ref().expect("local item");
+        assert_eq!(item.title, "Local title");
+        assert_eq!(item.artist, "Local artist");
+        assert_eq!(
+            model.art_path.as_deref(),
+            Some(std::path::Path::new("/tmp/local-cover.jpg"))
+        );
     }
 }
