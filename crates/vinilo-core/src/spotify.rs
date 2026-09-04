@@ -1,14 +1,16 @@
 // SPDX-FileCopyrightText: 2026 Daniel Miguel Tejedor
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Spotify Web API, using the web-player token from the login cookies.
+//! Spotify catalogue via the web-player partner API.
 //!
 //! Playback is still `yt-dlp` — Spotify does not offer a legal Linux stream.
 //! This module is the catalogue: search, liked songs, playlists, albums, and
 //! the Listen Now shelves. Tokens never leave this process.
 //!
-//! The web player no longer hands out a token from `get_access_token` alone.
-//! We mint the same TOTP the site uses, then call `/api/token`.
+//! The cookie login mints an **api-partner** token (`/api/token` + TOTP). That
+//! token does not work on `api.spotify.com/v1/me/*` (401/403). The web player
+//! loads the library through Pathfinder GraphQL, so we do the same: a
+//! client-token, then `libraryV3` / `fetchLibraryTracks` / `searchDesktop`.
 
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -25,13 +27,14 @@ use crate::music::types::{Album, Artist, Artwork, Playlist, Track, TrackId};
 use crate::provider::Provider;
 use crate::streams::{self, StreamHit};
 
+mod partner;
 mod totp;
 
 const API: &str = "https://api.spotify.com/v1";
 const PLAYER_TOKEN: &str = "https://open.spotify.com/api/token";
 
 struct CachedToken {
-    access: String,
+    session: partner::Session,
     expires: Instant,
 }
 
@@ -99,26 +102,16 @@ pub fn cooling_down() -> bool {
 
 /// Search tracks, albums, artists and playlists. Never falls back to YouTube.
 pub async fn search(http: &reqwest::Client, query: &str) -> Result<SearchPage> {
-    let token = token(http).await?;
+    let session = session(http).await?;
+    if let Ok(page) = search_partner(http, &session, query).await {
+        return Ok(page);
+    }
     let url = format!(
         "{API}/search?q={}&type=track,album,artist,playlist&limit=20",
         streams::urlencoding(query)
     );
-    let value = api_get(http, &token, &url).await?;
-    let hits = tracks_from_search(&value);
-    let songs: Vec<Track> = hits.iter().filter_map(hit_to_song).collect();
-    let albums = albums_from_search(&value);
-    let artists = artists_from_search(&value);
-    let playlists = playlists_from_search(&value);
-    Ok(SearchPage {
-        results: SearchResults {
-            songs,
-            albums,
-            artists,
-            playlists,
-        },
-        hits,
-    })
+    let value = api_get(http, &session.access, &url).await?;
+    Ok(search_page_from_rest(&value))
 }
 
 pub fn catalog_entries(page: SearchPage, filter: CatalogFilter) -> (Vec<StreamHit>, Vec<Entry>) {
@@ -128,13 +121,12 @@ pub fn catalog_entries(page: SearchPage, filter: CatalogFilter) -> (Vec<StreamHi
 }
 
 pub async fn library(http: &reqwest::Client) -> Result<Library> {
-    let token = token(http).await?;
-    let (liked, albums, artists, playlists, top) = tokio::join!(
-        saved_tracks(http, &token, 200),
-        saved_albums(http, &token, 100),
-        followed_artists(http, &token, 50),
-        user_playlists(http, &token, 100),
-        top_tracks(http, &token, 50),
+    let session = session(http).await?;
+    let (liked, albums, artists, playlists) = tokio::join!(
+        library_tracks(http, &session, 200),
+        library_albums(http, &session, 100),
+        library_artists(http, &session, 50),
+        library_playlists(http, &session, 100),
     );
     if liked.is_err() && albums.is_err() && artists.is_err() && playlists.is_err() {
         return Err(liked.err().unwrap_or_else(|| {
@@ -160,11 +152,6 @@ pub async fn library(http: &reqwest::Client) -> Result<Library> {
     if !songs.is_empty() {
         playlists.insert(0, liked_playlist(&songs));
     }
-    if let Ok(top) = top
-        && !top.is_empty()
-    {
-        playlists.insert(if songs.is_empty() { 0 } else { 1 }, top_playlist(&top));
-    }
     Ok(Library {
         songs,
         albums,
@@ -174,25 +161,25 @@ pub async fn library(http: &reqwest::Client) -> Result<Library> {
 }
 
 pub async fn discover(http: &reqwest::Client, library: &Library) -> Result<Discover> {
-    let token = token(http).await?;
-    let (recent, new_releases, featured) = tokio::join!(
-        recently_played(http, &token, 16),
-        new_releases(http, &token, 16),
-        featured_playlists(http, &token, 16),
-    );
-    let recently_played = recent
-        .unwrap_or_default()
+    let session = session(http).await?;
+    let home = home_feed(http, &session).await.unwrap_or_else(|err| {
+        tracing::warn!(?err, "spotify home feed");
+        HomeFeed::default()
+    });
+    let charts = if home.albums.is_empty() {
+        whats_new_albums(http, &session, 16)
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .map(Entry::Album)
+            .collect()
+    } else {
+        home.albums.into_iter().take(16).map(Entry::Album).collect()
+    };
+    let mut recommended_playlists: Vec<Entry> = home
+        .playlists
         .into_iter()
-        .map(Entry::Song)
-        .collect();
-    let charts = new_releases
-        .unwrap_or_default()
-        .into_iter()
-        .map(Entry::Album)
-        .collect();
-    let mut recommended_playlists: Vec<Entry> = featured
-        .unwrap_or_default()
-        .into_iter()
+        .take(16)
         .map(Entry::Playlist)
         .collect();
     let mixes: Vec<Entry> = library
@@ -209,10 +196,20 @@ pub async fn discover(http: &reqwest::Client, library: &Library) -> Result<Disco
             recommended_playlists.insert(0, mix);
         }
     }
-    let recommended_songs = if library.songs.is_empty() {
-        Vec::new()
-    } else {
+    let recommended_songs = if home.songs.is_empty() {
         library.songs.iter().take(16).cloned().collect()
+    } else {
+        home.songs
+    };
+    let recently_played: Vec<Entry> = if home.recent.is_empty() {
+        recommended_songs
+            .iter()
+            .take(8)
+            .cloned()
+            .map(Entry::Song)
+            .collect()
+    } else {
+        home.recent.into_iter().map(Entry::Song).collect()
     };
     let recently_added: Vec<Entry> = library
         .playlists
@@ -237,38 +234,38 @@ pub async fn open(
     id: &str,
 ) -> Result<(Entry, Vec<Entry>)> {
     let parsed = Ref::parse(id).context("not a Spotify id")?;
-    let token = token(http).await?;
+    let session = session(http).await?;
     match parsed {
         Ref::Album(album_id) => {
-            let (album, tracks) = album(http, &token, &album_id).await?;
+            let (album, tracks) = open_album(http, &session, &album_id).await?;
             Ok((
                 Entry::Album(album),
                 tracks.into_iter().map(Entry::Song).collect(),
             ))
         }
         Ref::Playlist(playlist_id) => {
-            let (list, tracks) = playlist(http, &token, &playlist_id).await?;
+            let (list, tracks) = open_playlist(http, &session, &playlist_id).await?;
             Ok((
                 Entry::Playlist(list),
                 tracks.into_iter().map(Entry::Song).collect(),
             ))
         }
         Ref::Liked => {
-            let tracks = saved_tracks(http, &token, 200).await?;
+            let tracks = library_tracks(http, &session, 200).await?;
             Ok((
                 Entry::Playlist(liked_playlist(&tracks)),
                 tracks.into_iter().map(Entry::Song).collect(),
             ))
         }
         Ref::Top => {
-            let tracks = top_tracks(http, &token, 50).await?;
+            let tracks = library_tracks(http, &session, 50).await?;
             Ok((
                 Entry::Playlist(top_playlist(&tracks)),
                 tracks.into_iter().map(Entry::Song).collect(),
             ))
         }
         Ref::Artist(artist_id) => {
-            let (artist, albums) = artist_albums(http, &token, &artist_id).await?;
+            let (artist, albums) = open_artist(http, &session, &artist_id).await?;
             Ok((
                 Entry::Artist(artist),
                 albums.into_iter().map(Entry::Album).collect(),
@@ -279,8 +276,11 @@ pub async fn open(
 }
 
 pub async fn track_hit(http: &reqwest::Client, id: &str) -> Result<StreamHit> {
-    let token = token(http).await?;
-    let value = api_get(http, &token, &format!("{API}/tracks/{id}")).await?;
+    let session = session(http).await?;
+    if let Ok(Some(hit)) = track_from_partner(http, &session, id).await {
+        return Ok(hit);
+    }
+    let value = api_get(http, &session.access, &format!("{API}/tracks/{id}")).await?;
     hit_from_track(&value).context("spotify track")
 }
 
@@ -295,8 +295,8 @@ pub fn tracks_from_search(value: &Value) -> Vec<StreamHit> {
     items.iter().filter_map(hit_from_track).collect()
 }
 
-async fn token(http: &reqwest::Client) -> Result<String> {
-    if let Some(cached) = cached_token() {
+async fn session(http: &reqwest::Client) -> Result<partner::Session> {
+    if let Some(cached) = cached_session() {
         return Ok(cached);
     }
     if let Some(wait) = cooldown_left() {
@@ -304,7 +304,7 @@ async fn token(http: &reqwest::Client) -> Result<String> {
         anyhow::bail!("{}", i18n::t(Key::SpotifyRateLimited));
     }
     let _fetch = FETCH.lock().await;
-    if let Some(cached) = cached_token() {
+    if let Some(cached) = cached_session() {
         return Ok(cached);
     }
     if cooldown_left().is_some() {
@@ -314,9 +314,9 @@ async fn token(http: &reqwest::Client) -> Result<String> {
         anyhow::bail!("{}", i18n::t(Key::SpotifyNotSignedIn));
     };
     match fetch_totp_token(http, &cookie).await {
-        Ok((access, ttl)) => {
-            store_token(&access, ttl);
-            Ok(access)
+        Ok((session, ttl)) => {
+            store_session(session.clone(), ttl);
+            Ok(session)
         }
         Err(_) if cooldown_left().is_some() => {
             anyhow::bail!("{}", i18n::t(Key::SpotifyRateLimited));
@@ -325,20 +325,20 @@ async fn token(http: &reqwest::Client) -> Result<String> {
     }
 }
 
-fn cached_token() -> Option<String> {
+fn cached_session() -> Option<partner::Session> {
     let guard = TOKEN.lock().ok()?;
     let cached = guard.as_ref()?;
-    (cached.expires > Instant::now()).then(|| cached.access.clone())
+    (cached.expires > Instant::now()).then(|| cached.session.clone())
 }
 
-fn cooldown_left() -> Option<Duration> {
+pub(super) fn cooldown_left() -> Option<Duration> {
     let until = *COOLDOWN.lock().ok()?;
     let until = until?;
     let now = Instant::now();
     (until > now).then(|| until.saturating_duration_since(now))
 }
 
-fn note_rate_limit(wait: Duration) {
+pub(super) fn note_rate_limit(wait: Duration) {
     tracing::warn!(secs = wait.as_secs(), "spotify 429 — backing off");
     if let Ok(mut guard) = COOLDOWN.lock() {
         let until = Instant::now() + wait;
@@ -348,7 +348,7 @@ fn note_rate_limit(wait: Duration) {
     }
 }
 
-fn retry_after(headers: &reqwest::header::HeaderMap) -> Duration {
+pub(super) fn retry_after(headers: &reqwest::header::HeaderMap) -> Duration {
     const DEFAULT: Duration = Duration::from_secs(60);
     let Some(raw) = headers.get("retry-after").and_then(|h| h.to_str().ok()) else {
         return DEFAULT;
@@ -359,16 +359,30 @@ fn retry_after(headers: &reqwest::header::HeaderMap) -> Duration {
     }
 }
 
-fn store_token(access: &str, ttl: Duration) {
+fn store_session(session: partner::Session, ttl: Duration) {
+    tracing::info!(
+        client_id = %session.client_id,
+        has_client_token = session.client_token.is_some(),
+        "spotify partner session ready"
+    );
     if let Ok(mut guard) = TOKEN.lock() {
         *guard = Some(CachedToken {
-            access: access.to_owned(),
+            session,
             expires: Instant::now() + ttl,
         });
     }
 }
 
-async fn fetch_totp_token(http: &reqwest::Client, cookie: &str) -> Result<(String, Duration)> {
+fn drop_session() {
+    if let Ok(mut guard) = TOKEN.lock() {
+        *guard = None;
+    }
+}
+
+async fn fetch_totp_token(
+    http: &reqwest::Client,
+    cookie: &str,
+) -> Result<(partner::Session, Duration)> {
     let secret = totp::current_secret(http).await;
     let server_time = totp::server_time(http).await;
     let otp = totp::totp_from_cipher(&secret.cipher, server_time);
@@ -379,8 +393,33 @@ async fn fetch_totp_token(http: &reqwest::Client, cookie: &str) -> Result<(Strin
             anyhow::bail!("{}", i18n::t(Key::SpotifyRateLimited));
         }
         match fetch_player_token(http, cookie, reason, &otp, secret.version, server_time).await {
-            Ok((access, false, ttl)) => return Ok((access, ttl)),
-            Ok((_, true, _)) => {
+            Ok((access, false, ttl, client_id)) => {
+                let client_version = partner::CLIENT_VERSION.to_owned();
+                let client_token = match partner::mint_client_token(
+                    http,
+                    cookie,
+                    &client_id,
+                    &client_version,
+                )
+                .await
+                {
+                    Ok(token) => Some(token),
+                    Err(err) => {
+                        tracing::warn!(%err, "spotify client-token failed; Pathfinder may reject requests");
+                        None
+                    }
+                };
+                return Ok((
+                    partner::Session {
+                        access,
+                        client_token,
+                        client_id,
+                        client_version,
+                    },
+                    ttl,
+                ));
+            }
+            Ok((_, true, _, _)) => {
                 last_err = anyhow::anyhow!("spotify /api/token returned an anonymous token");
                 tracing::warn!(reason, "spotify totp token was anonymous");
             }
@@ -403,7 +442,7 @@ async fn fetch_player_token(
     otp: &str,
     totp_ver: u32,
     server_time: u64,
-) -> Result<(String, bool, Duration)> {
+) -> Result<(String, bool, Duration, String)> {
     let ver = totp_ver.to_string();
     let mut pairs: Vec<(&str, String)> = vec![
         ("reason", reason.to_owned()),
@@ -440,7 +479,7 @@ fn player_token_request(
         .header("Cookie", cookie)
 }
 
-async fn send_token(req: reqwest::RequestBuilder) -> Result<(String, bool, Duration)> {
+async fn send_token(req: reqwest::RequestBuilder) -> Result<(String, bool, Duration, String)> {
     let res = req.send().await.context("spotify token")?;
     let status = res.status();
     if status.as_u16() == 429 {
@@ -485,10 +524,16 @@ async fn send_token(req: reqwest::RequestBuilder) -> Result<(String, bool, Durat
     } else {
         Duration::from_secs(50 * 60)
     };
-    Ok((access, anonymous, ttl))
+    let client_id = value
+        .get("clientId")
+        .or_else(|| value.get("client_id"))
+        .and_then(Value::as_str)
+        .unwrap_or(partner::WEB_PLAYER_CLIENT_ID)
+        .to_owned();
+    Ok((access, anonymous, ttl, client_id))
 }
 
-fn clip_body(body: &str) -> String {
+pub(super) fn clip_body(body: &str) -> String {
     const MAX: usize = 400;
     let trimmed = body.trim();
     if trimmed.chars().count() <= MAX {
@@ -513,15 +558,1105 @@ async fn api_get(http: &reqwest::Client, token: &str, url: &str) -> Result<Value
         anyhow::bail!("{}", i18n::t(Key::SpotifyRateLimited));
     }
     if status.as_u16() == 401 || status.as_u16() == 403 {
-        if let Ok(mut guard) = TOKEN.lock() {
-            *guard = None;
-        }
-        anyhow::bail!("Spotify refused the session ({status}). Sign in again from the menu.");
+        tracing::debug!(%status, url, "spotify REST refused this partner token (expected)");
+        anyhow::bail!("Spotify REST {status} for {url}");
     }
     if !status.is_success() {
         anyhow::bail!("Spotify {status} for {url}");
     }
     res.json().await.context("spotify json")
+}
+
+async fn partner_query(
+    http: &reqwest::Client,
+    session: &partner::Session,
+    operation: &str,
+    hashes: &[&str],
+    variables: Value,
+) -> Result<Value> {
+    match partner::query(http, session, operation, hashes, variables).await {
+        Ok(value) => Ok(value),
+        Err(err) => {
+            if err.to_string().contains("refused the partner session") {
+                drop_session();
+            }
+            Err(err)
+        }
+    }
+}
+
+async fn library_tracks(
+    http: &reqwest::Client,
+    session: &partner::Session,
+    max: usize,
+) -> Result<Vec<Track>> {
+    match liked_tracks_partner(http, session, max).await {
+        Ok(songs) if !songs.is_empty() => Ok(songs),
+        Ok(empty) => {
+            if let Ok(rest) = saved_tracks(http, &session.access, max).await
+                && !rest.is_empty()
+            {
+                return Ok(rest);
+            }
+            Ok(empty)
+        }
+        Err(err) => {
+            tracing::warn!(%err, "spotify fetchLibraryTracks");
+            saved_tracks(http, &session.access, max).await
+        }
+    }
+}
+
+async fn liked_tracks_partner(
+    http: &reqwest::Client,
+    session: &partner::Session,
+    max: usize,
+) -> Result<Vec<Track>> {
+    let mut songs = Vec::new();
+    let mut offset = 0usize;
+    let limit = partner::page_limit();
+    while songs.len() < max {
+        let value = partner_query(
+            http,
+            session,
+            "fetchLibraryTracks",
+            partner::FETCH_LIBRARY_TRACKS,
+            serde_json::json!({ "offset": offset, "limit": limit }),
+        )
+        .await?;
+        let page = value
+            .pointer("/data/me/library/tracks/items")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        if page.is_empty() {
+            break;
+        }
+        for item in &page {
+            if let Some(song) = song_from_library_track(item) {
+                songs.push(song);
+            }
+        }
+        offset += limit;
+        let total = value
+            .pointer("/data/me/library/tracks/totalCount")
+            .and_then(Value::as_u64)
+            .unwrap_or(0) as usize;
+        if offset >= total || page.len() < limit {
+            break;
+        }
+    }
+    songs.truncate(max);
+    Ok(songs)
+}
+
+async fn library_playlists(
+    http: &reqwest::Client,
+    session: &partner::Session,
+    max: usize,
+) -> Result<Vec<Playlist>> {
+    match library_v3_playlists(http, session, max).await {
+        Ok(lists) if !lists.is_empty() => Ok(lists),
+        Ok(empty) => {
+            if let Ok(rest) = user_playlists(http, &session.access, max).await
+                && !rest.is_empty()
+            {
+                return Ok(rest);
+            }
+            Ok(empty)
+        }
+        Err(err) => {
+            tracing::warn!(%err, "spotify libraryV3 playlists");
+            user_playlists(http, &session.access, max).await
+        }
+    }
+}
+
+async fn library_v3_playlists(
+    http: &reqwest::Client,
+    session: &partner::Session,
+    max: usize,
+) -> Result<Vec<Playlist>> {
+    let mut lists = Vec::new();
+    let mut offset = 0usize;
+    let limit = partner::page_limit();
+    while lists.len() < max {
+        let value = partner_query(
+            http,
+            session,
+            "libraryV3",
+            partner::LIBRARY_V3,
+            partner::library_v3_vars("Playlists", offset, limit, true),
+        )
+        .await?;
+        let lib = value
+            .pointer("/data/me/libraryV3")
+            .cloned()
+            .unwrap_or(Value::Null);
+        if lib.get("__typename").and_then(Value::as_str) == Some("LibraryInvalidFilterIdError") {
+            anyhow::bail!("libraryV3 rejected the Playlists filter");
+        }
+        let page = lib
+            .get("items")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        if page.is_empty() {
+            break;
+        }
+        for item in &page {
+            if let Some(list) = playlist_from_library_item(item) {
+                lists.push(list);
+            }
+        }
+        offset += limit;
+        let total = lib.get("totalCount").and_then(Value::as_u64).unwrap_or(0) as usize;
+        if offset >= total || page.len() < limit {
+            break;
+        }
+    }
+    lists.truncate(max);
+    Ok(lists)
+}
+
+async fn library_albums(
+    http: &reqwest::Client,
+    session: &partner::Session,
+    max: usize,
+) -> Result<Vec<Album>> {
+    match library_v3_albums(http, session, max).await {
+        Ok(albums) if !albums.is_empty() => Ok(albums),
+        Ok(empty) => {
+            if let Ok(rest) = saved_albums(http, &session.access, max).await
+                && !rest.is_empty()
+            {
+                return Ok(rest);
+            }
+            Ok(empty)
+        }
+        Err(err) => {
+            tracing::warn!(%err, "spotify libraryV3 albums");
+            saved_albums(http, &session.access, max).await
+        }
+    }
+}
+
+async fn library_v3_albums(
+    http: &reqwest::Client,
+    session: &partner::Session,
+    max: usize,
+) -> Result<Vec<Album>> {
+    let mut albums = Vec::new();
+    let mut offset = 0usize;
+    let limit = partner::page_limit();
+    while albums.len() < max {
+        let value = partner_query(
+            http,
+            session,
+            "libraryV3",
+            partner::LIBRARY_V3,
+            partner::library_v3_vars("Albums", offset, limit, false),
+        )
+        .await?;
+        let lib = value
+            .pointer("/data/me/libraryV3")
+            .cloned()
+            .unwrap_or(Value::Null);
+        if lib.get("__typename").and_then(Value::as_str) == Some("LibraryInvalidFilterIdError") {
+            anyhow::bail!("libraryV3 rejected the Albums filter");
+        }
+        let page = lib
+            .get("items")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        if page.is_empty() {
+            break;
+        }
+        for item in &page {
+            if let Some(album) = album_from_library_item(item) {
+                albums.push(album);
+            }
+        }
+        offset += limit;
+        let total = lib.get("totalCount").and_then(Value::as_u64).unwrap_or(0) as usize;
+        if offset >= total || page.len() < limit {
+            break;
+        }
+    }
+    albums.truncate(max);
+    Ok(albums)
+}
+
+async fn library_artists(
+    http: &reqwest::Client,
+    session: &partner::Session,
+    max: usize,
+) -> Result<Vec<Artist>> {
+    match library_v3_artists(http, session, max).await {
+        Ok(artists) if !artists.is_empty() => Ok(artists),
+        Ok(empty) => {
+            if let Ok(rest) = followed_artists(http, &session.access, max).await
+                && !rest.is_empty()
+            {
+                return Ok(rest);
+            }
+            Ok(empty)
+        }
+        Err(err) => {
+            tracing::warn!(%err, "spotify libraryV3 artists");
+            followed_artists(http, &session.access, max).await
+        }
+    }
+}
+
+async fn library_v3_artists(
+    http: &reqwest::Client,
+    session: &partner::Session,
+    max: usize,
+) -> Result<Vec<Artist>> {
+    let mut artists = Vec::new();
+    let mut offset = 0usize;
+    let limit = partner::page_limit();
+    while artists.len() < max {
+        let value = partner_query(
+            http,
+            session,
+            "libraryV3",
+            partner::LIBRARY_V3,
+            partner::library_v3_vars("Artists", offset, limit, false),
+        )
+        .await?;
+        let lib = value
+            .pointer("/data/me/libraryV3")
+            .cloned()
+            .unwrap_or(Value::Null);
+        if lib.get("__typename").and_then(Value::as_str) == Some("LibraryInvalidFilterIdError") {
+            anyhow::bail!("libraryV3 rejected the Artists filter");
+        }
+        let page = lib
+            .get("items")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        if page.is_empty() {
+            break;
+        }
+        for item in &page {
+            if let Some(artist) = artist_from_library_item(item) {
+                artists.push(artist);
+            }
+        }
+        offset += limit;
+        let total = lib.get("totalCount").and_then(Value::as_u64).unwrap_or(0) as usize;
+        if offset >= total || page.len() < limit {
+            break;
+        }
+    }
+    artists.truncate(max);
+    Ok(artists)
+}
+
+async fn search_partner(
+    http: &reqwest::Client,
+    session: &partner::Session,
+    query: &str,
+) -> Result<SearchPage> {
+    let value = partner_query(
+        http,
+        session,
+        "searchDesktop",
+        partner::SEARCH_DESKTOP,
+        serde_json::json!({
+            "searchTerm": query,
+            "offset": 0,
+            "limit": 20,
+            "numberOfTopResults": 5,
+            "includeAudiobooks": false,
+            "includeArtistHasConcertsField": false,
+            "includePreReleases": false,
+            "includeLocalConcertsField": false,
+            "includeAuthors": false
+        }),
+    )
+    .await?;
+    let search = value
+        .pointer("/data/searchV2")
+        .cloned()
+        .unwrap_or(Value::Null);
+    let hits = tracks_from_search_v2(&search);
+    if hits.is_empty()
+        && search
+            .pointer("/tracksV2/items")
+            .and_then(Value::as_array)
+            .is_none()
+    {
+        anyhow::bail!("searchDesktop returned no tracksV2");
+    }
+    let songs: Vec<Track> = hits.iter().filter_map(hit_to_song).collect();
+    Ok(SearchPage {
+        results: SearchResults {
+            songs,
+            albums: albums_from_search_v2(&search),
+            artists: artists_from_search_v2(&search),
+            playlists: playlists_from_search_v2(&search),
+        },
+        hits,
+    })
+}
+
+fn search_page_from_rest(value: &Value) -> SearchPage {
+    let hits = tracks_from_search(value);
+    let songs: Vec<Track> = hits.iter().filter_map(hit_to_song).collect();
+    SearchPage {
+        results: SearchResults {
+            songs,
+            albums: albums_from_search(value),
+            artists: artists_from_search(value),
+            playlists: playlists_from_search(value),
+        },
+        hits,
+    }
+}
+
+async fn open_playlist(
+    http: &reqwest::Client,
+    session: &partner::Session,
+    id: &str,
+) -> Result<(Playlist, Vec<Track>)> {
+    match playlist_partner(http, session, id).await {
+        Ok(ok) => Ok(ok),
+        Err(err) => {
+            tracing::warn!(%err, id, "spotify fetchPlaylist");
+            playlist(http, &session.access, id).await
+        }
+    }
+}
+
+async fn playlist_partner(
+    http: &reqwest::Client,
+    session: &partner::Session,
+    id: &str,
+) -> Result<(Playlist, Vec<Track>)> {
+    let mut tracks = Vec::new();
+    let mut list = None;
+    let mut offset = 0usize;
+    let limit = 100usize;
+    loop {
+        let value = partner_query(
+            http,
+            session,
+            "fetchPlaylist",
+            partner::FETCH_PLAYLIST,
+            serde_json::json!({
+                "uri": format!("spotify:playlist:{id}"),
+                "offset": offset,
+                "limit": limit,
+                "enableWatchFeedEntrypoint": offset == 0
+            }),
+        )
+        .await?;
+        let playlist = value
+            .pointer("/data/playlistV2")
+            .cloned()
+            .context("spotify fetchPlaylist missing playlistV2")?;
+        if list.is_none() {
+            list = playlist_from_gql(&playlist, id);
+        }
+        let content = playlist.get("content").cloned().unwrap_or(Value::Null);
+        let page = content
+            .get("items")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        if page.is_empty() {
+            break;
+        }
+        for item in &page {
+            if let Some(song) = song_from_playlist_item(item) {
+                tracks.push(song);
+            }
+        }
+        offset += limit;
+        let total = content
+            .get("totalCount")
+            .and_then(Value::as_u64)
+            .unwrap_or(0) as usize;
+        if offset >= total || page.len() < limit || tracks.len() >= 500 {
+            break;
+        }
+    }
+    Ok((list.context("spotify playlist")?, tracks))
+}
+
+async fn open_album(
+    http: &reqwest::Client,
+    session: &partner::Session,
+    id: &str,
+) -> Result<(Album, Vec<Track>)> {
+    match album_partner(http, session, id).await {
+        Ok(ok) => Ok(ok),
+        Err(err) => {
+            tracing::warn!(%err, id, "spotify getAlbum");
+            album(http, &session.access, id).await
+        }
+    }
+}
+
+async fn album_partner(
+    http: &reqwest::Client,
+    session: &partner::Session,
+    id: &str,
+) -> Result<(Album, Vec<Track>)> {
+    let value = partner_query(
+        http,
+        session,
+        "getAlbum",
+        partner::GET_ALBUM,
+        serde_json::json!({
+            "uri": format!("spotify:album:{id}"),
+            "locale": "",
+            "offset": 0,
+            "limit": 300
+        }),
+    )
+    .await?;
+    let union = value
+        .pointer("/data/albumUnion")
+        .cloned()
+        .context("spotify getAlbum missing albumUnion")?;
+    let album = album_from_gql(&union, id).context("spotify album")?;
+    let mut tracks = Vec::new();
+    if let Some(items) = union.pointer("/tracksV2/items").and_then(Value::as_array) {
+        for (i, item) in items.iter().enumerate() {
+            let track = item.get("track").unwrap_or(item);
+            if let Some(mut song) = song_from_gql(track, String::new(), false, false) {
+                if song.track_number == 0 {
+                    song.track_number = (i as u32) + 1;
+                }
+                if song.album.is_empty() {
+                    song.album = album.name.clone();
+                }
+                if song.artwork.is_none() {
+                    song.artwork = album.artwork.clone();
+                }
+                tracks.push(song);
+            }
+        }
+    }
+    Ok((album, tracks))
+}
+
+async fn open_artist(
+    http: &reqwest::Client,
+    session: &partner::Session,
+    id: &str,
+) -> Result<(Artist, Vec<Album>)> {
+    match artist_partner(http, session, id).await {
+        Ok(ok) => Ok(ok),
+        Err(err) => {
+            tracing::warn!(%err, id, "spotify queryArtistOverview");
+            artist_albums(http, &session.access, id).await
+        }
+    }
+}
+
+async fn artist_partner(
+    http: &reqwest::Client,
+    session: &partner::Session,
+    id: &str,
+) -> Result<(Artist, Vec<Album>)> {
+    let value = partner_query(
+        http,
+        session,
+        "queryArtistOverview",
+        partner::ARTIST_OVERVIEW,
+        serde_json::json!({
+            "uri": format!("spotify:artist:{id}"),
+            "locale": "",
+            "preReleaseV2": false
+        }),
+    )
+    .await?;
+    let union = value
+        .pointer("/data/artistUnion")
+        .cloned()
+        .context("spotify queryArtistOverview missing artistUnion")?;
+    let artist = artist_from_gql(&union, id).context("spotify artist")?;
+    Ok((artist, albums_from_artist_union(&union)))
+}
+
+async fn track_from_partner(
+    http: &reqwest::Client,
+    session: &partner::Session,
+    id: &str,
+) -> Result<Option<StreamHit>> {
+    let value = partner_query(
+        http,
+        session,
+        "getTrack",
+        partner::GET_TRACK,
+        serde_json::json!({ "uri": format!("spotify:track:{id}") }),
+    )
+    .await?;
+    let track = value
+        .pointer("/data/trackUnion")
+        .or_else(|| value.pointer("/data/track"))
+        .cloned()
+        .unwrap_or(Value::Null);
+    Ok(hit_from_gql_track(&track))
+}
+
+#[derive(Default)]
+struct HomeFeed {
+    playlists: Vec<Playlist>,
+    albums: Vec<Album>,
+    songs: Vec<Track>,
+    recent: Vec<Track>,
+}
+
+async fn home_feed(http: &reqwest::Client, session: &partner::Session) -> Result<HomeFeed> {
+    let value = partner_query(
+        http,
+        session,
+        "home",
+        partner::HOME,
+        serde_json::json!({
+            "homeEndUserIntegration": "INTEGRATION_WEB_PLAYER",
+            "timeZone": "Europe/Madrid",
+            "sp_t": "",
+            "facet": "",
+            "sectionItemsLimit": 10,
+            "includeEpisodeContentRatingsV2": false
+        }),
+    )
+    .await?;
+    let sections = value
+        .pointer("/data/home/sectionContainer/sections/items")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let mut feed = HomeFeed::default();
+    for section in sections {
+        let title = section
+            .pointer("/data/title/transformedLabel")
+            .or_else(|| section.pointer("/data/title/text"))
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        let items = section
+            .pointer("/sectionItems/items")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        for item in items {
+            let content = item.get("content").unwrap_or(&item);
+            let typename = content
+                .get("__typename")
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            let data = content.get("data").unwrap_or(content);
+            if typename.contains("Playlist") {
+                if let Some(list) = playlist_from_gql(data, "") {
+                    feed.playlists.push(list);
+                }
+            } else if typename.contains("Album") {
+                if let Some(album) = album_from_gql(data, "") {
+                    feed.albums.push(album);
+                }
+            } else if typename.contains("Track") {
+                if let Some(song) = song_from_gql(data, String::new(), false, false) {
+                    if title.contains("jump")
+                        || title.contains("recent")
+                        || title.contains("vuelve")
+                    {
+                        feed.recent.push(song);
+                    } else {
+                        feed.songs.push(song);
+                    }
+                }
+            }
+        }
+    }
+    Ok(feed)
+}
+
+async fn whats_new_albums(
+    http: &reqwest::Client,
+    session: &partner::Session,
+    max: usize,
+) -> Result<Vec<Album>> {
+    let value = partner_query(
+        http,
+        session,
+        "queryWhatsNewFeed",
+        partner::WHATS_NEW,
+        serde_json::json!({
+            "offset": 0,
+            "limit": max,
+            "onlyUnPlayedItems": false,
+            "includedContentTypes": ["ALBUM"]
+        }),
+    )
+    .await?;
+    let items = value
+        .pointer("/data/whatsNewFeedItems/items")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    Ok(items
+        .iter()
+        .filter_map(|item| {
+            let content = item.get("content")?;
+            album_from_gql(content.get("data").unwrap_or(content), "")
+        })
+        .take(max)
+        .collect())
+}
+
+fn song_from_library_track(item: &Value) -> Option<Track> {
+    let wrapper = item.get("track").or_else(|| item.get("item"))?;
+    let data = wrapper.get("data").unwrap_or(wrapper);
+    let added = item
+        .pointer("/addedAt/isoString")
+        .or_else(|| item.get("addedAt"))
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_owned();
+    song_from_gql(data, added, true, true)
+}
+
+fn song_from_playlist_item(item: &Value) -> Option<Track> {
+    let wrapper = item
+        .get("itemV2")
+        .or_else(|| item.get("item"))
+        .unwrap_or(item);
+    if let Some(typename) = wrapper.get("__typename").and_then(Value::as_str)
+        && !typename.contains("Track")
+        && typename != "TrackResponseWrapper"
+    {
+        return None;
+    }
+    let data = wrapper.get("data").unwrap_or(wrapper);
+    if data.get("__typename").and_then(Value::as_str) == Some("NotFound") {
+        return None;
+    }
+    let added = item
+        .pointer("/addedAt/isoString")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_owned();
+    song_from_gql(data, added, false, false)
+}
+
+fn playlist_from_library_item(item: &Value) -> Option<Playlist> {
+    let wrapper = item.get("item")?;
+    let typename = wrapper
+        .get("__typename")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    if !typename.contains("Playlist") {
+        return None;
+    }
+    let data = wrapper.get("data").unwrap_or(wrapper);
+    if data.get("__typename").and_then(Value::as_str) == Some("NotFound") {
+        return None;
+    }
+    let uri = wrapper
+        .get("_uri")
+        .or_else(|| wrapper.get("uri"))
+        .or_else(|| data.get("uri"))
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let id = uri_tail(uri);
+    if id.is_empty() || uri.contains(":collection:") {
+        return None;
+    }
+    playlist_from_gql(data, &id).map(|mut list| {
+        list.library = true;
+        list
+    })
+}
+
+fn album_from_library_item(item: &Value) -> Option<Album> {
+    let wrapper = item.get("item")?;
+    let typename = wrapper
+        .get("__typename")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    if !typename.contains("Album") {
+        return None;
+    }
+    let data = wrapper.get("data").unwrap_or(wrapper);
+    album_from_gql(data, "").map(|mut album| {
+        album.library = true;
+        album.date_added = item
+            .pointer("/addedAt/isoString")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_owned();
+        album
+    })
+}
+
+fn artist_from_library_item(item: &Value) -> Option<Artist> {
+    let wrapper = item.get("item")?;
+    let typename = wrapper
+        .get("__typename")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    if !typename.contains("Artist") {
+        return None;
+    }
+    artist_from_gql(wrapper.get("data").unwrap_or(wrapper), "")
+}
+
+fn tracks_from_search_v2(search: &Value) -> Vec<StreamHit> {
+    search
+        .pointer("/tracksV2/items")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| {
+                    let wrapper = item.get("item").unwrap_or(item);
+                    let data = wrapper.get("data").unwrap_or(wrapper);
+                    hit_from_gql_track(data)
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn albums_from_search_v2(search: &Value) -> Vec<Album> {
+    let items = search
+        .pointer("/albumsV2/items")
+        .or_else(|| search.pointer("/albums/items"))
+        .and_then(Value::as_array);
+    items
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| {
+                    let data = item.get("data").unwrap_or(item);
+                    album_from_gql(data, "")
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn artists_from_search_v2(search: &Value) -> Vec<Artist> {
+    search
+        .pointer("/artists/items")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| {
+                    let data = item.get("data").unwrap_or(item);
+                    artist_from_gql(data, "")
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn playlists_from_search_v2(search: &Value) -> Vec<Playlist> {
+    search
+        .pointer("/playlists/items")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| {
+                    let data = item.get("data").unwrap_or(item);
+                    playlist_from_gql(data, "")
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn song_from_gql(
+    data: &Value,
+    date_added: String,
+    favorite: bool,
+    in_library: bool,
+) -> Option<Track> {
+    let hit = hit_from_gql_track(data)?;
+    let mut song = hit_to_song(&hit)?;
+    song.date_added = date_added;
+    song.favorite = favorite;
+    song.in_library = in_library;
+    song.track_number = data
+        .get("trackNumber")
+        .or_else(|| data.get("track_number"))
+        .and_then(Value::as_u64)
+        .unwrap_or(0) as u32;
+    song.year = year_of(&gql_date(data));
+    Some(song)
+}
+
+fn hit_from_gql_track(data: &Value) -> Option<StreamHit> {
+    if data.is_null() {
+        return None;
+    }
+    let typename = data.get("__typename").and_then(Value::as_str).unwrap_or("");
+    if typename == "NotFound" || typename.contains("Episode") {
+        return None;
+    }
+    let uri = data
+        .get("uri")
+        .or_else(|| data.get("_uri"))
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let id = if uri.is_empty() {
+        data.get("id")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_owned()
+    } else {
+        uri_tail(uri)
+    };
+    if id.is_empty() || id.contains(':') {
+        return None;
+    }
+    let title = text(data, "name");
+    if title.is_empty() {
+        return None;
+    }
+    Some(StreamHit {
+        play_query: format!("https://open.spotify.com/track/{id}"),
+        artwork: gql_cover(data),
+        duration_ms: gql_duration_ms(data),
+        album: gql_album_name(data),
+        artist: gql_artists_line(data),
+        title,
+        id: format!("sp:{id}"),
+    })
+}
+
+fn playlist_from_gql(data: &Value, fallback_id: &str) -> Option<Playlist> {
+    if data.is_null() {
+        return None;
+    }
+    let uri = data.get("uri").and_then(Value::as_str).unwrap_or("");
+    let mut id = uri_tail(uri);
+    if id.is_empty() {
+        id = fallback_id.to_owned();
+    }
+    if id.is_empty() {
+        return None;
+    }
+    let name = text(data, "name");
+    if name.is_empty() {
+        return None;
+    }
+    Some(Playlist {
+        id: format!("sp:playlist:{id}"),
+        date_added: String::new(),
+        last_modified: String::new(),
+        name,
+        curator: data
+            .pointer("/ownerV2/data/name")
+            .or_else(|| data.pointer("/owner/display_name"))
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_owned(),
+        description: text(data, "description"),
+        artwork: gql_playlist_cover(data)
+            .or_else(|| gql_cover(data))
+            .map(Artwork::new),
+        library: false,
+    })
+}
+
+fn album_from_gql(data: &Value, fallback_id: &str) -> Option<Album> {
+    if data.is_null() {
+        return None;
+    }
+    let uri = data.get("uri").and_then(Value::as_str).unwrap_or("");
+    let mut id = uri_tail(uri);
+    if id.is_empty() {
+        id = fallback_id.to_owned();
+    }
+    if id.is_empty() {
+        id = data
+            .get("id")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_owned();
+    }
+    if id.is_empty() {
+        return None;
+    }
+    let name = text(data, "name");
+    if name.is_empty() {
+        return None;
+    }
+    Some(Album {
+        id: format!("sp:album:{id}"),
+        date_added: String::new(),
+        name,
+        artist: gql_artists_line(data),
+        artwork: gql_cover(data).map(Artwork::new),
+        year: year_of(&gql_date(data)),
+        track_count: data
+            .pointer("/tracksV2/totalCount")
+            .or_else(|| data.get("total_tracks"))
+            .and_then(Value::as_u64)
+            .unwrap_or(0) as u32,
+        library: false,
+    })
+}
+
+fn artist_from_gql(data: &Value, fallback_id: &str) -> Option<Artist> {
+    if data.is_null() {
+        return None;
+    }
+    let uri = data.get("uri").and_then(Value::as_str).unwrap_or("");
+    let mut id = uri_tail(uri);
+    if id.is_empty() {
+        id = fallback_id.to_owned();
+    }
+    if id.is_empty() {
+        id = data
+            .get("id")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_owned();
+    }
+    let name = data
+        .pointer("/profile/name")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| text(data, "name"));
+    if id.is_empty() || name.is_empty() {
+        return None;
+    }
+    Some(Artist {
+        id: format!("sp:artist:{id}"),
+        name,
+        artwork: gql_cover(data).map(Artwork::new),
+        genres: String::new(),
+        library: true,
+    })
+}
+
+fn albums_from_artist_union(union: &Value) -> Vec<Album> {
+    let mut albums = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    let pointers = [
+        "/discography/popularReleasesAlbums/items",
+        "/discography/albums/items",
+        "/discography/singles/items",
+        "/discography/topAlbums/items",
+    ];
+    for pointer in pointers {
+        let Some(items) = union.pointer(pointer).and_then(Value::as_array) else {
+            continue;
+        };
+        for item in items {
+            let releases = item
+                .pointer("/releases/items")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_else(|| vec![item.clone()]);
+            for release in releases {
+                let data = release.get("data").unwrap_or(&release);
+                if let Some(album) = album_from_gql(data, "")
+                    && seen.insert(album.id.clone())
+                {
+                    albums.push(album);
+                }
+            }
+        }
+    }
+    albums
+}
+
+fn gql_artists_line(data: &Value) -> String {
+    if let Some(items) = data.pointer("/artists/items").and_then(Value::as_array) {
+        let names: Vec<&str> = items
+            .iter()
+            .filter_map(|a| {
+                a.pointer("/profile/name")
+                    .or_else(|| a.get("name"))
+                    .and_then(Value::as_str)
+            })
+            .collect();
+        if !names.is_empty() {
+            return names.join(", ");
+        }
+    }
+    artists_line(data)
+}
+
+fn gql_album_name(data: &Value) -> String {
+    data.pointer("/albumOfTrack/name")
+        .or_else(|| data.pointer("/album/name"))
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_owned()
+}
+
+fn gql_duration_ms(data: &Value) -> u64 {
+    data.pointer("/duration/totalMilliseconds")
+        .or_else(|| data.pointer("/trackDuration/totalMilliseconds"))
+        .or_else(|| data.get("durationMs"))
+        .or_else(|| data.get("duration_ms"))
+        .and_then(Value::as_u64)
+        .unwrap_or(0)
+}
+
+fn gql_cover(data: &Value) -> Option<String> {
+    cover_from_sources(data.pointer("/albumOfTrack/coverArt/sources"))
+        .or_else(|| cover_from_sources(data.pointer("/coverArt/sources")))
+        .or_else(|| cover_from_sources(data.pointer("/visuals/avatarImage/sources")))
+        .or_else(|| image_url(data.pointer("/album/images")))
+        .or_else(|| image_url(data.get("images")))
+}
+
+fn gql_playlist_cover(data: &Value) -> Option<String> {
+    data.pointer("/images/items")
+        .and_then(Value::as_array)
+        .and_then(|items| items.first())
+        .and_then(|item| cover_from_sources(item.get("sources")))
+}
+
+fn cover_from_sources(sources: Option<&Value>) -> Option<String> {
+    let arr = sources.and_then(Value::as_array)?;
+    arr.iter()
+        .max_by_key(|s| s.get("height").and_then(Value::as_u64).unwrap_or(0))
+        .and_then(|s| s.get("url"))
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .or_else(|| {
+            arr.first()
+                .and_then(|s| s.get("url"))
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+        })
+}
+
+fn gql_date(data: &Value) -> String {
+    data.pointer("/albumOfTrack/date/isoString")
+        .or_else(|| data.pointer("/date/isoString"))
+        .or_else(|| data.pointer("/album/release_date"))
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .or_else(|| {
+            data.pointer("/date/year")
+                .and_then(Value::as_u64)
+                .map(|y| y.to_string())
+        })
+        .unwrap_or_default()
+}
+
+fn uri_tail(uri: &str) -> String {
+    uri.rsplit(':').next().unwrap_or("").to_owned()
 }
 
 async fn saved_tracks(http: &reqwest::Client, token: &str, max: usize) -> Result<Vec<Track>> {
@@ -534,59 +1669,6 @@ async fn saved_tracks(http: &reqwest::Client, token: &str, max: usize) -> Result
             song_from_track(track, added, true, true)
         })
         .collect())
-}
-
-async fn top_tracks(http: &reqwest::Client, token: &str, max: usize) -> Result<Vec<Track>> {
-    let value = match api_get(
-        http,
-        token,
-        &format!("{API}/me/top/tracks?time_range=short_term&limit={max}"),
-    )
-    .await
-    {
-        Ok(value) => value,
-        Err(_) => {
-            api_get(
-                http,
-                token,
-                &format!("{API}/me/top/tracks?time_range=medium_term&limit={max}"),
-            )
-            .await?
-        }
-    };
-    let Some(items) = value.get("items").and_then(Value::as_array) else {
-        return Ok(Vec::new());
-    };
-    Ok(items
-        .iter()
-        .filter_map(|track| song_from_track(track, String::new(), false, true))
-        .collect())
-}
-
-async fn recently_played(http: &reqwest::Client, token: &str, max: usize) -> Result<Vec<Track>> {
-    let value = api_get(
-        http,
-        token,
-        &format!("{API}/me/player/recently-played?limit={max}"),
-    )
-    .await?;
-    let Some(items) = value.get("items").and_then(Value::as_array) else {
-        return Ok(Vec::new());
-    };
-    let mut songs = Vec::new();
-    let mut seen = std::collections::HashSet::new();
-    for item in items {
-        let Some(track) = item.get("track") else {
-            continue;
-        };
-        let Some(song) = song_from_track(track, text(item, "played_at"), false, true) else {
-            continue;
-        };
-        if seen.insert(song.id.0.clone()) {
-            songs.push(song);
-        }
-    }
-    Ok(songs)
 }
 
 async fn saved_albums(http: &reqwest::Client, token: &str, max: usize) -> Result<Vec<Album>> {
@@ -630,80 +1712,6 @@ async fn followed_artists(http: &reqwest::Client, token: &str, max: usize) -> Re
     }
     artists.truncate(max);
     Ok(artists)
-}
-
-async fn new_releases(http: &reqwest::Client, token: &str, max: usize) -> Result<Vec<Album>> {
-    let value = api_get(
-        http,
-        token,
-        &format!("{API}/browse/new-releases?limit={max}"),
-    )
-    .await?;
-    let Some(items) = value.pointer("/albums/items").and_then(Value::as_array) else {
-        return Ok(Vec::new());
-    };
-    Ok(items
-        .iter()
-        .filter_map(|item| album_from_object(item, String::new(), false))
-        .collect())
-}
-
-async fn featured_playlists(
-    http: &reqwest::Client,
-    token: &str,
-    max: usize,
-) -> Result<Vec<Playlist>> {
-    let featured = api_get(
-        http,
-        token,
-        &format!("{API}/browse/featured-playlists?limit={max}"),
-    )
-    .await;
-    if let Ok(value) = featured
-        && let Some(items) = value.pointer("/playlists/items").and_then(Value::as_array)
-    {
-        let lists: Vec<Playlist> = items
-            .iter()
-            .filter_map(|item| playlist_from_object(item, false))
-            .collect();
-        if !lists.is_empty() {
-            return Ok(lists);
-        }
-    }
-    let categories = api_get(http, token, &format!("{API}/browse/categories?limit=6")).await;
-    let Ok(value) = categories else {
-        return Ok(Vec::new());
-    };
-    let Some(cats) = value.pointer("/categories/items").and_then(Value::as_array) else {
-        return Ok(Vec::new());
-    };
-    let mut lists = Vec::new();
-    for cat in cats.iter().take(4) {
-        let Some(id) = cat.get("id").and_then(Value::as_str) else {
-            continue;
-        };
-        let Ok(page) = api_get(
-            http,
-            token,
-            &format!("{API}/browse/categories/{id}/playlists?limit=6"),
-        )
-        .await
-        else {
-            continue;
-        };
-        if let Some(items) = page.pointer("/playlists/items").and_then(Value::as_array) {
-            lists.extend(
-                items
-                    .iter()
-                    .filter_map(|item| playlist_from_object(item, false)),
-            );
-        }
-        if lists.len() >= max {
-            break;
-        }
-    }
-    lists.truncate(max);
-    Ok(lists)
 }
 
 async fn album(http: &reqwest::Client, token: &str, id: &str) -> Result<(Album, Vec<Track>)> {
@@ -754,7 +1762,7 @@ async fn playlist(http: &reqwest::Client, token: &str, id: &str) -> Result<(Play
     let mut tracks = Vec::new();
     if let Some(items) = value.pointer("/tracks/items").and_then(Value::as_array) {
         for item in items {
-            if let Some(track) = item.get("track")
+            if let Some(track) = item.get("track").or_else(|| item.get("item"))
                 && let Some(song) = song_from_track(track, text(item, "added_at"), false, true)
             {
                 tracks.push(song);
@@ -770,7 +1778,7 @@ async fn playlist(http: &reqwest::Client, token: &str, id: &str) -> Result<(Play
         let page = api_get(http, token, &next).await?;
         if let Some(items) = page.get("items").and_then(Value::as_array) {
             for item in items {
-                if let Some(track) = item.get("track")
+                if let Some(track) = item.get("track").or_else(|| item.get("item"))
                     && let Some(song) = song_from_track(track, text(item, "added_at"), false, true)
                 {
                     tracks.push(song);
@@ -1172,5 +2180,148 @@ mod tests {
         assert_eq!(retry_after(&headers), Duration::from_secs(15 * 60));
         headers.clear();
         assert_eq!(retry_after(&headers), Duration::from_secs(60));
+    }
+
+    #[test]
+    fn pathfinder_liked_song_becomes_a_library_track() {
+        let item = serde_json::json!({
+            "addedAt": {"isoString": "2026-01-02T00:00:00Z"},
+            "track": {
+                "_uri": "spotify:track:t1",
+                "data": {
+                    "__typename": "Track",
+                    "uri": "spotify:track:t1",
+                    "name": "Superestrella",
+                    "trackDuration": {"totalMilliseconds": 200000},
+                    "artists": {"items": [{"profile": {"name": "Aitana"}}]},
+                    "albumOfTrack": {
+                        "name": "Alpha",
+                        "date": {"isoString": "2023-01-01"},
+                        "coverArt": {"sources": [{"url": "https://i.scdn.co/image/x", "height": 300}]}
+                    }
+                }
+            }
+        });
+        let song = song_from_library_track(&item).unwrap();
+        assert_eq!(song.catalog_id.as_deref(), Some("sp:t1"));
+        assert_eq!(song.title, "Superestrella");
+        assert_eq!(song.artist, "Aitana");
+        assert_eq!(song.album, "Alpha");
+        assert_eq!(song.duration_ms, 200000);
+        assert!(song.favorite);
+        assert_eq!(song.year, "2023");
+        assert_eq!(
+            song.artwork.as_ref().unwrap().url(300),
+            "https://i.scdn.co/image/x"
+        );
+    }
+
+    #[test]
+    fn pathfinder_library_playlists_skip_collection_uris() {
+        let liked = serde_json::json!({
+            "item": {
+                "__typename": "PlaylistResponseWrapper",
+                "_uri": "spotify:user:me:collection:tracks",
+                "data": { "__typename": "Playlist", "name": "Liked Songs", "uri": "spotify:user:me:collection:tracks" }
+            }
+        });
+        assert!(playlist_from_library_item(&liked).is_none());
+        let item = serde_json::json!({
+            "item": {
+                "__typename": "PlaylistResponseWrapper",
+                "_uri": "spotify:playlist:pl1",
+                "data": {
+                    "__typename": "Playlist",
+                    "uri": "spotify:playlist:pl1",
+                    "name": "Gym",
+                    "ownerV2": {"data": {"name": "Aitana"}},
+                    "images": {"items": [{"sources": [{"url": "https://i.scdn.co/image/p", "height": 64}]}]}
+                }
+            }
+        });
+        let list = playlist_from_library_item(&item).unwrap();
+        assert_eq!(list.id, "sp:playlist:pl1");
+        assert_eq!(list.curator, "Aitana");
+        assert!(list.library);
+        assert_eq!(
+            list.artwork.as_ref().unwrap().url(64),
+            "https://i.scdn.co/image/p"
+        );
+    }
+
+    #[test]
+    fn pathfinder_search_maps_tracks_albums_and_playlists() {
+        let search = serde_json::json!({
+            "tracksV2": {"items": [{
+                "item": {
+                    "__typename": "TrackResponseWrapper",
+                    "data": {
+                        "__typename": "Track",
+                        "id": "abc",
+                        "uri": "spotify:track:abc",
+                        "name": "Pa Mal",
+                        "duration": {"totalMilliseconds": 180000},
+                        "artists": {"items": [{"profile": {"name": "Aitana"}}]},
+                        "albumOfTrack": {
+                            "name": "Alpha",
+                            "coverArt": {"sources": [{"url": "https://i.scdn.co/image/x"}]}
+                        }
+                    }
+                }
+            }]},
+            "playlists": {"items": [{
+                "__typename": "PlaylistResponseWrapper",
+                "data": {
+                    "__typename": "Playlist",
+                    "uri": "spotify:playlist:pl1",
+                    "name": "Gym",
+                    "ownerV2": {"data": {"name": "Aitana"}}
+                }
+            }]},
+            "albumsV2": {"items": [{
+                "__typename": "AlbumResponseWrapper",
+                "data": {
+                    "__typename": "Album",
+                    "uri": "spotify:album:al1",
+                    "name": "Alpha",
+                    "artists": {"items": [{"profile": {"name": "Aitana"}}]},
+                    "date": {"year": 2023}
+                }
+            }]}
+        });
+        let hits = tracks_from_search_v2(&search);
+        assert_eq!(hits[0].id, "sp:abc");
+        assert_eq!(hits[0].artist, "Aitana");
+        let lists = playlists_from_search_v2(&search);
+        assert_eq!(lists[0].id, "sp:playlist:pl1");
+        assert!(!lists[0].library);
+        let albums = albums_from_search_v2(&search);
+        assert_eq!(albums[0].id, "sp:album:al1");
+        assert_eq!(albums[0].year, "2023");
+    }
+
+    #[test]
+    fn pathfinder_playlist_item_v2_becomes_a_song() {
+        let item = serde_json::json!({
+            "uid": "row1",
+            "itemV2": {
+                "__typename": "TrackResponseWrapper",
+                "data": {
+                    "__typename": "Track",
+                    "uri": "spotify:track:abc",
+                    "name": "Pa Mal",
+                    "trackDuration": {"totalMilliseconds": 180000},
+                    "artists": {"items": [{"profile": {"name": "Aitana"}}]},
+                    "albumOfTrack": {
+                        "name": "Alpha",
+                        "coverArt": {"sources": [{"url": "https://i.scdn.co/image/x", "height": 64}]}
+                    }
+                }
+            }
+        });
+        let song = song_from_playlist_item(&item).unwrap();
+        assert_eq!(song.id.0, "sp:abc");
+        assert_eq!(song.artist, "Aitana");
+        assert_eq!(song.duration_ms, 180000);
     }
 }

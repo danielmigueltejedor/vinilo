@@ -1435,7 +1435,7 @@ fn refresh_catalog_library(daemon: &Rc<Daemon>, provider: vinilo_core::provider:
     tokio::task::spawn_local(async move {
         let http = vinilo_core::streams::http();
         let fetch = vinilo_core::spotify::library(&http);
-        match tokio::time::timeout(std::time::Duration::from_secs(20), fetch).await {
+        match tokio::time::timeout(std::time::Duration::from_secs(45), fetch).await {
             Ok(Ok(library)) => {
                 if daemon.authorization_generation.get() != generation {
                     finish_library_refresh(&daemon, generation);
@@ -1520,7 +1520,7 @@ fn discover_spotify(daemon: &Rc<Daemon>) {
             }
         };
         let fetch = vinilo_core::spotify::discover(&http, &snapshot);
-        match tokio::time::timeout(std::time::Duration::from_secs(15), fetch).await {
+        match tokio::time::timeout(std::time::Duration::from_secs(20), fetch).await {
             Ok(Ok(mut page)) => {
                 page.fill_gaps(homemade);
                 remember_songs(
@@ -1719,7 +1719,7 @@ fn search_catalog(
             vinilo_core::provider::Provider::Spotify => {
                 let http = vinilo_core::streams::http();
                 let fetch = vinilo_core::spotify::search(&http, &query);
-                match tokio::time::timeout(std::time::Duration::from_secs(12), fetch).await {
+                match tokio::time::timeout(std::time::Duration::from_secs(25), fetch).await {
                     Ok(Ok(page)) => vinilo_core::spotify::catalog_entries(page, filter),
                     Ok(Err(err)) => {
                         tracing::warn!(?err, "spotify search failed");

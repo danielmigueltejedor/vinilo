@@ -80,16 +80,18 @@ pub async fn current_secret(http: &reqwest::Client) -> Secret {
     {
         return secret.clone();
     }
-    if let Some(secret) = load_disk() {
-        remember(secret.clone());
-        return secret;
-    }
-    // GitHub is optional. Waiting on it is how Listen Now spun forever on a
-    // machine that cannot reach raw.githubusercontent.com.
+    // Prefer a live dict so a stale ~/.cache/vinilo/spotify-totp.json cannot
+    // pin us to an expired TOTP version. GitHub is optional: waiting on it
+    // is how Listen Now spun forever on a machine that cannot reach it.
     let downloaded = tokio::time::timeout(Duration::from_secs(3), download_secret(http)).await;
     if let Ok(Some(secret)) = downloaded {
         remember(secret.clone());
         tracing::info!(ver = secret.version, "spotify totp secrets downloaded");
+        return secret;
+    }
+    if let Some(secret) = load_disk() {
+        remember(secret.clone());
+        tracing::warn!(ver = secret.version, "spotify totp secrets from disk cache");
         return secret;
     }
     let secret = bundled();
