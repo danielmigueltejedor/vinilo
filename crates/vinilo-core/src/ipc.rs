@@ -25,14 +25,139 @@ use crate::entry::Entry;
 use crate::player::protocol::{Item, RepeatMode};
 use crate::queue::Start;
 
+fn runtime_dir() -> Option<std::path::PathBuf> {
+    let dir = std::env::var("XDG_RUNTIME_DIR")
+        .ok()
+        .filter(|d| !d.is_empty())?;
+    Some(std::path::PathBuf::from(dir))
+}
+
 /// Where the daemon listens. `$XDG_RUNTIME_DIR` is per-user and cleared on
 /// logout, which is what a socket wants — a stale one in `~` outlives the
 /// process that made it.
 pub fn socket_path() -> Option<std::path::PathBuf> {
-    let dir = std::env::var("XDG_RUNTIME_DIR")
-        .ok()
-        .filter(|d| !d.is_empty())?;
-    Some(std::path::PathBuf::from(dir).join("vinilo.sock"))
+    Some(runtime_dir()?.join("vinilo.sock"))
+}
+
+fn pid_path() -> Option<std::path::PathBuf> {
+    Some(runtime_dir()?.join("vinilo.pid"))
+}
+
+fn source_stamp_path() -> Option<std::path::PathBuf> {
+    Some(runtime_dir()?.join("vinilo.source"))
+}
+
+/// Record which source this process is serving, so a later client can tell a
+/// Spotify daemon from an Apple Music one without asking it.
+pub fn write_runtime_identity(source: crate::provider::Provider) {
+    if let Some(path) = pid_path() {
+        let _ = std::fs::write(path, std::process::id().to_string());
+    }
+    if let Some(path) = source_stamp_path() {
+        let _ = std::fs::write(path, source.as_str());
+    }
+}
+
+/// Forget the stamp. Called on a clean shutdown so a leftover pid file cannot
+/// SIGKILL whatever reused that number.
+pub fn clear_runtime_identity() {
+    if let Some(path) = pid_path() {
+        let _ = std::fs::remove_file(path);
+    }
+    if let Some(path) = source_stamp_path() {
+        let _ = std::fs::remove_file(path);
+    }
+}
+
+fn running_source() -> Option<crate::provider::Provider> {
+    let text = std::fs::read_to_string(source_stamp_path()?).ok()?;
+    crate::provider::Provider::parse(&text)
+}
+
+fn running_pid() -> Option<u32> {
+    let text = std::fs::read_to_string(pid_path()?).ok()?;
+    text.trim().parse().ok()
+}
+
+fn pid_is_alive(pid: u32) -> bool {
+    if pid == 0 || pid == 1 {
+        return false;
+    }
+    unsafe { libc::kill(pid as libc::pid_t, 0) == 0 }
+}
+
+fn pid_is_vinilod(pid: u32) -> bool {
+    let comm = std::fs::read_to_string(format!("/proc/{pid}/comm")).unwrap_or_default();
+    comm.trim() == "vinilod"
+}
+
+fn signal_pid(pid: u32, sig: i32) {
+    unsafe {
+        libc::kill(pid as libc::pid_t, sig);
+    }
+}
+
+/// True when the live daemon was booted for a different source — or for none,
+/// which is an older build that cannot tell us.
+pub fn source_needs_replace(
+    running: Option<crate::provider::Provider>,
+    wanted: crate::provider::Provider,
+) -> bool {
+    running != Some(wanted)
+}
+
+fn ask_daemon_to_quit(path: &std::path::Path) {
+    use std::io::Write;
+    use std::os::unix::net::UnixStream;
+
+    let Ok(mut stream) = UnixStream::connect(path) else {
+        return;
+    };
+    let _ = stream.write_all(b"{\"req\":\"quit\"}\n");
+    let _ = stream.flush();
+}
+
+/// Stop a live `vinilod` so the next connect starts one for the current source.
+///
+/// Preferences rewrite the provider file and send Quit, but a daemon stuck in
+/// a Spotify request never reads that line — and even when it does, the next
+/// `connect()` can attach to the dying process. Switching Spotify → Apple
+/// Music then talks to a sidecar-less daemon, which is why Play did nothing.
+pub fn stop_running_daemon() {
+    let path = socket_path();
+    if let Some(path) = &path {
+        ask_daemon_to_quit(path);
+    }
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(1500);
+    while std::time::Instant::now() < deadline {
+        let socket_gone = path.as_ref().is_none_or(|p| !p.exists());
+        let pid_dead = running_pid().is_none_or(|pid| !pid_is_alive(pid));
+        if socket_gone && pid_dead {
+            clear_runtime_identity();
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+
+    if let Some(pid) = running_pid()
+        && pid != std::process::id()
+        && pid_is_vinilod(pid)
+        && pid_is_alive(pid)
+    {
+        tracing::warn!(pid, "vinilod ignored Quit — stopping it");
+        signal_pid(pid, libc::SIGTERM);
+        std::thread::sleep(std::time::Duration::from_millis(400));
+        if pid_is_alive(pid) {
+            signal_pid(pid, libc::SIGKILL);
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+    }
+
+    if let Some(path) = path {
+        let _ = std::fs::remove_file(path);
+    }
+    clear_runtime_identity();
 }
 
 /// Connect to the daemon, starting it if it is not there.
@@ -45,6 +170,9 @@ pub fn socket_path() -> Option<std::path::PathBuf> {
 ///
 /// The race is benign: two clients starting at once both spawn, and the second
 /// daemon exits on its own — binding the socket is what settles who owns it.
+///
+/// A daemon booted for a *different* source is not reused. It is stopped, then
+/// a new process reads the provider file.
 pub fn connect_or_spawn(exe: &std::path::Path) -> std::io::Result<std::os::unix::net::UnixStream> {
     use std::os::unix::net::UnixStream;
 
@@ -55,8 +183,18 @@ pub fn connect_or_spawn(exe: &std::path::Path) -> std::io::Result<std::os::unix:
         )
     })?;
 
+    let wanted = crate::provider::load().unwrap_or_default();
     if let Ok(stream) = UnixStream::connect(&path) {
-        return Ok(stream);
+        if !source_needs_replace(running_source(), wanted) {
+            return Ok(stream);
+        }
+        drop(stream);
+        tracing::info!(
+            running = ?running_source(),
+            ?wanted,
+            "replacing vinilod — music source changed"
+        );
+        stop_running_daemon();
     }
 
     tracing::info!(daemon = %exe.display(), "no daemon listening — starting one");
@@ -644,6 +782,24 @@ mod tests {
         // read as something else — which is what an untagged enum would do.
         let bad = serde_json::from_str::<Request>(r#"{"req":"teleport"}"#);
         assert!(bad.is_err());
+    }
+
+    #[test]
+    fn a_daemon_for_another_source_is_replaced() {
+        use crate::provider::Provider;
+        assert!(source_needs_replace(None, Provider::AppleMusic));
+        assert!(source_needs_replace(
+            Some(Provider::Spotify),
+            Provider::AppleMusic
+        ));
+        assert!(!source_needs_replace(
+            Some(Provider::AppleMusic),
+            Provider::AppleMusic
+        ));
+        assert!(source_needs_replace(
+            Some(Provider::AppleMusic),
+            Provider::Spotify
+        ));
     }
 
     #[test]

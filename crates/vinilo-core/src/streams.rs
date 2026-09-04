@@ -9,6 +9,8 @@
 //! ids we mint (`yt:`, `sp:`, `td:`) keep that split honest: MusicKit never
 //! sees them.
 
+use std::time::Duration;
+
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -188,8 +190,15 @@ pub fn save_hits(hits: &std::collections::HashMap<String, StreamHit>) {
 pub fn http() -> reqwest::Client {
     reqwest::Client::builder()
         .user_agent(WEB)
+        .timeout(Duration::from_secs(12))
+        .connect_timeout(Duration::from_secs(8))
         .build()
-        .unwrap_or_else(|_| reqwest::Client::new())
+        .unwrap_or_else(|_| {
+            reqwest::Client::builder()
+                .timeout(Duration::from_secs(12))
+                .build()
+                .unwrap_or_else(|_| reqwest::Client::new())
+        })
 }
 
 /// Parse one `yt-dlp -j --flat-playlist` line.

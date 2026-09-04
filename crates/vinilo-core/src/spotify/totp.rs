@@ -84,7 +84,10 @@ pub async fn current_secret(http: &reqwest::Client) -> Secret {
         remember(secret.clone());
         return secret;
     }
-    if let Some(secret) = download_secret(http).await {
+    // GitHub is optional. Waiting on it is how Listen Now spun forever on a
+    // machine that cannot reach raw.githubusercontent.com.
+    let downloaded = tokio::time::timeout(Duration::from_secs(3), download_secret(http)).await;
+    if let Ok(Some(secret)) = downloaded {
         remember(secret.clone());
         tracing::info!(ver = secret.version, "spotify totp secrets downloaded");
         return secret;

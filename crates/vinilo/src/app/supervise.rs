@@ -104,6 +104,12 @@ impl AppModel {
             daemon::Incoming::Lost(why) => {
                 tracing::warn!(%why, "lost the daemon");
                 self.daemon = None;
+                if self.switching_source {
+                    // apply_provider is already tearing this process down.
+                    // Redialling here would attach to the dying Spotify daemon
+                    // and Apple Music Play would go nowhere.
+                    return;
+                }
                 if self.settings.provider.needs_apple() {
                     self.stage = Stage::Connecting;
                 }
@@ -188,7 +194,12 @@ impl AppModel {
                 // and does its own filtering, sorting and grids, which is
                 // presentation rather than something to ask across a socket.
             }
-            Event::Error { detail } => self.toast(&detail),
+            Event::Error { detail } => {
+                self.loading_discover = false;
+                self.searching_catalog = false;
+                self.set_library_refreshing(false);
+                self.toast(&detail);
+            }
         }
     }
 

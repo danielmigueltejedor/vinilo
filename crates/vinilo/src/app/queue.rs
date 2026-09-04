@@ -36,9 +36,18 @@ impl AppModel {
     /// meant on screen: an album heading between two tracks is a row a person
     /// counted past.
     pub(super) fn play_entries(&mut self, entries: &[Entry], row: usize, start: PlayMode) {
+        let catalog = self.settings.provider.is_catalog();
         let ids: Vec<String> = entries
             .iter()
-            .filter_map(|e| e.catalog_id().map(str::to_owned))
+            .filter_map(|e| {
+                let id = e.catalog_id()?;
+                let stream = vinilo_core::streams::StreamHit::is_stream_id(id);
+                if catalog == stream {
+                    Some(id.to_owned())
+                } else {
+                    None
+                }
+            })
             .collect();
         if ids.is_empty() {
             self.toast(i18n::t(Key::ToastUnstreamable));
@@ -49,7 +58,10 @@ impl AppModel {
         let index = entries
             .iter()
             .take(row)
-            .filter(|e| e.catalog_id().is_some())
+            .filter(|e| {
+                e.catalog_id()
+                    .is_some_and(|id| catalog == vinilo_core::streams::StreamHit::is_stream_id(id))
+            })
             .count();
 
         tracing::info!(rows = ids.len(), index, ?start, "asking to play");

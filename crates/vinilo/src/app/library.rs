@@ -47,6 +47,10 @@ impl AppModel {
         if !cached.is_empty() {
             self.discover.fill(cached);
         }
+        if self.daemon.is_none() {
+            self.loading_discover = false;
+            return;
+        }
         self.loading_discover = true;
         self.ask(Request::Discover);
     }

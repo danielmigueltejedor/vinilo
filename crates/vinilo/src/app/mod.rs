@@ -159,6 +159,9 @@ pub struct AppModel {
     daemon: Option<daemon::Handle>,
     /// Consecutive failed dials, for the redial backoff.
     redials: u32,
+    /// True between choosing a new source and attaching to the daemon that
+    /// belongs to it. `Lost` must not redial the dying process in that window.
+    switching_source: bool,
     toaster: adw::ToastOverlay,
     /// The volume panel. Its widgets rather than its state, which is the two
     /// fields below — see `osd.rs`.
@@ -671,6 +674,8 @@ pub enum CommandMsg {
         path: Option<PathBuf>,
         cover: Option<artwork::Decoded>,
     },
+    /// The previous vinilod has been stopped; dial the one for this source.
+    SourceSwitched,
 }
 
 /// The drawer emits the same outputs as the bar, so they map the same way.
@@ -1568,6 +1573,7 @@ impl Component for AppModel {
             menu_sender: sender.clone(),
             daemon: None,
             redials: 0,
+            switching_source: false,
             toaster: adw::ToastOverlay::new(),
             volume_osd: osd::VolumeOsd::new(),
             osd_shown: false,
@@ -2649,6 +2655,12 @@ impl AppModel {
                 self.push_snapshot();
             }
             CommandMsg::Daemon(message) => self.on_daemon(message, &sender),
+            CommandMsg::SourceSwitched => {
+                self.switching_source = false;
+                self.redials = 0;
+                tracing::info!("music source daemon stopped — connecting");
+                connect(&sender);
+            }
         }
     }
 }
@@ -2859,33 +2871,33 @@ impl AppModel {
             self.close_catalog_login();
         }
 
-        if !provider.needs_apple() {
-            self.stage = Stage::Ready;
-        }
-
         if changed {
+            // Never stay Ready on the previous source's daemon. Spotify has no
+            // sidecar: Play against it after switching to Apple Music is a
+            // click that does nothing.
+            self.stage = Stage::Connecting;
             self.forget_session(sender);
-            // Paint the other source's cache immediately. Without this the
-            // sidebar stays empty (or worse, still shows Spotify rows that
-            // MusicKit will not play) until the new daemon finishes booting.
             self.reload_from_cache(sender);
-            self.refresh_discover();
+        } else if !provider.needs_apple() {
+            self.stage = Stage::Ready;
         }
 
         if provider.is_catalog() {
             self.handle(AppMsg::SetView(View::Search), sender, root);
-        } else if matches!(provider, vinilo_core::provider::Provider::Local) {
+        } else {
             self.handle(AppMsg::SetView(View::Songs), sender, root);
         }
 
         if changed {
-            // vinilod reads the source only at boot. Closing the window leaves
-            // it running with Apple's sidecar, which is why Preferences looked
-            // like they did nothing. Quit it; Lost reconnects a fresh process.
-            if let Some(handle) = &self.daemon {
-                tracing::info!(?provider, "restarting vinilod for the new music source");
+            tracing::info!(?provider, "restarting vinilod for the new music source");
+            self.switching_source = true;
+            if let Some(handle) = self.daemon.take() {
                 handle.send(vinilo_core::ipc::Request::Quit);
             }
+            sender.oneshot_command(async {
+                let _ = tokio::task::spawn_blocking(vinilo_core::ipc::stop_running_daemon).await;
+                CommandMsg::SourceSwitched
+            });
         }
 
         if !self.pending_files.is_empty() {

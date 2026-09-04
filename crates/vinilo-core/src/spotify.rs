@@ -91,6 +91,12 @@ pub struct Library {
     pub playlists: Vec<Playlist>,
 }
 
+/// True while a 429 cooldown is in effect. Callers should paint a homemade
+/// page instead of waiting on another request that will fail the same way.
+pub fn cooling_down() -> bool {
+    cooldown_left().is_some()
+}
+
 /// Search tracks, albums, artists and playlists. Never falls back to YouTube.
 pub async fn search(http: &reqwest::Client, query: &str) -> Result<SearchPage> {
     let token = token(http).await?;
@@ -1094,6 +1100,11 @@ mod tests {
         assert_eq!(Ref::parse("sp:liked"), Some(Ref::Liked));
         assert_eq!(Ref::parse("yt:abc"), None);
         assert!(!Ref::parse("sp:playlist:y").unwrap().is_track());
+    }
+
+    #[test]
+    fn a_fresh_process_is_not_rate_limited() {
+        assert!(!cooling_down());
     }
 
     #[test]
