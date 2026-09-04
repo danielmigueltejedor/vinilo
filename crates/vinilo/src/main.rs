@@ -14,7 +14,7 @@ use relm4::RelmApp;
 use relm4::gtk;
 use relm4::gtk::gio::prelude::FileExt;
 use relm4::gtk::prelude::{
-    ApplicationExt, ApplicationExtManual, GtkApplicationExt, GtkWindowExt,
+    ApplicationExt, ApplicationExtManual, GtkApplicationExt, GtkWindowExt, WidgetExt,
 };
 use tracing_subscriber::EnvFilter;
 
