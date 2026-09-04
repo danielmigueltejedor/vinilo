@@ -12,7 +12,7 @@ use std::time::Duration;
 
 use vinilo_core::provider::Provider;
 use vinilo_core::setup;
-use vinilo_core::streams::{StreamHit, youtube_hit_from_json};
+use vinilo_core::streams::{self, StreamHit, youtube_hit_from_json};
 
 pub fn missing_hint() -> String {
     "yt-dlp is not installed. On Arch: sudo pacman -S yt-dlp ffmpeg".into()
@@ -86,6 +86,7 @@ pub fn download(hit: &StreamHit, dir: &Path) -> Result<PathBuf, String> {
         .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
         .collect::<String>();
     if let Some(existing) = existing_file(dir, &stem) {
+        streams::write_sidecar(&existing, hit);
         return Ok(existing);
     }
     let template = dir.join(format!("{stem}.%(ext)s"));
@@ -93,7 +94,9 @@ pub fn download(hit: &StreamHit, dir: &Path) -> Result<PathBuf, String> {
     if existing_file(dir, &stem).is_none() && !hit.id.starts_with("yt:") {
         try_download(&hit.youtube_search_spec(), &template);
     }
-    existing_file(dir, &stem).ok_or_else(|| "yt-dlp wrote no file".into())
+    let path = existing_file(dir, &stem).ok_or_else(|| "yt-dlp wrote no file".to_string())?;
+    streams::write_sidecar(&path, hit);
+    Ok(path)
 }
 
 fn try_download(target: &str, template: &Path) {
@@ -136,6 +139,14 @@ fn existing_file(dir: &Path, stem: &str) -> Option<PathBuf> {
     for entry in entries.flatten() {
         let path = entry.path();
         let name = path.file_name()?.to_string_lossy();
+        if name.ends_with(".json") || name.ends_with(".part") || name.ends_with(".ytdl") {
+            continue;
+        }
+        let ext = path.extension()?.to_string_lossy().to_ascii_lowercase();
+        const AUDIO: &[&str] = &["mp3", "m4a", "opus", "ogg", "webm", "flac", "wav", "aac"];
+        if !AUDIO.iter().any(|want| *want == ext) {
+            continue;
+        }
         if name.starts_with(stem)
             && path.is_file()
             && entry.metadata().map(|m| m.len() > 0).unwrap_or(false)

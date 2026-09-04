@@ -10,6 +10,7 @@
 //! sees them.
 
 use anyhow::{Context, Result};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::entry::Entry;
@@ -18,7 +19,7 @@ use crate::music::types::{Artwork, Track, TrackId};
 const WEB: &str = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36";
 
 /// A hit from a non-Apple catalogue, ready to become a row and later a file.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StreamHit {
     pub id: String,
     pub title: String,
@@ -63,6 +64,125 @@ impl StreamHit {
             format!("ytsearch1:{q}")
         }
     }
+
+    /// Rebuild a playable hit from a library or playlist song we already drew.
+    pub fn from_song(track: &Track) -> Option<Self> {
+        let id = track.catalog_id.clone()?;
+        if !Self::is_stream_id(&id) {
+            return None;
+        }
+        let play_query = if let Some(sp) = id.strip_prefix("sp:") {
+            if sp.contains(':') {
+                return None;
+            }
+            format!("https://open.spotify.com/track/{sp}")
+        } else if let Some(yt) = id.strip_prefix("yt:") {
+            format!("https://www.youtube.com/watch?v={yt}")
+        } else if let Some(td) = id.strip_prefix("td:") {
+            format!("https://tidal.com/browse/track/{td}")
+        } else {
+            return None;
+        };
+        Some(Self {
+            play_query,
+            artwork: track.artwork.as_ref().map(|art| art.url(300)),
+            duration_ms: track.duration_ms,
+            album: track.album.clone(),
+            artist: track.artist.clone(),
+            title: track.title.clone(),
+            id,
+        })
+    }
+
+    /// True when the title is just the raw id (a reconstructed hit after restart).
+    pub fn title_is_placeholder(&self) -> bool {
+        let rest = self
+            .id
+            .split_once(':')
+            .map(|(_, rest)| rest)
+            .unwrap_or(self.id.as_str());
+        self.title.is_empty() || self.title == rest || self.title == self.id
+    }
+}
+
+/// Sidecar JSON next to a downloaded file, so the now-playing bar keeps the
+/// catalogue title after a restart instead of the `yt_…` / `sp_…` filename.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FileMeta {
+    pub id: String,
+    pub title: String,
+    pub artist: String,
+    pub album: String,
+    pub artwork: Option<String>,
+    #[serde(default)]
+    pub duration_ms: u64,
+}
+
+impl FileMeta {
+    pub fn from_hit(hit: &StreamHit) -> Self {
+        Self {
+            id: hit.id.clone(),
+            title: hit.title.clone(),
+            artist: hit.artist.clone(),
+            album: hit.album.clone(),
+            artwork: hit.artwork.clone(),
+            duration_ms: hit.duration_ms,
+        }
+    }
+}
+
+fn sidecar_path(audio: &std::path::Path) -> Option<std::path::PathBuf> {
+    let stem = audio.file_stem()?.to_str()?;
+    Some(audio.parent()?.join(format!("{stem}.json")))
+}
+
+pub fn write_sidecar(audio: &std::path::Path, hit: &StreamHit) {
+    let Some(path) = sidecar_path(audio) else {
+        return;
+    };
+    let Ok(json) = serde_json::to_string(&FileMeta::from_hit(hit)) else {
+        return;
+    };
+    let _ = std::fs::write(path, json);
+}
+
+pub fn read_sidecar(audio: &std::path::Path) -> Option<FileMeta> {
+    let path = sidecar_path(audio)?;
+    let raw = std::fs::read_to_string(path).ok()?;
+    serde_json::from_str(&raw).ok()
+}
+
+fn hits_cache_path() -> Option<std::path::PathBuf> {
+    Some(crate::paths::cache_dir()?.join("stream-hits.json"))
+}
+
+/// Hits remembered so Play after a daemon restart still has titles.
+pub fn load_hits() -> std::collections::HashMap<String, StreamHit> {
+    let Some(path) = hits_cache_path() else {
+        return std::collections::HashMap::new();
+    };
+    let Ok(raw) = std::fs::read_to_string(path) else {
+        return std::collections::HashMap::new();
+    };
+    serde_json::from_str(&raw).unwrap_or_default()
+}
+
+pub fn save_hits(hits: &std::collections::HashMap<String, StreamHit>) {
+    let Some(path) = hits_cache_path() else {
+        return;
+    };
+    let Some(dir) = path.parent() else {
+        return;
+    };
+    let clipped: std::collections::HashMap<String, StreamHit> = hits
+        .iter()
+        .take(2_000)
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
+    let Ok(json) = serde_json::to_string(&clipped) else {
+        return;
+    };
+    let _ = std::fs::create_dir_all(dir).and_then(|_| std::fs::write(path, json));
 }
 
 pub fn http() -> reqwest::Client {
@@ -114,82 +234,7 @@ pub fn youtube_hit_from_json(value: &Value) -> Option<StreamHit> {
 }
 
 pub async fn search_spotify(http: &reqwest::Client, query: &str) -> Result<Vec<StreamHit>> {
-    let token = spotify_token(http).await?;
-    let url = format!(
-        "https://api.spotify.com/v1/search?q={}&type=track&limit=20",
-        urlencoding(query)
-    );
-    let res = http
-        .get(url)
-        .bearer_auth(token)
-        .send()
-        .await
-        .context("spotify search")?;
-    if !res.status().is_success() {
-        anyhow::bail!("Spotify search {}", res.status());
-    }
-    let value: Value = res.json().await.context("spotify search json")?;
-    Ok(spotify_tracks(&value))
-}
-
-fn spotify_tracks(value: &Value) -> Vec<StreamHit> {
-    let Some(items) = value.pointer("/tracks/items").and_then(Value::as_array) else {
-        return Vec::new();
-    };
-    items
-        .iter()
-        .filter_map(|item| {
-            let id = item.get("id")?.as_str()?.to_owned();
-            let title = item
-                .get("name")
-                .and_then(Value::as_str)
-                .unwrap_or("Unknown")
-                .to_owned();
-            let artist = item
-                .pointer("/artists/0/name")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_owned();
-            let album = item
-                .pointer("/album/name")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_owned();
-            let duration_ms = item.get("duration_ms").and_then(Value::as_u64).unwrap_or(0);
-            let artwork = item
-                .pointer("/album/images/0/url")
-                .and_then(Value::as_str)
-                .map(str::to_owned);
-            Some(StreamHit {
-                play_query: format!("https://open.spotify.com/track/{id}"),
-                id: format!("sp:{id}"),
-                title,
-                artist,
-                album,
-                duration_ms,
-                artwork,
-            })
-        })
-        .collect()
-}
-
-async fn spotify_token(http: &reqwest::Client) -> Result<String> {
-    let mut req = http
-        .get("https://open.spotify.com/get_access_token?reason=transport&productType=web_player")
-        .header("Accept", "application/json");
-    if let Some(cookie) = crate::setup::cookie_header(crate::provider::Provider::Spotify) {
-        req = req.header("Cookie", cookie);
-    }
-    let res = req.send().await.context("spotify token")?;
-    if !res.status().is_success() {
-        anyhow::bail!("Spotify token {}", res.status());
-    }
-    let value: Value = res.json().await.context("spotify token json")?;
-    value
-        .get("accessToken")
-        .and_then(Value::as_str)
-        .map(str::to_owned)
-        .context("Spotify token missing accessToken")
+    Ok(crate::spotify::search(http, query).await?.hits)
 }
 
 pub async fn search_tidal(http: &reqwest::Client, query: &str) -> Result<Vec<StreamHit>> {
@@ -269,7 +314,7 @@ fn tidal_tracks(value: &Value) -> Vec<StreamHit> {
         .collect()
 }
 
-fn urlencoding(s: &str) -> String {
+pub(crate) fn urlencoding(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for byte in s.as_bytes() {
         match byte {
@@ -320,10 +365,11 @@ mod tests {
                 }
             }]}
         });
-        let hits = spotify_tracks(&json);
+        let hits = crate::spotify::tracks_from_search(&json);
         assert_eq!(hits[0].id, "sp:abc");
         assert_eq!(hits[0].artist, "Aitana");
         assert_eq!(hits[0].play_query, "https://open.spotify.com/track/abc");
         assert_eq!(hits[0].youtube_search_spec(), "ytsearch1:Aitana Pa Mal");
+        assert!(!hits[0].title_is_placeholder());
     }
 }

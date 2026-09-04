@@ -15,8 +15,9 @@ use std::time::Duration;
 
 use rodio::{Decoder, OutputStream, OutputStreamHandle, Sink};
 use vinilo_core::local_files::expand_audio_paths;
-use vinilo_core::player::protocol::{Item, PlaybackState, Queue, RepeatMode};
 use vinilo_core::player::protocol::Event as PlayerEvent;
+use vinilo_core::player::protocol::{Item, PlaybackState, Queue, RepeatMode};
+use vinilo_core::streams::{self, StreamHit};
 
 use lofty::prelude::*;
 
@@ -29,20 +30,25 @@ pub struct Track {
     pub album: String,
     pub duration_ms: u64,
     pub art_path: Option<PathBuf>,
+    pub catalog_id: Option<String>,
+    pub artwork_template: Option<String>,
 }
 
 impl Track {
     fn as_item(&self) -> Item {
         Item {
             occurrence_id: self.path.to_string_lossy().into_owned(),
-            id: Some(self.path.to_string_lossy().into_owned()),
-            catalog_id: None,
+            id: self
+                .catalog_id
+                .clone()
+                .or_else(|| Some(self.path.to_string_lossy().into_owned())),
+            catalog_id: self.catalog_id.clone(),
             title: self.title.clone(),
             artist: self.artist.clone(),
             album: self.album.clone(),
             duration_ms: self.duration_ms,
             track_number: 0,
-            artwork_template: None,
+            artwork_template: self.artwork_template.clone(),
         }
     }
 }
@@ -88,6 +94,8 @@ impl Player {
             album: "Local album".into(),
             duration_ms: 1_000,
             art_path: art,
+            catalog_id: None,
+            artwork_template: None,
         }];
         self.index = 0;
     }
@@ -117,12 +125,43 @@ impl Player {
         Ok(())
     }
 
+    /// Play downloaded catalogue audio, using the search/library title rather
+    /// than the `yt_…` filename yt-dlp wrote.
+    pub fn play_hits(
+        &mut self,
+        files: Vec<(PathBuf, StreamHit)>,
+        index: usize,
+    ) -> Result<(), String> {
+        if files.is_empty() {
+            return Err("Nothing here is an audio file".into());
+        }
+        let queue: Vec<Track> = files
+            .iter()
+            .map(|(path, hit)| read_track_labeled(path, Some(hit)))
+            .collect();
+        let index = index.min(queue.len().saturating_sub(1));
+        self.ensure_output()?;
+        self.queue = queue;
+        self.index = index;
+        self.start_current()?;
+        self.active = true;
+        Ok(())
+    }
+
     /// Add a file to a queue that is already playing, without restarting.
+    #[allow(dead_code)]
     pub fn append_path(&mut self, path: PathBuf) {
         if !self.active {
             return;
         }
         self.queue.push(read_track(&path));
+    }
+
+    pub fn append_hit(&mut self, path: PathBuf, hit: StreamHit) {
+        if !self.active {
+            return;
+        }
+        self.queue.push(read_track_labeled(&path, Some(&hit)));
     }
 
     pub fn play(&mut self) {
@@ -163,12 +202,20 @@ impl Player {
     }
 
     pub fn is_playing(&self) -> bool {
-        self.active && self.sink.as_ref().is_some_and(|s| !s.is_paused() && !s.empty())
+        self.active
+            && self
+                .sink
+                .as_ref()
+                .is_some_and(|s| !s.is_paused() && !s.empty())
     }
 
     /// True when the current decoder has run out, so the caller should advance.
     pub fn ended(&self) -> bool {
-        self.active && self.sink.as_ref().is_some_and(|s| s.empty() && !s.is_paused())
+        self.active
+            && self
+                .sink
+                .as_ref()
+                .is_some_and(|s| s.empty() && !s.is_paused())
     }
 
     /// Queue still here, nothing on the decoder — Play must open the file again.
@@ -253,7 +300,10 @@ impl Player {
     }
 
     pub fn duration_ms(&self) -> u64 {
-        self.queue.get(self.index).map(|t| t.duration_ms).unwrap_or(0)
+        self.queue
+            .get(self.index)
+            .map(|t| t.duration_ms)
+            .unwrap_or(0)
     }
 
     pub fn art_path(&self) -> Option<PathBuf> {
@@ -343,10 +393,7 @@ impl Player {
         // sidecar — `mixer.rs` looks up `application.name = Vinilo`.
         unsafe {
             std::env::set_var("PULSE_PROP_application.name", "Vinilo");
-            std::env::set_var(
-                "PULSE_PROP_application.icon_name",
-                vinilo_core::APP_ID,
-            );
+            std::env::set_var("PULSE_PROP_application.icon_name", vinilo_core::APP_ID);
             std::env::set_var("PULSE_PROP_media.role", "music");
         }
         let (stream, handle) =
@@ -378,31 +425,35 @@ impl Player {
 }
 
 fn read_track(path: &Path) -> Track {
-    let title = path
+    read_track_labeled(path, None)
+}
+
+fn read_track_labeled(path: &Path, hit: Option<&StreamHit>) -> Track {
+    let filename = path
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("Audio")
         .to_owned();
+    let sidecar = streams::read_sidecar(path);
     let folder_art = folder_cover(path);
-    match lofty::read_from_path(path) {
+    let mut track = match lofty::read_from_path(path) {
         Ok(tagged) => {
             let duration_ms = tagged.properties().duration().as_millis() as u64;
             let tag = tagged.primary_tag().or_else(|| tagged.first_tag());
             let title = tag
                 .and_then(|t| t.title().map(|s: std::borrow::Cow<'_, str>| s.into_owned()))
                 .filter(|s| !s.is_empty())
-                .unwrap_or(title);
+                .unwrap_or_else(|| filename.clone());
             let artist = tag
-                .and_then(|t| t.artist().map(|s: std::borrow::Cow<'_, str>| s.into_owned()))
+                .and_then(|t| {
+                    t.artist()
+                        .map(|s: std::borrow::Cow<'_, str>| s.into_owned())
+                })
                 .unwrap_or_default();
             let album = tag
                 .and_then(|t| t.album().map(|s: std::borrow::Cow<'_, str>| s.into_owned()))
                 .unwrap_or_default();
-            let art_path = tagged
-                .tags()
-                .iter()
-                .find_map(write_picture)
-                .or(folder_art);
+            let art_path = tagged.tags().iter().find_map(write_picture).or(folder_art);
             Track {
                 path: path.to_path_buf(),
                 title,
@@ -410,16 +461,71 @@ fn read_track(path: &Path) -> Track {
                 album,
                 duration_ms,
                 art_path,
+                catalog_id: None,
+                artwork_template: None,
             }
         }
         Err(_) => Track {
             path: path.to_path_buf(),
-            title,
+            title: filename.clone(),
             artist: String::new(),
             album: String::new(),
             duration_ms: 0,
             art_path: folder_art,
+            catalog_id: None,
+            artwork_template: None,
         },
+    };
+    if let Some(meta) = sidecar.as_ref() {
+        apply_meta(&mut track, meta);
+    }
+    if let Some(hit) = hit {
+        if !hit.title.is_empty() && !hit.title_is_placeholder() {
+            track.title = hit.title.clone();
+        }
+        if !hit.artist.is_empty() {
+            track.artist = hit.artist.clone();
+        }
+        if !hit.album.is_empty() {
+            track.album = hit.album.clone();
+        }
+        if hit.duration_ms > 0 && track.duration_ms == 0 {
+            track.duration_ms = hit.duration_ms;
+        }
+        track.catalog_id = Some(hit.id.clone());
+        track.artwork_template = hit.artwork.clone();
+        streams::write_sidecar(path, hit);
+    } else if track.title == filename
+        || track.title.starts_with("yt_")
+        || track.title.starts_with("sp_")
+    {
+        if let Some(meta) = sidecar {
+            if !meta.title.is_empty() {
+                track.title = meta.title;
+            }
+        }
+    }
+    track
+}
+
+fn apply_meta(track: &mut Track, meta: &streams::FileMeta) {
+    if !meta.title.is_empty() {
+        track.title = meta.title.clone();
+    }
+    if !meta.artist.is_empty() {
+        track.artist = meta.artist.clone();
+    }
+    if !meta.album.is_empty() {
+        track.album = meta.album.clone();
+    }
+    if track.catalog_id.is_none() && !meta.id.is_empty() {
+        track.catalog_id = Some(meta.id.clone());
+    }
+    if track.artwork_template.is_none() {
+        track.artwork_template = meta.artwork.clone();
+    }
+    if track.duration_ms == 0 && meta.duration_ms > 0 {
+        track.duration_ms = meta.duration_ms;
     }
 }
 
@@ -463,12 +569,8 @@ fn write_picture(tag: &lofty::tag::Tag) -> Option<PathBuf> {
     };
     let name = format!(
         "local-{}-{}.{ext}",
-        tag.album()
-            .unwrap_or_default()
-            .replace('/', "_"),
-        tag.title()
-            .unwrap_or_default()
-            .replace('/', "_"),
+        tag.album().unwrap_or_default().replace('/', "_"),
+        tag.title().unwrap_or_default().replace('/', "_"),
     );
     let path = dir.join(name);
     if !path.is_file() {
@@ -492,6 +594,29 @@ mod tests {
         let track = read_track(&audio);
         assert_eq!(track.art_path.as_deref(), Some(cover.as_path()));
         assert_eq!(track.title, "track");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_sidecar_beats_the_yt_dlp_filename() {
+        let dir = std::env::temp_dir().join(format!("vinilo-local-meta-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let audio = dir.join("yt_fhabc123.mp3");
+        std::fs::write(&audio, b"not a real mp3").unwrap();
+        let hit = StreamHit {
+            id: "sp:abc".into(),
+            title: "Pa Mal".into(),
+            artist: "Aitana".into(),
+            album: "Alpha".into(),
+            duration_ms: 180_000,
+            artwork: Some("https://i.scdn.co/image/x".into()),
+            play_query: "https://open.spotify.com/track/abc".into(),
+        };
+        streams::write_sidecar(&audio, &hit);
+        let track = read_track(&audio);
+        assert_eq!(track.title, "Pa Mal");
+        assert_eq!(track.artist, "Aitana");
+        assert_eq!(track.catalog_id.as_deref(), Some("sp:abc"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

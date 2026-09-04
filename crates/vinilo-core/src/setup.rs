@@ -62,6 +62,7 @@ pub fn cookie_uris(provider: Provider) -> &'static [&'static str] {
             "https://open.spotify.com/",
             "https://accounts.spotify.com/",
             "https://www.spotify.com/",
+            "https://spotify.com/",
         ],
         Provider::YoutubeMusic => &[
             "https://music.youtube.com/",
@@ -265,6 +266,59 @@ pub fn cookie_header(provider: Provider) -> Option<String> {
         None
     } else {
         Some(parts.join("; "))
+    }
+}
+
+/// Cookies the web-player token endpoint actually needs. Sending the whole
+/// jar (including leftover YouTube cookies from a bad import) makes Spotify
+/// answer 403 and search used to fall back to YouTube.
+pub fn session_cookie(provider: Provider) -> Option<String> {
+    match provider {
+        Provider::Spotify => named_cookies(provider, &["sp_dc", "sp_key"]),
+        _ => cookie_header(provider),
+    }
+}
+
+fn named_cookies(provider: Provider, names: &[&str]) -> Option<String> {
+    let path = cookies_path(provider)?;
+    let text = std::fs::read_to_string(path).ok()?;
+    let mut found: Vec<(String, String)> = Vec::new();
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() || (line.starts_with('#') && !line.starts_with("#HttpOnly_")) {
+            continue;
+        }
+        let line = line.strip_prefix("#HttpOnly_").unwrap_or(line);
+        let cols: Vec<&str> = line.split('\t').collect();
+        if cols.len() < 7 {
+            continue;
+        }
+        let domain = cols[0].trim();
+        if provider == Provider::Spotify && !domain.contains("spotify.com") {
+            continue;
+        }
+        let name = cols[5].trim();
+        let value = cols[6].trim();
+        if names.iter().any(|want| name.eq_ignore_ascii_case(want)) && !value.is_empty() {
+            if !found.iter().any(|(n, _)| n == name) {
+                found.push((name.to_owned(), value.to_owned()));
+            }
+        }
+    }
+    if found.iter().any(|(n, _)| n == "sp_dc") || provider != Provider::Spotify {
+        if found.is_empty() {
+            None
+        } else {
+            Some(
+                found
+                    .into_iter()
+                    .map(|(n, v)| format!("{n}={v}"))
+                    .collect::<Vec<_>>()
+                    .join("; "),
+            )
+        }
+    } else {
+        None
     }
 }
 

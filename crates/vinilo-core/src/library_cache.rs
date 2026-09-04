@@ -30,6 +30,8 @@ pub struct Library {
     #[serde(default)]
     version: u32,
     #[serde(default)]
+    pub provider: String,
+    #[serde(default)]
     pub songs: Vec<Track>,
     #[serde(default)]
     pub albums: Vec<Album>,
@@ -53,6 +55,7 @@ impl Library {
 #[derive(Serialize)]
 struct Writing<'a> {
     version: u32,
+    provider: &'a str,
     songs: &'a [Track],
     albums: &'a [Album],
     artists: &'a [Artist],
@@ -72,7 +75,19 @@ pub fn load() -> Library {
     let Ok(raw) = std::fs::read_to_string(&path) else {
         return Library::default();
     };
-    parse(&raw)
+    let cache = parse(&raw);
+    if !provider_matches(&cache.provider) {
+        return Library::default();
+    }
+    cache
+}
+
+fn provider_matches(cached: &str) -> bool {
+    let current = crate::provider::load().unwrap_or_default();
+    match current {
+        crate::provider::Provider::AppleMusic => cached.is_empty() || cached == current.as_str(),
+        other => cached == other.as_str(),
+    }
 }
 
 /// The half of `load` that is not I/O, so tests never touch a home directory.
@@ -104,8 +119,13 @@ pub fn save(songs: &[Track], albums: &[Album], artists: &[Artist], playlists: &[
     let Some(path) = cache_file() else { return };
     let Some(dir) = path.parent() else { return };
     let started = std::time::Instant::now();
+    let provider = crate::provider::load()
+        .unwrap_or_default()
+        .as_str()
+        .to_owned();
     let writing = Writing {
         version: VERSION,
+        provider: &provider,
         songs,
         albums,
         artists,
@@ -158,6 +178,7 @@ mod tests {
     fn write(library: &Library) -> String {
         serde_json::to_string(&Writing {
             version: library.version,
+            provider: library.provider.as_str(),
             songs: &library.songs,
             albums: &library.albums,
             artists: &library.artists,
@@ -170,6 +191,7 @@ mod tests {
     fn a_library_survives_the_round_trip() {
         let saved = Library {
             version: VERSION,
+            provider: String::new(),
             songs: vec![a_track()],
             albums: vec![Album {
                 id: "l.abc".into(),

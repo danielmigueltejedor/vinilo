@@ -242,7 +242,7 @@ pub async fn run() -> Result<()> {
         quitting: tokio::sync::Notify::new(),
         mixer: crate::mixer::Mixer::start(),
         last_listen: RefCell::new(None),
-        stream_hits: RefCell::new(HashMap::new()),
+        stream_hits: RefCell::new(vinilo_core::streams::load_hits()),
     });
 
     // After the `Rc` exists: MPRIS holds one so a button on a bar can reach the
@@ -399,8 +399,14 @@ pub async fn run() -> Result<()> {
     });
 
     if local_only {
+        if let Some(language) = vinilo_core::i18n::load() {
+            vinilo_core::i18n::set_current(language);
+        }
         daemon.model.borrow_mut().stage = Stage::Ready;
         daemon.publish(Event::Stage(Stage::Ready));
+        if vinilo_core::provider::load().is_some_and(|p| p.is_catalog()) {
+            refresh_library(&daemon);
+        }
         // The sidecar loop below is what keeps `run` from returning. Without
         // one, wait here: clients still attach, files still play, and SIGTERM
         // still takes the process out through the task above.
@@ -966,6 +972,17 @@ fn answer(
         }
         Request::PlayFiles { paths, index } => play_files(daemon, paths, index),
         Request::Enqueue { ids, next } => {
+            if ids
+                .iter()
+                .any(|id| vinilo_core::streams::StreamHit::is_stream_id(id))
+            {
+                if daemon.local.borrow().is_active() {
+                    enqueue_streams(daemon, ids);
+                    return None;
+                }
+                play_streams(daemon, ids, 0);
+                return None;
+            }
             if daemon.local.borrow().is_active() {
                 return Some(Event::Error {
                     detail: "Can't add Apple Music tracks to a file that's playing".into(),
@@ -1076,7 +1093,7 @@ fn stop_local(daemon: &Daemon) {
     daemon.model.borrow_mut().art_path = None;
 }
 
-fn publish_local(daemon: &Daemon) {
+fn publish_local(daemon: &Rc<Daemon>) {
     let local = daemon.local.borrow();
     if !local.is_active() {
         return;
@@ -1091,14 +1108,27 @@ fn publish_local(daemon: &Daemon) {
         model.player.apply(&now);
         model.player.apply(&playback);
         model.player.apply(&position);
-        model.art_path = art;
+        if art.is_some() {
+            model.art_path = art;
+        }
     }
     let (items, position) = daemon.model.borrow().queue();
     daemon.publish(Event::Queue { items, position });
     daemon.publish_snapshot();
+    if daemon
+        .model
+        .borrow()
+        .player
+        .now_playing
+        .as_ref()
+        .and_then(|item| item.artwork_template.as_ref())
+        .is_some()
+    {
+        fetch_artwork(daemon);
+    }
 }
 
-fn play_files(daemon: &Daemon, paths: Vec<String>, index: usize) -> Option<Event> {
+fn play_files(daemon: &Rc<Daemon>, paths: Vec<String>, index: usize) -> Option<Event> {
     let paths: Vec<std::path::PathBuf> = paths.into_iter().map(std::path::PathBuf::from).collect();
     if daemon.sidecar.borrow().is_some() {
         daemon.send(Command::Pause);
@@ -1116,7 +1146,7 @@ fn play_files(daemon: &Daemon, paths: Vec<String>, index: usize) -> Option<Event
     }
 }
 
-fn route_local_transport(daemon: &Daemon, transport: Transport) {
+fn route_local_transport(daemon: &Rc<Daemon>, transport: Transport) {
     match transport {
         Transport::Play => daemon.local.borrow_mut().play(),
         Transport::Pause => daemon.local.borrow_mut().pause(),
@@ -1297,6 +1327,11 @@ fn write(daemon: &Rc<Daemon>, action: WriteAction, id: String) {
 /// Spawned, and at most one at a time: a client hammering a reload button must
 /// not queue up four full library fetches behind it.
 fn refresh_library(daemon: &Rc<Daemon>) {
+    let provider = vinilo_core::provider::load().unwrap_or_default();
+    if provider.is_catalog() {
+        refresh_catalog_library(daemon, provider);
+        return;
+    }
     let Some(generation) = begin_library_refresh(daemon) else {
         tracing::debug!("library refresh already running");
         return;
@@ -1366,6 +1401,184 @@ fn finish_library_refresh(daemon: &Daemon, generation: u64) -> bool {
     current
 }
 
+fn refresh_catalog_library(daemon: &Rc<Daemon>, provider: vinilo_core::provider::Provider) {
+    let Some(generation) = begin_library_refresh(daemon) else {
+        tracing::debug!("library refresh already running");
+        return;
+    };
+    if provider != vinilo_core::provider::Provider::Spotify {
+        finish_library_refresh(daemon, generation);
+        return;
+    }
+    let daemon = daemon.clone();
+    tokio::task::spawn_local(async move {
+        let http = vinilo_core::streams::http();
+        match vinilo_core::spotify::library(&http).await {
+            Ok(library) => {
+                if daemon.authorization_generation.get() != generation {
+                    finish_library_refresh(&daemon, generation);
+                    return;
+                }
+                tracing::info!(
+                    songs = library.songs.len(),
+                    albums = library.albums.len(),
+                    artists = library.artists.len(),
+                    playlists = library.playlists.len(),
+                    "spotify library refreshed"
+                );
+                remember_songs(&daemon, &library.songs);
+                vinilo_core::library_cache::save(
+                    &library.songs,
+                    &library.albums,
+                    &library.artists,
+                    &library.playlists,
+                );
+                let mut model = daemon.model.borrow_mut();
+                model.library.tracks = library.songs;
+                model.library.albums = library.albums;
+                model.library.artists = library.artists;
+                model.library.playlists = library.playlists;
+                drop(model);
+                daemon.publish(Event::LibraryChanged);
+            }
+            Err(err) => {
+                tracing::warn!(?err, "spotify library refresh failed");
+                if daemon.model.borrow().library.tracks.is_empty() {
+                    daemon.publish(Event::Error {
+                        detail: format!("{err}"),
+                    });
+                }
+            }
+        }
+        finish_library_refresh(&daemon, generation);
+    });
+}
+
+fn discover_spotify(daemon: &Rc<Daemon>) {
+    let cached = vinilo_core::discover::load();
+    if !cached.is_empty() {
+        daemon.publish(Event::Discover(cached));
+    }
+    let homemade = {
+        let library = &daemon.model.borrow().library;
+        vinilo_core::discover::homemade(
+            &library.tracks,
+            &library.albums,
+            &library.playlists,
+            &vinilo_core::listen_history::load(),
+        )
+    };
+    let daemon = daemon.clone();
+    tokio::task::spawn_local(async move {
+        let http = vinilo_core::streams::http();
+        let snapshot = {
+            let library = &daemon.model.borrow().library;
+            vinilo_core::spotify::Library {
+                songs: library.tracks.clone(),
+                albums: library.albums.clone(),
+                artists: library.artists.clone(),
+                playlists: library.playlists.clone(),
+            }
+        };
+        match vinilo_core::spotify::discover(&http, &snapshot).await {
+            Ok(mut page) => {
+                page.fill_gaps(homemade);
+                remember_songs(
+                    &daemon,
+                    &page
+                        .recommended_songs
+                        .iter()
+                        .cloned()
+                        .chain(page.recently_played.iter().filter_map(|e| match e {
+                            Entry::Song(t) => Some(t.clone()),
+                            _ => None,
+                        }))
+                        .collect::<Vec<_>>(),
+                );
+                tracing::info!(
+                    recently_played = page.recently_played.len(),
+                    made_for_you = page.recommended_playlists.len(),
+                    recommended_songs = page.recommended_songs.len(),
+                    recently_added = page.recently_added.len(),
+                    charts = page.charts.len(),
+                    "spotify listen now shelves"
+                );
+                vinilo_core::discover::save(&page);
+                daemon.publish(Event::Discover(page));
+            }
+            Err(err) => {
+                tracing::warn!(?err, "spotify discover failed");
+                if !homemade.is_empty() {
+                    vinilo_core::discover::save(&homemade);
+                    daemon.publish(Event::Discover(homemade));
+                } else if vinilo_core::discover::load().is_empty() {
+                    daemon.publish(Event::Error {
+                        detail: format!("{err}"),
+                    });
+                }
+            }
+        }
+    });
+}
+
+fn open_spotify_page(daemon: &Rc<Daemon>, kind: PageKind, id: String) {
+    if let Some(cached) = vinilo_core::page_cache::load(kind, &id) {
+        remember_songs(
+            daemon,
+            &cached
+                .entries
+                .iter()
+                .filter_map(|e| match e {
+                    Entry::Song(t) => Some(t.clone()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>(),
+        );
+        daemon.publish(Event::Page {
+            kind,
+            id: id.clone(),
+            header: cached.header,
+            entries: cached.entries,
+        });
+    }
+    let daemon = daemon.clone();
+    tokio::task::spawn_local(async move {
+        let http = vinilo_core::streams::http();
+        match vinilo_core::spotify::open(&http, kind, &id).await {
+            Ok((header, entries)) => {
+                let songs: Vec<_> = entries
+                    .iter()
+                    .filter_map(|e| match e {
+                        Entry::Song(t) => Some(t.clone()),
+                        _ => None,
+                    })
+                    .collect();
+                remember_songs(&daemon, &songs);
+                let unchanged = vinilo_core::page_cache::load(kind, &id).is_some_and(|cached| {
+                    vinilo_core::page_cache::same(&cached, &header, &entries)
+                });
+                vinilo_core::page_cache::save(kind, &id, &header, &entries);
+                if !unchanged {
+                    daemon.publish(Event::Page {
+                        kind,
+                        id,
+                        header,
+                        entries,
+                    });
+                }
+            }
+            Err(err) => {
+                tracing::warn!(?err, %id, "opening a Spotify page failed");
+                if vinilo_core::page_cache::load(kind, &id).is_none() {
+                    daemon.publish(Event::Error {
+                        detail: format!("{err}"),
+                    });
+                }
+            }
+        }
+    });
+}
+
 /// Tracks as rows.
 fn songs(tracks: Vec<vinilo_core::music::types::Track>) -> Vec<Entry> {
     tracks.into_iter().map(Entry::Song).collect()
@@ -1380,7 +1593,7 @@ fn songs(tracks: Vec<vinilo_core::music::types::Track>) -> Vec<Entry> {
 fn search(daemon: &Rc<Daemon>, query: String, filter: CatalogFilter, offset: usize) {
     let provider = vinilo_core::provider::load().unwrap_or_default();
     if provider.is_catalog() {
-        search_catalog(daemon, provider, query, offset);
+        search_catalog(daemon, provider, query, filter, offset);
         return;
     }
     let Some(client) = daemon.client() else {
@@ -1420,6 +1633,7 @@ fn search_catalog(
     daemon: &Rc<Daemon>,
     provider: vinilo_core::provider::Provider,
     query: String,
+    filter: CatalogFilter,
     offset: usize,
 ) {
     if offset > 0 {
@@ -1433,11 +1647,18 @@ fn search_catalog(
     }
     let daemon = daemon.clone();
     tokio::task::spawn_local(async move {
-        let hits = match provider {
+        let (hits, entries) = match provider {
             vinilo_core::provider::Provider::YoutubeMusic => {
                 let q = query.clone();
                 match tokio::task::spawn_blocking(move || crate::ytdlp::search(&q)).await {
-                    Ok(Ok(hits)) => hits,
+                    Ok(Ok(hits)) => {
+                        let entries: Vec<Entry> = hits
+                            .iter()
+                            .cloned()
+                            .map(vinilo_core::streams::StreamHit::into_entry)
+                            .collect();
+                        (hits, entries)
+                    }
                     Ok(Err(detail)) => {
                         daemon.publish(Event::Error { detail });
                         return;
@@ -1452,63 +1673,41 @@ fn search_catalog(
             }
             vinilo_core::provider::Provider::Spotify => {
                 let http = vinilo_core::streams::http();
-                match vinilo_core::streams::search_spotify(&http, &query).await {
-                    Ok(hits) => hits,
+                match vinilo_core::spotify::search(&http, &query).await {
+                    Ok(page) => vinilo_core::spotify::catalog_entries(page, filter),
                     Err(err) => {
-                        tracing::warn!(?err, "spotify search failed, trying YouTube");
-                        let q = query.clone();
-                        match tokio::task::spawn_blocking(move || crate::ytdlp::search(&q)).await {
-                            Ok(Ok(hits)) => hits,
-                            Ok(Err(detail)) => {
-                                daemon.publish(Event::Error { detail });
-                                return;
-                            }
-                            Err(err) => {
-                                daemon.publish(Event::Error {
-                                    detail: format!("{err}"),
-                                });
-                                return;
-                            }
-                        }
+                        tracing::warn!(?err, "spotify search failed");
+                        daemon.publish(Event::Error {
+                            detail: format!("{err}"),
+                        });
+                        return;
                     }
                 }
             }
             vinilo_core::provider::Provider::Tidal => {
                 let http = vinilo_core::streams::http();
                 match vinilo_core::streams::search_tidal(&http, &query).await {
-                    Ok(hits) => hits,
+                    Ok(hits) => {
+                        let entries: Vec<Entry> = hits
+                            .iter()
+                            .cloned()
+                            .map(vinilo_core::streams::StreamHit::into_entry)
+                            .collect();
+                        (hits, entries)
+                    }
                     Err(err) => {
-                        tracing::warn!(?err, "tidal search failed, trying YouTube");
-                        let q = query.clone();
-                        match tokio::task::spawn_blocking(move || crate::ytdlp::search(&q)).await {
-                            Ok(Ok(hits)) => hits,
-                            Ok(Err(detail)) => {
-                                daemon.publish(Event::Error { detail });
-                                return;
-                            }
-                            Err(err) => {
-                                daemon.publish(Event::Error {
-                                    detail: format!("{err}"),
-                                });
-                                return;
-                            }
-                        }
+                        tracing::warn!(?err, "tidal search failed");
+                        daemon.publish(Event::Error {
+                            detail: format!("{err}"),
+                        });
+                        return;
                     }
                 }
             }
             vinilo_core::provider::Provider::AppleMusic
-            | vinilo_core::provider::Provider::Local => Vec::new(),
+            | vinilo_core::provider::Provider::Local => (Vec::new(), Vec::new()),
         };
-        for hit in &hits {
-            daemon
-                .stream_hits
-                .borrow_mut()
-                .insert(hit.id.clone(), hit.clone());
-        }
-        let entries: Vec<Entry> = hits
-            .into_iter()
-            .map(vinilo_core::streams::StreamHit::into_entry)
-            .collect();
+        remember_hits(&daemon, hits);
         tracing::info!(%query, rows = entries.len(), ?provider, "searched catalogue");
         daemon.publish(Event::Results {
             query,
@@ -1519,19 +1718,40 @@ fn search_catalog(
     });
 }
 
-fn play_streams(daemon: &Rc<Daemon>, ids: Vec<String>, index: usize) {
-    let hits: Vec<vinilo_core::streams::StreamHit> =
-        ids.iter().filter_map(|id| stream_hit(daemon, id)).collect();
+fn remember_hits(daemon: &Daemon, hits: Vec<vinilo_core::streams::StreamHit>) {
     if hits.is_empty() {
-        daemon.publish(Event::Error {
-            detail: "Nothing here can be streamed".into(),
-        });
         return;
     }
-    let start = index.min(hits.len().saturating_sub(1));
-    let rest: Vec<vinilo_core::streams::StreamHit> = hits[start..].to_vec();
+    {
+        let mut map = daemon.stream_hits.borrow_mut();
+        for hit in hits {
+            map.insert(hit.id.clone(), hit);
+        }
+        vinilo_core::streams::save_hits(&map);
+    }
+}
+
+fn remember_songs(daemon: &Daemon, songs: &[vinilo_core::music::types::Track]) {
+    remember_hits(daemon, vinilo_core::spotify::hits_from_songs(songs));
+}
+
+fn play_streams(daemon: &Rc<Daemon>, ids: Vec<String>, index: usize) {
     let daemon = daemon.clone();
     tokio::task::spawn_local(async move {
+        let mut hits = Vec::new();
+        for id in &ids {
+            if let Some(hit) = resolve_stream_hit(&daemon, id).await {
+                hits.push(hit);
+            }
+        }
+        if hits.is_empty() {
+            daemon.publish(Event::Error {
+                detail: "Nothing here can be streamed".into(),
+            });
+            return;
+        }
+        let start = index.min(hits.len().saturating_sub(1));
+        let rest: Vec<vinilo_core::streams::StreamHit> = hits[start..].to_vec();
         let Some(dir) = vinilo_core::paths::cache_dir().map(|p| p.join("streams")) else {
             daemon.publish(Event::Error {
                 detail: "No cache directory".into(),
@@ -1540,42 +1760,86 @@ fn play_streams(daemon: &Rc<Daemon>, ids: Vec<String>, index: usize) {
         };
         let first = rest[0].clone();
         let dir_first = dir.clone();
-        let path =
-            match tokio::task::spawn_blocking(move || crate::ytdlp::download(&first, &dir_first))
-                .await
-            {
-                Ok(Ok(path)) => path,
-                Ok(Err(detail)) => {
-                    daemon.publish(Event::Error { detail });
-                    return;
-                }
-                Err(err) => {
-                    daemon.publish(Event::Error {
-                        detail: format!("{err}"),
-                    });
-                    return;
-                }
-            };
+        let download = first.clone();
+        let path = match tokio::task::spawn_blocking(move || {
+            crate::ytdlp::download(&download, &dir_first)
+        })
+        .await
+        {
+            Ok(Ok(path)) => path,
+            Ok(Err(detail)) => {
+                daemon.publish(Event::Error { detail });
+                return;
+            }
+            Err(err) => {
+                daemon.publish(Event::Error {
+                    detail: format!("{err}"),
+                });
+                return;
+            }
+        };
         if daemon.sidecar.borrow().is_some() {
             daemon.send(Command::Pause);
         }
         *daemon.art_for.borrow_mut() = None;
         let volume = daemon.model.borrow().volume;
         daemon.local.borrow_mut().set_volume(volume);
-        if let Err(detail) = daemon.local.borrow_mut().play_paths(vec![path], 0) {
+        if let Err(detail) = daemon.local.borrow_mut().play_hits(vec![(path, first)], 0) {
             daemon.publish(Event::Error { detail });
             return;
         }
         publish_local(&daemon);
         for hit in rest.into_iter().skip(1) {
             let dir = dir.clone();
-            match tokio::task::spawn_blocking(move || crate::ytdlp::download(&hit, &dir)).await {
-                Ok(Ok(path)) => daemon.local.borrow_mut().append_path(path),
+            let download = hit.clone();
+            match tokio::task::spawn_blocking(move || crate::ytdlp::download(&download, &dir)).await
+            {
+                Ok(Ok(path)) => daemon.local.borrow_mut().append_hit(path, hit),
                 Ok(Err(err)) => tracing::warn!(%err, "skipping a catalogue track"),
                 Err(err) => tracing::warn!(?err, "skipping a catalogue track"),
             }
         }
+        publish_local(&daemon);
     });
+}
+
+fn enqueue_streams(daemon: &Rc<Daemon>, ids: Vec<String>) {
+    let daemon = daemon.clone();
+    tokio::task::spawn_local(async move {
+        let Some(dir) = vinilo_core::paths::cache_dir().map(|p| p.join("streams")) else {
+            return;
+        };
+        for id in ids {
+            let Some(hit) = resolve_stream_hit(&daemon, &id).await else {
+                continue;
+            };
+            let dir = dir.clone();
+            let download = hit.clone();
+            match tokio::task::spawn_blocking(move || crate::ytdlp::download(&download, &dir)).await
+            {
+                Ok(Ok(path)) => daemon.local.borrow_mut().append_hit(path, hit),
+                Ok(Err(err)) => tracing::warn!(%err, "could not add catalogue track"),
+                Err(err) => tracing::warn!(?err, "could not add catalogue track"),
+            }
+        }
+        publish_local(&daemon);
+    });
+}
+
+async fn resolve_stream_hit(daemon: &Daemon, id: &str) -> Option<vinilo_core::streams::StreamHit> {
+    if let Some(hit) = daemon.stream_hits.borrow().get(id).cloned()
+        && !hit.title_is_placeholder()
+    {
+        return Some(hit);
+    }
+    if let Some(vinilo_core::spotify::Ref::Track(sp)) = vinilo_core::spotify::Ref::parse(id) {
+        let http = vinilo_core::streams::http();
+        if let Ok(hit) = vinilo_core::spotify::track_hit(&http, &sp).await {
+            remember_hits(daemon, vec![hit.clone()]);
+            return Some(hit);
+        }
+    }
+    stream_hit(daemon, id)
 }
 
 fn stream_hit(daemon: &Daemon, id: &str) -> Option<vinilo_core::streams::StreamHit> {
@@ -1595,10 +1859,10 @@ fn stream_hit(daemon: &Daemon, id: &str) -> Option<vinilo_core::streams::StreamH
             play_query: format!("https://www.youtube.com/watch?v={video}"),
         });
     }
-    if let Some(track) = id.strip_prefix("sp:") {
+    if let Some(vinilo_core::spotify::Ref::Track(track)) = vinilo_core::spotify::Ref::parse(id) {
         return Some(vinilo_core::streams::StreamHit {
             id: id.to_owned(),
-            title: track.to_owned(),
+            title: track.clone(),
             artist: String::new(),
             album: String::new(),
             duration_ms: 0,
@@ -1627,6 +1891,10 @@ fn stream_hit(daemon: &Daemon, id: &str) -> Option<vinilo_core::streams::StreamH
 /// arrives as an [`Event::Page`] on every subscriber, which is also what lets a
 /// second client show a page the first one opened.
 fn open_page(daemon: &Rc<Daemon>, kind: PageKind, id: String) {
+    if vinilo_core::spotify::Ref::parse(&id).is_some() {
+        open_spotify_page(daemon, kind, id);
+        return;
+    }
     if let Some(cached) = vinilo_core::page_cache::load(kind, &id) {
         daemon.publish(Event::Page {
             kind,
@@ -1715,6 +1983,12 @@ fn open_page(daemon: &Rc<Daemon>, kind: PageKind, id: String) {
 }
 
 fn discover(daemon: &Rc<Daemon>) {
+    let provider = vinilo_core::provider::load().unwrap_or_default();
+    if provider == vinilo_core::provider::Provider::Spotify {
+        discover_spotify(daemon);
+        return;
+    }
+
     let cached = vinilo_core::discover::load();
     if !cached.is_empty() {
         daemon.publish(Event::Discover(cached));
@@ -1729,6 +2003,14 @@ fn discover(daemon: &Rc<Daemon>) {
             &vinilo_core::listen_history::load(),
         )
     };
+
+    if !provider.needs_apple() {
+        if !homemade.is_empty() {
+            vinilo_core::discover::save(&homemade);
+            daemon.publish(Event::Discover(homemade));
+        }
+        return;
+    }
 
     let Some(client) = daemon.client() else {
         if !homemade.is_empty() {

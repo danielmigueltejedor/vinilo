@@ -26,6 +26,7 @@ pub mod queue;
 pub mod session;
 pub mod setup;
 pub mod sort;
+pub mod spotify;
 pub mod streams;
 pub mod unplayable;
 

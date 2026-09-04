@@ -19,6 +19,10 @@ const SHELF: usize = 16;
 pub struct Discover {
     #[serde(default)]
     version: u32,
+    /// Which source wrote this cache, so a Spotify session does not open on
+    /// Apple's last Listen Now page.
+    #[serde(default)]
+    pub provider: String,
     #[serde(default)]
     pub recently_played: Vec<Entry>,
     /// Mixes and albums Apple put in "Made for You". `Entry` rather than
@@ -34,6 +38,27 @@ pub struct Discover {
 }
 
 impl Discover {
+    pub fn shelves(
+        recently_played: Vec<Entry>,
+        recommended_playlists: Vec<Entry>,
+        recommended_songs: Vec<Track>,
+        recently_added: Vec<Entry>,
+        charts: Vec<Entry>,
+    ) -> Self {
+        Self {
+            version: VERSION,
+            provider: crate::provider::load()
+                .unwrap_or_default()
+                .as_str()
+                .to_owned(),
+            recently_played,
+            recommended_playlists,
+            recommended_songs,
+            recently_added,
+            charts,
+        }
+    }
+
     pub fn is_empty(&self) -> bool {
         self.recently_played.is_empty()
             && self.recommended_playlists.is_empty()
@@ -75,8 +100,16 @@ pub fn load() -> Discover {
         return Discover::default();
     };
     match serde_json::from_str::<Discover>(&raw) {
-        Ok(cache) if cache.version == VERSION => cache,
+        Ok(cache) if cache.version == VERSION && provider_matches(&cache.provider) => cache,
         _ => Discover::default(),
+    }
+}
+
+fn provider_matches(cached: &str) -> bool {
+    let current = crate::provider::load().unwrap_or_default();
+    match current {
+        crate::provider::Provider::AppleMusic => cached.is_empty() || cached == current.as_str(),
+        other => cached == other.as_str(),
     }
 }
 
@@ -85,6 +118,12 @@ pub fn save(discover: &Discover) {
     let Some(dir) = path.parent() else { return };
     let mut writing = discover.clone();
     writing.version = VERSION;
+    if writing.provider.is_empty() {
+        writing.provider = crate::provider::load()
+            .unwrap_or_default()
+            .as_str()
+            .to_owned();
+    }
     let Ok(json) = serde_json::to_string(&writing) else {
         return;
     };
@@ -133,14 +172,18 @@ pub fn homemade(
         recommended_songs.truncate(SHELF);
     }
 
-    Discover {
-        version: VERSION,
-        recently_played: history.iter().cloned().map(Entry::Song).take(SHELF).collect(),
-        recommended_playlists: Vec::new(),
+    Discover::shelves(
+        history
+            .iter()
+            .cloned()
+            .map(Entry::Song)
+            .take(SHELF)
+            .collect(),
+        Vec::new(),
         recommended_songs,
         recently_added,
-        charts: Vec::new(),
-    }
+        Vec::new(),
+    )
 }
 
 fn date_of(entry: &Entry) -> &str {

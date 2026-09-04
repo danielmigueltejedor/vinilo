@@ -34,6 +34,10 @@ fn main() -> Result<()> {
         )
         .init();
 
+    if let Some(language) = vinilo_core::i18n::load() {
+        vinilo_core::i18n::set_current(language);
+    }
+
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()

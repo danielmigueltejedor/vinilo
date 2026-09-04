@@ -340,7 +340,7 @@ fn import_browser_cookies(provider: Provider) {
                 &dest.to_string_lossy(),
                 "--skip-download",
                 "--no-warnings",
-                "https://www.youtube.com/robots.txt",
+                setup::login_url(provider),
             ])
             .status();
         if status.map(|s| s.success()).unwrap_or(false) && dest.is_file() {

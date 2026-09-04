@@ -39,7 +39,7 @@ impl AppModel {
     /// fresh page. Apple's recommendations can 403; the daemon fills gaps from
     /// the library and the local listen history.
     pub(super) fn refresh_discover(&mut self) {
-        if !self.settings.provider.needs_apple() {
+        if self.settings.provider == vinilo_core::provider::Provider::Local {
             self.loading_discover = false;
             return;
         }
@@ -86,7 +86,7 @@ impl AppModel {
     /// and grid building, which is presentation rather than something to ask
     /// across a socket.
     pub(super) fn reload_from_cache(&mut self, sender: &ComponentSender<Self>) {
-        if !self.settings.provider.needs_apple() {
+        if self.settings.provider == vinilo_core::provider::Provider::Local {
             return;
         }
         let cached = vinilo_core::library_cache::load();
@@ -474,7 +474,7 @@ impl AppModel {
     /// loaders' `!is_empty()` guards do that on their own, which is the same
     /// rule that makes revisiting a section instant.
     pub(super) fn seed_from_cache(&mut self) {
-        if !self.settings.provider.needs_apple() {
+        if self.settings.provider == vinilo_core::provider::Provider::Local {
             return;
         }
         let discover = vinilo_core::discover::load();

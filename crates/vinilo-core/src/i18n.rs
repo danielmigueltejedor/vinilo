@@ -288,6 +288,8 @@ pub enum Key {
     ToastRemoveFavourite,
     ToastGoneFromQueue,
     ToastUnstreamable,
+    LikedSongs,
+    YourTopTracks,
 }
 
 /// Resolve `key` in the current language.
@@ -340,7 +342,7 @@ fn en(key: Key) -> &'static str {
         Key::DiscoverEmpty => "Nothing to discover yet",
         Key::DiscoverEmptyBody => {
             "Play something and Vinilo will show it here, along with playlists \
-             and songs Apple Music recommends."
+             and songs this source recommends."
         }
         Key::Library => "Library",
         Key::All => "All",
@@ -443,7 +445,8 @@ fn en(key: Key) -> &'static str {
             "Open an audio file with Vinilo, drop a folder on the window, or set Vinilo as the default player for music in GNOME Settings."
         }
         Key::EmptyLibraryBodyCatalog => {
-            "This source has no saved library in Vinilo. Open Search, type a song, and click it to play."
+            "Liked songs, albums and playlists from this account will appear here. \
+             If this stays empty, sign in again from the menu."
         }
         Key::Notifications => "Notifications",
         Key::NotifyTrackChange => "Notify on track change",
@@ -548,6 +551,8 @@ fn en(key: Key) -> &'static str {
         Key::ToastRemoveFavourite => "Removing favourite…",
         Key::ToastGoneFromQueue => "That track is no longer in the queue",
         Key::ToastUnstreamable => "Nothing here can be streamed",
+        Key::LikedSongs => "Liked Songs",
+        Key::YourTopTracks => "Your Top Tracks",
     }
 }
 
@@ -569,7 +574,7 @@ fn es(key: Key) -> &'static str {
         Key::DiscoverEmpty => "Todavía no hay nada que descubrir",
         Key::DiscoverEmptyBody => {
             "Reproduce algo y Vinilo lo mostrará aquí, junto con listas y \
-             canciones que recomienda Apple Music."
+             canciones que recomienda esta fuente."
         }
         Key::Library => "Biblioteca",
         Key::All => "Todas",
@@ -672,7 +677,8 @@ fn es(key: Key) -> &'static str {
             "Abre un archivo de audio con Vinilo, suelta una carpeta en la ventana o pon Vinilo como reproductor de música predeterminado en Ajustes de GNOME."
         }
         Key::EmptyLibraryBodyCatalog => {
-            "Esta fuente no guarda una biblioteca en Vinilo. Abre Buscar, escribe una canción y pulsa para reproducirla."
+            "Aquí saldrán las canciones que te gustan, los álbumes y las listas de esta cuenta. \
+             Si sigue vacío, vuelve a iniciar sesión desde el menú."
         }
         Key::Notifications => "Notificaciones",
         Key::NotifyTrackChange => "Avisar al cambiar de canción",
@@ -784,6 +790,8 @@ fn es(key: Key) -> &'static str {
         Key::ToastRemoveFavourite => "Quitando de favoritos…",
         Key::ToastGoneFromQueue => "Esa canción ya no está en la cola",
         Key::ToastUnstreamable => "Aquí no hay nada que se pueda reproducir",
+        Key::LikedSongs => "Canciones que te gustan",
+        Key::YourTopTracks => "Tus temas más reproducidos",
     }
 }
 

@@ -29,7 +29,7 @@ La primera vez eliges idioma y fuente. Luego puedes cambiarlos en **Preferencias
 - **Reproducción sin cortes** y reproductor a pantalla completa con portada y cola.
 - **Controles del escritorio.** Barra superior de GNOME, pantalla de bloqueo o teclas multimedia. La música sigue si cierras la ventana.
 - **Búsqueda en Apple Music.** Artistas, álbumes, listas y canciones.
-- **Escuchar ahora.** Recién reproducido, listas hechas para ti y éxitos, con Apple Music si responde y con tu biblioteca si no.
+- **Escuchar ahora.** Recién reproducido, listas hechas para ti y éxitos; con Apple Music o Spotify si esa es la fuente, y con tu biblioteca si el servicio no responde.
 - **Listas rápidas.** Las playlists que ya abriste se quedan en caché; las filas muestran la carátula de cada canción.
 - **Archivos de este equipo.** Ábrelo desde Archivos, suelta una carpeta, o pon Vinilo como reproductor predeterminado. Funciona con Apple Music y también en solitario.
 - **Idioma y fuente en Preferencias.** Inglés y español; Apple Music, este equipo, Spotify, YouTube Music o Tidal.
@@ -40,7 +40,7 @@ Para **Apple Music** necesitas una suscripción activa, una máquina **x86_64** 
 
 Para **archivos locales** basta con el propio Vinilo: MP3, FLAC, Ogg, WAV y demás que rodio sepa abrir. No hace falta sidecar ni cuenta.
 
-Para **Spotify, YouTube Music y Tidal** Vinilo abre una **ventana de inicio de sesión** (como Apple Music). Después busca en el catálogo y reproduce el audio con `yt-dlp`. No es el cliente oficial: esos servicios cierran el stream con DRM en Linux. Hace falta `yt-dlp` y, para convertir a MP3, `ffmpeg`. También `webkitgtk-6.0` para la ventana de login.
+Para **Spotify, YouTube Music y Tidal** Vinilo abre una **ventana de inicio de sesión** (como Apple Music). Con Spotify, después busca en el catálogo de Spotify, muestra tus listas y canciones que te gustan, y Escuchar ahora. El audio se descarga con `yt-dlp` (no es el cliente oficial: Spotify cierra el stream con DRM en Linux). Hace falta `yt-dlp` y, para convertir a MP3, `ffmpeg`. También `webkitgtk-6.0` para la ventana de login.
 
 ## Compilar e instalar
 
