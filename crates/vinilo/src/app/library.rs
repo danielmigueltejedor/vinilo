@@ -145,10 +145,10 @@ impl AppModel {
 
     /// Put the active query in the header without treating that write as typing.
     pub(super) fn write_search_entry(&mut self, entry: &gtk::SearchEntry) {
-        let text = self.query();
+        let text = self.query().to_owned();
         if entry.text().as_str() != text {
             self.ignore_search_echo = self.ignore_search_echo.saturating_add(1);
-            entry.set_text(text);
+            entry.set_text(&text);
         }
     }
 
