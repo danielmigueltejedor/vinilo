@@ -69,8 +69,10 @@ git clone git@github.com:TU_USUARIO/vinilo.git
 cd vinilo
 
 # 2. Dependencias (Arch). No hace falta sudo para make.
-sudo pacman -S --needed base-devel pkgconf rust gtk4 libadwaita librsvg \
+#    rustup, no el paquete «rust»: Vinilo pide Rust ≥ 1.93 (edition 2024).
+sudo pacman -S --needed base-devel pkgconf rustup gtk4 libadwaita librsvg \
                         nodejs npm libpulse alsa-lib yt-dlp ffmpeg webkitgtk-6.0
+rustup default stable
 
 # 3. Compila, descarga el sidecar (~200 MB) e instala en ~/.local
 make install

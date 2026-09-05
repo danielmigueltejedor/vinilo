@@ -13,11 +13,14 @@ PREFIX  ?= $(HOME)/.local
 BINDIR   = $(PREFIX)/bin
 DATADIR  = $(PREFIX)/share
 APPID    = dev.danielmiguelt.Vinilo
-# rustup's cargo lives here. `make` often inherits a PATH without it
-# (GNOME session, a fish that never ran fish_add_path, etc.) which is
-# exactly `make: cargo: No such file or directory`.
-export PATH := $(HOME)/.cargo/bin:$(PATH)
-CARGO   ?= cargo
+# rustup may put cargo in ~/.cargo/bin *or* behind /usr/bin/cargo (Arch's
+# rustup package). Prefer an explicit binary so `make` does not depend on
+# fish_add_path having run in this shell.
+CARGO ?= $(shell \
+	if command -v cargo >/dev/null 2>&1; then command -v cargo; \
+	elif [ -x "$(HOME)/.cargo/bin/cargo" ]; then echo "$(HOME)/.cargo/bin/cargo"; \
+	elif command -v rustup >/dev/null 2>&1; then rustup which cargo 2>/dev/null; \
+	fi)
 # aguja has an id of its own because it is a separate program with a separate
 # entry — a terminal one, launched by the desktop into a terminal.
 AGUJA   = dev.danielmiguelt.Aguja
@@ -43,15 +46,20 @@ help:
 	@echo
 	@echo "Después de instalar: vinilo   (o ábrelo desde la parrilla de apps)"
 	@echo "Si fish no encuentra el comando:  fish_add_path ~/.local/bin"
+	@echo "Si no hay compilador de Rust:     sudo pacman -S rustup && rustup default stable"
 	@echo "Si git pull se queja de Cargo.lock:  make update"
 
 all: build
 
 build:
-	@if ! command -v $(CARGO) >/dev/null 2>&1; then \
-		echo "No encuentro cargo."; \
-		echo "En fish:  fish_add_path ~/.cargo/bin"; \
-		echo "O instala rustup desde https://rustup.rs y vuelve a abrir la terminal."; \
+	@if [ -z "$(CARGO)" ] || { [ ! -x "$(CARGO)" ] && ! command -v "$(CARGO)" >/dev/null 2>&1; }; then \
+		echo "No encuentro el compilador de Rust (cargo)."; \
+		echo "En Arch no basta con el paquete «rust» si no está instalado. Instala rustup y un toolchain:"; \
+		echo; \
+		echo "  sudo pacman -S --needed rustup"; \
+		echo "  rustup default stable"; \
+		echo; \
+		echo "Luego, en esta carpeta:  make install"; \
 		exit 127; \
 	fi
 	$(CARGO) build --release
