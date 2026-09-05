@@ -245,7 +245,7 @@ impl AppModel {
                     });
                 }
                 window.present();
-                gtk::prelude::Cast::upcast::<gtk::Widget>(popup)
+                Some(gtk::prelude::Cast::upcast::<gtk::Widget>(popup))
             });
         }
         {
