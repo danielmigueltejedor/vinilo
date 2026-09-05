@@ -130,35 +130,80 @@ pub async fn warm_session(http: &reqwest::Client) -> Result<()> {
 }
 
 pub async fn library(http: &reqwest::Client) -> Result<Library> {
+    library_progress(http, |_, _, _, _| {}).await
+}
+
+/// Fetch one section at a time so a 429 on liked songs does not cancel
+/// playlists that already came back. `progress` runs after each non-empty
+/// section so the window can draw before the last page lands.
+pub async fn library_progress(
+    http: &reqwest::Client,
+    mut progress: impl FnMut(&[Track], &[Album], &[Artist], &[Playlist]),
+) -> Result<Library> {
     let session = session(http).await?;
-    let (liked, albums, artists, playlists) = tokio::join!(
-        library_tracks(http, &session, 200),
-        library_albums(http, &session, 100),
-        library_artists(http, &session, 50),
-        library_playlists(http, &session, 100),
-    );
-    if liked.is_err() && albums.is_err() && artists.is_err() && playlists.is_err() {
-        return Err(liked.err().unwrap_or_else(|| {
-            anyhow::anyhow!("Spotify would not return a library for this session")
-        }));
+    let mut playlists =
+        library_section("spotify playlists", library_playlists(http, &session, 100)).await;
+    let mut songs = Vec::new();
+    let mut albums = Vec::new();
+    let mut artists = Vec::new();
+
+    if !playlists.is_empty() {
+        progress(&songs, &albums, &artists, &playlists);
     }
-    let songs = liked.unwrap_or_else(|err| {
-        tracing::warn!(?err, "spotify liked songs");
-        Vec::new()
-    });
-    let albums = albums.unwrap_or_else(|err| {
-        tracing::warn!(?err, "spotify saved albums");
-        Vec::new()
-    });
-    let artists = artists.unwrap_or_else(|err| {
-        tracing::warn!(?err, "spotify followed artists");
-        Vec::new()
-    });
-    let mut playlists = playlists.unwrap_or_else(|err| {
-        tracing::warn!(?err, "spotify playlists");
-        Vec::new()
-    });
+    if cooling_down() {
+        return library_from_parts(songs, albums, artists, playlists);
+    }
+
+    songs = library_section("spotify liked songs", library_tracks(http, &session, 200)).await;
     if !songs.is_empty() {
+        if playlists.iter().all(|list| list.id != "sp:liked") {
+            playlists.insert(0, liked_playlist(&songs));
+        }
+        progress(&songs, &albums, &artists, &playlists);
+    }
+    if cooling_down() {
+        return library_from_parts(songs, albums, artists, playlists);
+    }
+
+    albums = library_section("spotify saved albums", library_albums(http, &session, 100)).await;
+    if !albums.is_empty() {
+        progress(&songs, &albums, &artists, &playlists);
+    }
+    if cooling_down() {
+        return library_from_parts(songs, albums, artists, playlists);
+    }
+
+    artists = library_section(
+        "spotify followed artists",
+        library_artists(http, &session, 50),
+    )
+    .await;
+    library_from_parts(songs, albums, artists, playlists)
+}
+
+async fn library_section<T: Default>(
+    label: &'static str,
+    fut: impl std::future::Future<Output = Result<T>>,
+) -> T {
+    match fut.await {
+        Ok(value) => value,
+        Err(err) => {
+            tracing::warn!(?err, "{label}");
+            T::default()
+        }
+    }
+}
+
+fn library_from_parts(
+    songs: Vec<Track>,
+    albums: Vec<Album>,
+    artists: Vec<Artist>,
+    mut playlists: Vec<Playlist>,
+) -> Result<Library> {
+    if songs.is_empty() && albums.is_empty() && artists.is_empty() && playlists.is_empty() {
+        anyhow::bail!("Spotify would not return a library for this session");
+    }
+    if !songs.is_empty() && playlists.iter().all(|list| list.id != "sp:liked") {
         playlists.insert(0, liked_playlist(&songs));
     }
     Ok(Library {

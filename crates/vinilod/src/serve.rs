@@ -111,6 +111,9 @@ pub struct Daemon {
     /// The source this process booted with. Preferences may rewrite the
     /// provider file before we quit; the queue we save still belongs to this.
     pub source: vinilo_core::provider::Provider,
+    /// A Refresh arrived while a fetch was already running. Run another when
+    /// the current one finishes, so the window connecting at boot is not a no-op.
+    pub refresh_again: std::cell::Cell<bool>,
 }
 
 impl Daemon {
@@ -248,6 +251,7 @@ pub async fn run() -> Result<()> {
         last_listen: RefCell::new(None),
         stream_hits: RefCell::new(vinilo_core::streams::load_hits()),
         source,
+        refresh_again: std::cell::Cell::new(false),
     });
 
     // After the `Rc` exists: MPRIS holds one so a button on a bar can reach the
@@ -1104,10 +1108,7 @@ fn answer(
         }
         Request::Refresh => {
             if daemon.refreshing.get().is_some() {
-                // A late Reload must not leave the window on a spinner that the
-                // in-flight fetch will not re-announce. Drop the overlay; the
-                // fetch still finishes and publishes LibraryChanged.
-                daemon.publish(Event::LibraryRefreshing { refreshing: false });
+                daemon.refresh_again.set(true);
                 return None;
             }
             refresh_library(daemon);
@@ -1507,7 +1508,7 @@ fn refresh_library(daemon: &Rc<Daemon>) {
         return;
     };
     let Some(client) = daemon.client() else {
-        finish_library_refresh(daemon, generation);
+        finish_and_maybe_chain(daemon, generation, true);
         return;
     };
 
@@ -1521,7 +1522,7 @@ fn refresh_library(daemon: &Rc<Daemon>) {
             client.all_library_playlists(MAX),
         );
         if daemon.authorization_generation.get() != generation {
-            finish_library_refresh(&daemon, generation);
+            finish_and_maybe_chain(&daemon, generation, false);
             tracing::debug!(generation, "discarded stale library refresh");
             return;
         }
@@ -1543,10 +1544,13 @@ fn refresh_library(daemon: &Rc<Daemon>) {
                 model.library.playlists = playlists;
                 drop(model);
                 daemon.publish(Event::LibraryChanged);
+                finish_and_maybe_chain(&daemon, generation, true);
             }
-            _ => tracing::warn!("library refresh failed; keeping what was cached"),
+            _ => {
+                tracing::warn!("library refresh failed; keeping what was cached");
+                finish_and_maybe_chain(&daemon, generation, false);
+            }
         }
-        finish_library_refresh(&daemon, generation);
     });
 }
 
@@ -1569,6 +1573,20 @@ fn finish_library_refresh(daemon: &Daemon, generation: u64) -> bool {
         }
     }
     current
+}
+
+/// A window connecting at boot always sends Refresh. If that landed while a
+/// fetch was already running, run it now — but only when the one that just
+/// finished did not already put a library on disk. A second full fetch after
+/// a success is how Pathfinder starts returning 429s.
+fn finish_and_maybe_chain(daemon: &Rc<Daemon>, generation: u64, applied: bool) {
+    finish_library_refresh(daemon, generation);
+    let again = daemon.refresh_again.replace(false);
+    if !again || applied || daemon.refreshing.get().is_some() {
+        return;
+    }
+    tracing::info!("running the library refresh that arrived while one was already in flight");
+    refresh_library(daemon);
 }
 
 fn refresh_catalog_library(daemon: &Rc<Daemon>, provider: vinilo_core::provider::Provider) {
@@ -1603,7 +1621,7 @@ fn refresh_catalog_library(daemon: &Rc<Daemon>, provider: vinilo_core::provider:
                 .await;
             }
             _ => {
-                finish_library_refresh(&daemon, generation);
+                finish_and_maybe_chain(&daemon, generation, true);
             }
         }
     });
@@ -1620,7 +1638,7 @@ fn cache_library_is_empty(library: &vinilo_core::library_cache::Library) -> bool
     library.is_empty()
 }
 
-async fn refresh_spotify_library(daemon: &Daemon, generation: u64) {
+async fn refresh_spotify_library(daemon: &Rc<Daemon>, generation: u64) {
     let http = vinilo_core::streams::http_long();
     match tokio::time::timeout(
         std::time::Duration::from_secs(20),
@@ -1638,7 +1656,7 @@ async fn refresh_spotify_library(daemon: &Daemon, generation: u64) {
                 {
                     daemon.publish(Event::Error { detail });
                 }
-                finish_library_refresh(daemon, generation);
+                finish_and_maybe_chain(daemon, generation, false);
                 return;
             }
         }
@@ -1648,24 +1666,50 @@ async fn refresh_spotify_library(daemon: &Daemon, generation: u64) {
     }
 
     const BACKOFF_SECS: [u64; 3] = [0, 4, 12];
+    // Per-request HTTP already waits 25s. The old 25s cap around the *whole*
+    // library cancelled pagination mid-flight and left the cache empty.
+    const LIBRARY_DEADLINE: std::time::Duration = std::time::Duration::from_secs(180);
     for (attempt, wait) in BACKOFF_SECS.iter().enumerate() {
         if daemon.authorization_generation.get() != generation {
-            finish_library_refresh(daemon, generation);
+            finish_and_maybe_chain(daemon, generation, false);
             return;
         }
-        if *wait > 0 {
-            if let Some(cool) = vinilo_core::spotify::cooldown_left() {
-                tokio::time::sleep(cool.min(std::time::Duration::from_secs(20))).await;
-            } else {
-                tokio::time::sleep(std::time::Duration::from_secs(*wait)).await;
-            }
+        if let Some(cool) = vinilo_core::spotify::cooldown_left() {
+            let wait_for = cool.min(std::time::Duration::from_secs(90));
+            tracing::info!(
+                secs = wait_for.as_secs(),
+                "waiting out Spotify rate limit before a library fetch"
+            );
+            tokio::time::sleep(wait_for).await;
+        } else if *wait > 0 {
+            tokio::time::sleep(std::time::Duration::from_secs(*wait)).await;
         }
         if daemon.authorization_generation.get() != generation {
-            finish_library_refresh(daemon, generation);
+            finish_and_maybe_chain(daemon, generation, false);
             return;
         }
-        let fetch = vinilo_core::spotify::library(&http);
-        match tokio::time::timeout(std::time::Duration::from_secs(25), fetch).await {
+        if vinilo_core::spotify::cooling_down() {
+            tracing::warn!(
+                attempt = attempt + 1,
+                "spotify still rate-limited; not spending a library fetch"
+            );
+            continue;
+        }
+        let daemon_for_progress = daemon.clone();
+        let fetch = vinilo_core::spotify::library_progress(
+            &http,
+            move |songs, albums, artists, playlists| {
+                apply_partial_catalog_library(
+                    &daemon_for_progress,
+                    generation,
+                    songs,
+                    albums,
+                    artists,
+                    playlists,
+                );
+            },
+        );
+        match tokio::time::timeout(LIBRARY_DEADLINE, fetch).await {
             Ok(Ok(library)) if !library_is_empty(&library) => {
                 apply_catalog_library(
                     daemon,
@@ -1696,7 +1740,7 @@ async fn refresh_spotify_library(daemon: &Daemon, generation: u64) {
                     {
                         daemon.publish(Event::Error { detail });
                     }
-                    finish_library_refresh(daemon, generation);
+                    finish_and_maybe_chain(daemon, generation, false);
                     return;
                 }
             }
@@ -1707,6 +1751,11 @@ async fn refresh_spotify_library(daemon: &Daemon, generation: u64) {
                 );
             }
         }
+        if !vinilo_core::library_cache::load().is_empty() {
+            tracing::info!("keeping the cached Spotify library after this attempt");
+            finish_and_maybe_chain(daemon, generation, true);
+            return;
+        }
         if attempt == 0 {
             // Keep retrying off the spinner: an empty first fetch used to hold
             // the window on "loading" until every backoff finished.
@@ -1714,11 +1763,11 @@ async fn refresh_spotify_library(daemon: &Daemon, generation: u64) {
         }
     }
     tracing::warn!("spotify library still empty after retries — keeping what was cached");
-    finish_library_refresh(daemon, generation);
+    finish_and_maybe_chain(daemon, generation, false);
 }
 
 async fn refresh_named_catalog<Fut>(
-    daemon: &Daemon,
+    daemon: &Rc<Daemon>,
     generation: u64,
     label: &'static str,
     fetch: Fut,
@@ -1738,21 +1787,59 @@ async fn refresh_named_catalog<Fut>(
         }
         Ok(Ok(_)) => {
             tracing::warn!("{label} library fetch was empty — keeping what was cached");
-            finish_library_refresh(daemon, generation);
+            finish_and_maybe_chain(daemon, generation, false);
         }
         Ok(Err(err)) => {
             tracing::warn!(?err, "{label} library refresh failed");
-            finish_library_refresh(daemon, generation);
+            finish_and_maybe_chain(daemon, generation, false);
         }
         Err(_) => {
             tracing::warn!("{label} library refresh timed out — keeping what was cached");
-            finish_library_refresh(daemon, generation);
+            finish_and_maybe_chain(daemon, generation, false);
         }
     }
 }
 
-fn apply_catalog_library(
+fn apply_partial_catalog_library(
     daemon: &Daemon,
+    generation: u64,
+    songs: &[vinilo_core::music::types::Track],
+    albums: &[vinilo_core::music::types::Album],
+    artists: &[vinilo_core::music::types::Artist],
+    playlists: &[vinilo_core::music::types::Playlist],
+) {
+    if daemon.authorization_generation.get() != generation {
+        return;
+    }
+    if songs.is_empty() && albums.is_empty() && artists.is_empty() && playlists.is_empty() {
+        return;
+    }
+    // A good cache already painted the window. Do not replace it with
+    // playlists-only while the rest of the fetch is still in flight.
+    if !vinilo_core::library_cache::load().is_empty() {
+        return;
+    }
+    remember_songs(daemon, songs);
+    vinilo_core::library_cache::save(songs, albums, artists, playlists);
+    let mut model = daemon.model.borrow_mut();
+    if !songs.is_empty() {
+        model.library.tracks = songs.to_vec();
+    }
+    if !albums.is_empty() {
+        model.library.albums = albums.to_vec();
+    }
+    if !artists.is_empty() {
+        model.library.artists = artists.to_vec();
+    }
+    if !playlists.is_empty() {
+        model.library.playlists = playlists.to_vec();
+    }
+    drop(model);
+    daemon.publish(Event::LibraryChanged);
+}
+
+fn apply_catalog_library(
+    daemon: &Rc<Daemon>,
     generation: u64,
     songs: Vec<vinilo_core::music::types::Track>,
     albums: Vec<vinilo_core::music::types::Album>,
@@ -1760,7 +1847,7 @@ fn apply_catalog_library(
     playlists: Vec<vinilo_core::music::types::Playlist>,
 ) {
     if daemon.authorization_generation.get() != generation {
-        finish_library_refresh(daemon, generation);
+        finish_and_maybe_chain(daemon, generation, false);
         return;
     }
     tracing::info!(
@@ -1779,7 +1866,7 @@ fn apply_catalog_library(
     model.library.playlists = playlists;
     drop(model);
     daemon.publish(Event::LibraryChanged);
-    finish_library_refresh(daemon, generation);
+    finish_and_maybe_chain(daemon, generation, true);
 }
 
 fn should_surface_spotify_error(detail: &str) -> bool {
@@ -2607,6 +2694,7 @@ mod tests {
             quitting: tokio::sync::Notify::new(),
             stream_hits: RefCell::new(HashMap::new()),
             source: vinilo_core::provider::Provider::AppleMusic,
+            refresh_again: std::cell::Cell::new(false),
         })
     }
 
@@ -2682,6 +2770,28 @@ mod tests {
             events.try_recv(),
             Ok(Event::LibraryRefreshing { refreshing: false })
         ));
+        assert_eq!(daemon.refreshing.get(), None);
+    }
+
+    #[test]
+    fn refresh_during_a_fetch_is_queued_instead_of_dropping() {
+        let daemon = daemon();
+        daemon.refreshing.set(Some(0));
+        let mut events = daemon.events.subscribe();
+        let mut feed = None;
+        assert!(answer(r#"{"req":"refresh"}"#, &daemon, &mut feed).is_none());
+        assert!(daemon.refresh_again.get());
+        assert!(events.try_recv().is_err());
+        assert_eq!(daemon.refreshing.get(), Some(0));
+    }
+
+    #[test]
+    fn a_failed_refresh_runs_the_one_that_arrived_while_it_was_busy() {
+        let daemon = daemon();
+        daemon.refreshing.set(Some(0));
+        daemon.refresh_again.set(true);
+        finish_and_maybe_chain(&daemon, 0, false);
+        assert!(!daemon.refresh_again.get());
         assert_eq!(daemon.refreshing.get(), None);
     }
 

@@ -64,6 +64,8 @@ use vinilo_core::ipc::{PlayMode, Request, Transport, WriteAction};
 use vinilo_core::music::types::{Album, Artist, Artwork, Playlist, Track};
 use vinilo_core::player::protocol::RepeatMode;
 
+const WINDOW_TITLE: &str = concat!("Vinilo ", env!("CARGO_PKG_VERSION"));
+
 /// How often the seek bar redraws while playing.
 ///
 /// The sidecar's own position events are coarse and irregular, so
@@ -717,7 +719,7 @@ impl Component for AppModel {
 
     view! {
         adw::ApplicationWindow {
-            set_title: Some("Vinilo"),
+            set_title: Some(WINDOW_TITLE),
 
             // Closing a music player mid-song should not stop the music.
             // Always `Stop` — the reducer decides whether this is a hide or a
@@ -825,7 +827,7 @@ impl Component for AppModel {
                                     add_top_bar = &adw::HeaderBar {
                                         #[wrap(Some)]
                                         set_title_widget = &adw::WindowTitle {
-                                            set_title: "Vinilo",
+                                            set_title: WINDOW_TITLE,
                                             #[watch]
                                             set_subtitle: &model.subtitle(),
                                         },
@@ -899,7 +901,7 @@ impl Component for AppModel {
                             #[local_ref]
                             set_content = nav_view -> adw::NavigationView {
                                 add = &adw::NavigationPage {
-                                    set_title: "Vinilo",
+                                    set_title: WINDOW_TITLE,
                                     // The root page. Albums and artists push on
                                     // top of it; nothing ever pops it.
                                     set_tag: Some("results"),
