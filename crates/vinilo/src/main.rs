@@ -104,6 +104,11 @@ fn main() {
         style::Accent::parse(&settings.accent),
         settings.player_backdrop,
     );
+    style::apply_from_settings(
+        settings.source_tint,
+        settings.provider,
+        style::Accent::parse(&settings.accent),
+    );
     app.run::<app::AppModel>(settings);
 }
 

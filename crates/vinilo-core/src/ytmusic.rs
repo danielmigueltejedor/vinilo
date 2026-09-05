@@ -8,12 +8,14 @@
 //! library albums, artists, playlists, and the lists that should show up in
 //! the sidebar after a write.
 
+use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail};
 use serde_json::{Value, json};
 use sha1::{Digest, Sha1};
 
+use crate::discover::Discover;
 use crate::entry::Entry;
 use crate::i18n::{self, Key};
 use crate::ipc::{PageKind, WriteAction};
@@ -31,14 +33,67 @@ const KEY: &str = "AIzaSyC9XL3ZjWddXya6X74dJoCTL-WEYFDNX30";
 const USER_AGENT: &str =
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:88.0) Gecko/20100101 Firefox/88.0";
 
+static VISITOR: Mutex<Option<String>> = Mutex::new(None);
+
+fn cached_visitor() -> Option<String> {
+    VISITOR.lock().ok().and_then(|g| g.clone())
+}
+
+fn store_visitor(id: String) {
+    if let Ok(mut g) = VISITOR.lock() {
+        *g = Some(id);
+    }
+}
+
+fn visitor_from_html(html: &str) -> Option<String> {
+    for key in ["\"VISITOR_DATA\":\"", "\"visitorData\":\""] {
+        if let Some(rest) = html.split(key).nth(1) {
+            let id = rest.split('"').next().unwrap_or("");
+            if !id.is_empty() && id.len() < 200 {
+                return Some(id.to_owned());
+            }
+        }
+    }
+    None
+}
+
+async fn ensure_visitor(http: &reqwest::Client, cookie: &str) {
+    if cached_visitor().is_some() {
+        return;
+    }
+    let res = http
+        .get(ORIGIN)
+        .header("User-Agent", USER_AGENT)
+        .header("Cookie", cookie)
+        .header("Accept-Language", "en-US,en;q=0.9")
+        .send()
+        .await;
+    let Ok(res) = res else {
+        return;
+    };
+    let Ok(html) = res.text().await else {
+        return;
+    };
+    if let Some(id) = visitor_from_html(&html) {
+        tracing::debug!(visitor = %id, "youtube music visitor id");
+        store_visitor(id);
+    }
+}
+
 fn context() -> Value {
+    let mut client = json!({
+        "clientName": "WEB_REMIX",
+        "clientVersion": "1.20250903.01.00",
+        "hl": "en",
+        "gl": "US"
+    });
+    if let Some(visitor) = cached_visitor() {
+        if let Some(obj) = client.as_object_mut() {
+            obj.insert("visitorData".into(), json!(visitor));
+        }
+    }
     json!({
-        "client": {
-            "clientName": "WEB_REMIX",
-            "clientVersion": "1.20250903.01.00",
-            "hl": "en",
-            "gl": "US"
-        },
+        "client": client,
         "user": {}
     })
 }
@@ -87,6 +142,7 @@ fn sapisidhash(sapisid: &str) -> String {
 
 async fn innertube(http: &reqwest::Client, endpoint: &str, extras: Value) -> Result<Value> {
     let cookie = cookie_header()?;
+    ensure_visitor(http, &cookie).await;
     let mut body = extras;
     if let Some(obj) = body.as_object_mut() {
         obj.insert("context".into(), context());
@@ -102,6 +158,9 @@ async fn innertube(http: &reqwest::Client, endpoint: &str, extras: Value) -> Res
         .header("X-Origin", ORIGIN)
         .header("X-Goog-AuthUser", "0")
         .header("Cookie", &cookie);
+    if let Some(visitor) = cached_visitor() {
+        req = req.header("X-Goog-Visitor-Id", visitor);
+    }
     if let Some(sapisid) = sapisid_from_cookie(&cookie) {
         req = req.header(
             "Authorization",
@@ -304,10 +363,130 @@ pub async fn library(http: &reqwest::Client) -> Result<Library> {
         playlists = playlists.len(),
         "youtube music library"
     );
-    if songs.is_empty() && albums.is_empty() && artists.is_empty() && playlists.is_empty() {
-        bail!("YouTube Music library was empty");
-    }
     Ok(Library::from_parts(songs, albums, artists, playlists))
+}
+
+/// YouTube Music's own home page (`FEmusic_home`), the same browse ytmusicapi
+/// `get_home` uses. This is what Listen Now should show when the library is
+/// empty — mixes, listen-again, charts — not a blank status page.
+pub async fn discover(http: &reqwest::Client) -> Result<Discover> {
+    let home = browse(http, "FEmusic_home").await?;
+    let mut page = discover_from_home(&home);
+    if page.charts.is_empty() || page.recommended_playlists.is_empty() {
+        match browse(http, "FEmusic_explore").await {
+            Ok(explore) => page.fill_gaps(discover_from_home(&explore)),
+            Err(err) => tracing::warn!(?err, "youtube music explore"),
+        }
+    }
+    tracing::info!(
+        recently_played = page.recently_played.len(),
+        made_for_you = page.recommended_playlists.len(),
+        recommended_songs = page.recommended_songs.len(),
+        recently_added = page.recently_added.len(),
+        charts = page.charts.len(),
+        "youtube music home"
+    );
+    Ok(page)
+}
+
+const SHELF: usize = 16;
+
+#[derive(Clone, Copy)]
+enum HomeShelf {
+    ListenAgain,
+    Charts,
+    Picks,
+    Other,
+}
+
+fn classify_carousel(title: &str) -> HomeShelf {
+    let t = title.to_ascii_lowercase();
+    if t.contains("listen again")
+        || t.contains("forgotten")
+        || t.contains("jump back")
+        || t.contains("recientes")
+        || t.contains("escuchar")
+        || t.contains("volver a")
+    {
+        HomeShelf::ListenAgain
+    } else if t.contains("chart")
+        || t.contains("trending")
+        || t.contains("top 100")
+        || t.contains("top songs")
+        || t.contains("éxito")
+        || t.contains("exito")
+    {
+        HomeShelf::Charts
+    } else if t.contains("quick pick")
+        || t.contains("mixed for you")
+        || t.contains("songs for you")
+        || t.contains("canciones para")
+    {
+        HomeShelf::Picks
+    } else {
+        HomeShelf::Other
+    }
+}
+
+fn discover_from_home(value: &Value) -> Discover {
+    let mut recently_played = Vec::new();
+    let mut recommended_playlists = Vec::new();
+    let mut recommended_songs = Vec::new();
+    let mut recently_added = Vec::new();
+    let mut charts = Vec::new();
+
+    walk(value, &mut |node| {
+        let Some(carousel) = node.get("musicCarouselShelfRenderer") else {
+            return;
+        };
+        let title = carousel
+            .pointer("/header/musicCarouselShelfBasicHeaderRenderer/title/runs/0/text")
+            .or_else(|| {
+                carousel
+                    .pointer("/header/musicCarouselShelfBasicHeaderRenderer/strapline/runs/0/text")
+            })
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        let kind = classify_carousel(title);
+        let songs = tracks_from_browse(carousel);
+        let albums = albums_from_browse(carousel);
+        let lists = playlists_from_browse(carousel);
+        match kind {
+            HomeShelf::ListenAgain => {
+                recently_played.extend(songs.into_iter().map(Entry::Song));
+                recently_played.extend(albums.into_iter().map(Entry::Album));
+                recently_played.extend(lists.into_iter().map(Entry::Playlist));
+            }
+            HomeShelf::Charts => {
+                charts.extend(songs.into_iter().map(Entry::Song));
+                charts.extend(albums.into_iter().map(Entry::Album));
+                charts.extend(lists.into_iter().map(Entry::Playlist));
+            }
+            HomeShelf::Picks => {
+                recommended_songs.extend(songs);
+                recently_added.extend(albums.into_iter().map(Entry::Album));
+                recommended_playlists.extend(lists.into_iter().map(Entry::Playlist));
+            }
+            HomeShelf::Other => {
+                recommended_songs.extend(songs);
+                recently_added.extend(albums.into_iter().map(Entry::Album));
+                recommended_playlists.extend(lists.into_iter().map(Entry::Playlist));
+            }
+        }
+    });
+
+    recently_played.truncate(SHELF);
+    recommended_playlists.truncate(SHELF);
+    recommended_songs.truncate(SHELF);
+    recently_added.truncate(SHELF);
+    charts.truncate(SHELF);
+    Discover::shelves(
+        recently_played,
+        recommended_playlists,
+        recommended_songs,
+        recently_added,
+        charts,
+    )
 }
 
 pub async fn open(http: &reqwest::Client, kind: PageKind, id: &str) -> Result<(Entry, Vec<Entry>)> {
@@ -853,5 +1032,73 @@ mod tests {
         assert_eq!(playlist_key("yt:liked").unwrap(), "LM");
         assert_eq!(playlist_key("yt:playlist:PLabc").unwrap(), "PLabc");
         assert_eq!(playlist_key("yt:playlist:VLPLabc").unwrap(), "PLabc");
+    }
+
+    #[test]
+    fn visitor_id_is_read_from_ytcfg_html() {
+        let html = r#"ytcfg.set({"VISITOR_DATA":"Cgtabc123xyz"});"#;
+        assert_eq!(visitor_from_html(html).as_deref(), Some("Cgtabc123xyz"));
+    }
+
+    #[test]
+    fn home_carousels_fill_listen_now_shelves() {
+        let json = json!({
+            "contents": {
+                "singleColumnBrowseResultsRenderer": {
+                    "tabs": [{
+                        "tabRenderer": {
+                            "content": {
+                                "sectionListRenderer": {
+                                    "contents": [
+                                        {
+                                            "musicCarouselShelfRenderer": {
+                                                "header": {
+                                                    "musicCarouselShelfBasicHeaderRenderer": {
+                                                        "title": { "runs": [{ "text": "Listen again" }] }
+                                                    }
+                                                },
+                                                "contents": [{
+                                                    "musicTwoRowItemRenderer": {
+                                                        "title": { "runs": [{ "text": "Gym" }] },
+                                                        "navigationEndpoint": {
+                                                            "browseEndpoint": {
+                                                                "browseId": "VLPLQwVIlKxHM6rz0fDJVv_0UlXGEWf-bFys"
+                                                            }
+                                                        }
+                                                    }
+                                                }]
+                                            }
+                                        },
+                                        {
+                                            "musicCarouselShelfRenderer": {
+                                                "header": {
+                                                    "musicCarouselShelfBasicHeaderRenderer": {
+                                                        "title": { "runs": [{ "text": "Mixed for you" }] }
+                                                    }
+                                                },
+                                                "contents": [{
+                                                    "musicTwoRowItemRenderer": {
+                                                        "title": { "runs": [{ "text": "Your mix" }] },
+                                                        "navigationEndpoint": {
+                                                            "browseEndpoint": {
+                                                                "browseId": "VLPLQwVIlKxHM6aaaaaaaaaaaaaaaaaaa"
+                                                            }
+                                                        }
+                                                    }
+                                                }]
+                                            }
+                                        }
+                                    ]
+                                }
+                            }
+                        }
+                    }]
+                }
+            }
+        });
+        let page = discover_from_home(&json);
+        assert_eq!(page.recently_played.len(), 1);
+        assert_eq!(page.recommended_playlists.len(), 1);
+        assert_eq!(page.recommended_playlists[0].title(), "Your mix");
     }
 }

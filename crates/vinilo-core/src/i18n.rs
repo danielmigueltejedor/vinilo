@@ -171,6 +171,8 @@ pub enum Key {
     AccentOrange,
     AlbumArtBackdrop,
     AlbumArtBackdropSub,
+    SourceTint,
+    SourceTintSub,
     Language,
     LanguageSub,
     MusicSource,
@@ -410,6 +412,8 @@ fn en(key: Key) -> &'static str {
         Key::AccentOrange => "Orange",
         Key::AlbumArtBackdrop => "Album Art Backdrop",
         Key::AlbumArtBackdropSub => "The current cover, blurred, behind the player",
+        Key::SourceTint => "Tint from music source",
+        Key::SourceTintSub => "Apple Music red, Spotify green, YouTube red, Tidal cyan",
         Key::Language => "Language",
         Key::LanguageSub => "Interface language. Takes effect immediately.",
         Key::MusicSource => "Music source",
@@ -667,6 +671,10 @@ fn es(key: Key) -> &'static str {
         Key::AccentOrange => "Naranja",
         Key::AlbumArtBackdrop => "Fondo con la portada",
         Key::AlbumArtBackdropSub => "La portada actual, desenfocada, detrás del reproductor",
+        Key::SourceTint => "Teñir según la fuente",
+        Key::SourceTintSub => {
+            "Rojo de Apple Music, verde de Spotify, rojo de YouTube, cian de Tidal"
+        }
         Key::Language => "Idioma",
         Key::LanguageSub => "Idioma de la interfaz. Se aplica al momento.",
         Key::MusicSource => "Fuente de música",

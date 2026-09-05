@@ -616,6 +616,8 @@ pub enum AppMsg {
     OpenSupport,
     SetTheme(u32),
     SetAccent(crate::style::Accent),
+    /// Recolour the accent to match Apple / Spotify / YouTube / Tidal.
+    SetSourceTint(bool),
     /// Whether the cover is painted behind the player (#145).
     SetPlayerBackdrop(bool),
     /// The colour scheme flipped; page backdrops have to be re-veiled.
@@ -2469,9 +2471,12 @@ impl AppModel {
             AppMsg::SetAccent(accent) => {
                 self.settings.accent = accent.id().into();
                 self.settings.save();
-                // Live: the provider is replaced, and every widget already
-                // referencing the accent variables repaints itself.
-                crate::style::set_accent(accent);
+                self.apply_live_accent();
+            }
+            AppMsg::SetSourceTint(on) => {
+                self.settings.source_tint = on;
+                self.settings.save();
+                self.apply_live_accent();
             }
             AppMsg::SetPlayerBackdrop(on) => {
                 self.settings.player_backdrop = on;
@@ -2937,6 +2942,14 @@ impl AppModel {
         }
     }
 
+    fn apply_live_accent(&self) {
+        crate::style::apply_from_settings(
+            self.settings.source_tint,
+            self.settings.provider,
+            crate::style::Accent::parse(&self.settings.accent),
+        );
+    }
+
     fn apply_provider(
         &mut self,
         provider: vinilo_core::provider::Provider,
@@ -2954,6 +2967,7 @@ impl AppModel {
             self.settings.section = crate::settings::Section::Catalog;
         }
         self.settings.save();
+        self.apply_live_accent();
         Self::fill_primary_menu(&self.primary_menu, provider);
         self.locale_tick = self.locale_tick.wrapping_add(1);
         self.refresh_nav_headers = true;

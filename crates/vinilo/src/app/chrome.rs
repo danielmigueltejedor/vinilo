@@ -12,6 +12,7 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use relm4::adw::prelude::*;
+use relm4::gtk::prelude::WidgetExt;
 use relm4::{ComponentSender, adw, gtk};
 
 use super::{AppModel, AppMsg};
@@ -545,6 +546,32 @@ impl AppModel {
             });
         }
         appearance.add(&accent);
+
+        let source_tint = adw::SwitchRow::builder()
+            .title(t(Key::SourceTint))
+            .subtitle(t(Key::SourceTintSub))
+            .active(self.settings.source_tint)
+            .build();
+        accent.set_sensitive(!self.settings.source_tint);
+        {
+            let sender = sender.clone();
+            let accent = accent.clone();
+            let armed = Rc::new(Cell::new(false));
+            source_tint.connect_active_notify({
+                let armed = armed.clone();
+                move |row| {
+                    if !armed.get() {
+                        return;
+                    }
+                    accent.set_sensitive(!row.is_active());
+                    sender.input(AppMsg::SetSourceTint(row.is_active()));
+                }
+            });
+            gtk::glib::timeout_add_local_once(std::time::Duration::from_millis(0), move || {
+                armed.set(true);
+            });
+        }
+        appearance.add(&source_tint);
 
         // #145: a photograph behind small type is distracting to some people,
         // and libadwaita's own surfaces are plain. Off, the two surfaces fall

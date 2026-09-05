@@ -123,6 +123,10 @@ pub struct Settings {
     /// Whether the current cover is painted behind the player, blurred. On by
     /// default.
     pub player_backdrop: bool,
+    /// Recolour the accent to match the music source (Apple red, Spotify
+    /// green, YouTube red, Tidal cyan). On by default: that is the look the
+    /// source picker is asking for.
+    pub source_tint: bool,
     /// Notify when the track changes. Off by default (`bool`'s default).
     pub notify_track_change: bool,
     /// Playlists pinned to the sidebar, in the order they were put there.
@@ -202,6 +206,7 @@ impl Default for Settings {
             // Not `bool`'s default: the backdrop is the app's own look, and
             // #145 explicitly asked for it to stay on for everyone else.
             player_backdrop: true,
+            source_tint: true,
             notify_track_change: false,
             // Nothing pinned until somebody pins something. An app that
             // guesses which playlists matter to you gets it wrong.
@@ -248,6 +253,9 @@ impl Settings {
         }
         if let Ok(on) = file.boolean(GROUP, "player-backdrop") {
             settings.player_backdrop = on;
+        }
+        if let Ok(on) = file.boolean(GROUP, "source-tint") {
+            settings.source_tint = on;
         }
         if let Ok(accent) = file.string(GROUP, "accent") {
             settings.accent = accent.into();
@@ -331,6 +339,7 @@ impl Settings {
         file.set_string(GROUP, "section", self.section.as_str());
         file.set_boolean(GROUP, "show-sidebar", self.show_sidebar);
         file.set_boolean(GROUP, "player-backdrop", self.player_backdrop);
+        file.set_boolean(GROUP, "source-tint", self.source_tint);
         file.set_string(GROUP, "accent", &self.accent);
         file.set_string(GROUP, "sort", &self.sort);
         file.set_boolean(GROUP, "sort-reversed", self.sort_reversed);
@@ -435,6 +444,11 @@ mod tests {
         // said to leave it on for everyone else, so a forgotten `..default()`
         // that silently turned it off would be the opposite of the request.
         assert!(Settings::default().player_backdrop);
+    }
+
+    #[test]
+    fn source_tint_starts_on() {
+        assert!(Settings::default().source_tint);
     }
 
     #[test]

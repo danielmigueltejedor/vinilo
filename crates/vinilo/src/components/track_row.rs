@@ -295,8 +295,8 @@ impl RelmListItem for LibraryItem {
                     set_tooltip_text: Some(vinilo_core::i18n::t(
                         vinilo_core::i18n::Key::Favourite,
                     )),
-                    // Yellow, not the accent: a favourite is a star everywhere
-                    // else it appears, including on the phone this syncs with.
+                    // Follows the accent (and the source tint). Painted from
+                    // `style.rs` so a colour change does not rebuild the list.
                     add_css_class: "favorite-star",
                 },
 

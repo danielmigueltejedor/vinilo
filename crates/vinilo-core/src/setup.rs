@@ -276,7 +276,65 @@ pub fn cookie_header(provider: Provider) -> Option<String> {
 pub fn session_cookie(provider: Provider) -> Option<String> {
     match provider {
         Provider::Spotify => named_cookies(provider, &["sp_dc", "sp_key"]),
+        Provider::YoutubeMusic => ranked_cookie_header(
+            provider,
+            &["music.youtube.com", "youtube.com", "google.com"],
+        ),
         _ => cookie_header(provider),
+    }
+}
+
+/// One Cookie header, keeping the value from the most specific domain when
+/// the Netscape jar repeats a name (Google dumps `SID` for both `.google.com`
+/// and `.youtube.com`; InnerTube wants the YouTube one).
+pub fn ranked_cookie_header(provider: Provider, prefer: &[&str]) -> Option<String> {
+    let path = cookies_path(provider)?;
+    let text = std::fs::read_to_string(path).ok()?;
+    ranked_cookie_header_from(&text, prefer)
+}
+
+pub fn ranked_cookie_header_from(text: &str, prefer: &[&str]) -> Option<String> {
+    struct Line<'a> {
+        name: &'a str,
+        value: &'a str,
+        rank: usize,
+    }
+    let mut lines = Vec::new();
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() || (line.starts_with('#') && !line.starts_with("#HttpOnly_")) {
+            continue;
+        }
+        let line = line.strip_prefix("#HttpOnly_").unwrap_or(line);
+        let cols: Vec<&str> = line.split('\t').collect();
+        if cols.len() < 7 {
+            continue;
+        }
+        let domain = cols[0].trim();
+        let name = cols[5].trim();
+        let value = cols[6].trim();
+        if name.is_empty() || value.is_empty() {
+            continue;
+        }
+        let rank = prefer
+            .iter()
+            .position(|d| domain.contains(d))
+            .unwrap_or(prefer.len());
+        lines.push(Line { name, value, rank });
+    }
+    lines.sort_by_key(|l| (l.rank, l.name));
+    let mut seen = std::collections::HashSet::new();
+    let mut parts = Vec::new();
+    for line in lines {
+        let key = line.name.to_ascii_lowercase();
+        if seen.insert(key) {
+            parts.push(format!("{}={}", line.name, line.value));
+        }
+    }
+    if parts.is_empty() {
+        None
+    } else {
+        Some(parts.join("; "))
     }
 }
 
@@ -435,5 +493,22 @@ mod tests {
         assert!(text.contains("#HttpOnly_.spotify.com"));
         assert!(text.contains("sp_dc"));
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn youtube_cookie_header_prefers_music_over_google() {
+        let text = "\
+.google.com	TRUE	/	TRUE	0	SID	google-sid
+.youtube.com	TRUE	/	TRUE	0	SID	youtube-sid
+.music.youtube.com	TRUE	/	TRUE	0	SID	music-sid
+.google.com	TRUE	/	TRUE	0	SAPISID	google-sapi
+";
+        let header =
+            ranked_cookie_header_from(text, &["music.youtube.com", "youtube.com", "google.com"])
+                .unwrap();
+        assert!(header.contains("SID=music-sid"));
+        assert!(!header.contains("google-sid"));
+        assert!(!header.contains("youtube-sid"));
+        assert!(header.contains("SAPISID=google-sapi"));
     }
 }

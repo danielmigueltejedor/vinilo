@@ -183,9 +183,42 @@ const COVER_LAYOUT: &str = ".np-bar { background-size: cover, cover; }
          .np-sheet, .page-sheet { background-size: cover, 150% 150%; }
          .np-bar, .np-sheet, .page-sheet { background-position: center, center; }";
 
+/// Brand colours for the "tint from source" preference.
+pub fn brand_colors(
+    provider: vinilo_core::provider::Provider,
+) -> Option<(&'static str, &'static str)> {
+    match provider {
+        vinilo_core::provider::Provider::AppleMusic => Some(("#fa243c", "#ffffff")),
+        vinilo_core::provider::Provider::Spotify => Some(("#1db954", "#ffffff")),
+        vinilo_core::provider::Provider::YoutubeMusic => Some(("#ff0000", "#ffffff")),
+        vinilo_core::provider::Provider::Tidal => Some(("#00e5ff", "#000000")),
+        vinilo_core::provider::Provider::Local => None,
+    }
+}
+
+/// What Preferences currently wants on screen: the source's own colour, or
+/// the saved accent combo.
+pub fn apply_from_settings(
+    source_tint: bool,
+    provider: vinilo_core::provider::Provider,
+    accent: Accent,
+) {
+    if source_tint {
+        if let Some(pair) = brand_colors(provider) {
+            set_colors(Some(pair));
+            return;
+        }
+    }
+    set_accent(accent);
+}
+
 /// Apply an accent, and the handful of rules that go with it.
 pub fn set_accent(accent: Accent) {
-    let accent_rules = match accent.colors() {
+    set_colors(accent.colors());
+}
+
+fn set_colors(colors: Option<(&'static str, &'static str)>) {
+    let accent_rules = match colors {
         Some((bg, fg)) => format!(
             ":root {{
                  --accent-bg-color: {bg};
@@ -196,13 +229,11 @@ pub fn set_accent(accent: Accent) {
         None => String::new(),
     };
 
-    // A favourite is yellow everywhere else it appears — Apple's own star, the
-    // one on your phone — so it does not follow the accent. Hard-coded to
-    // Adwaita's yellow rather than a `.warning`, which means something else.
+    // The star follows the accent (and the source tint, when that is on).
     // `color` on `image` is what tints a symbolic icon in GTK 4.
     let css = format!(
         "{accent_rules}
-         image.favorite-star {{ color: #f5c211; }}
+         image.favorite-star {{ color: var(--accent-color); }}
 
          /* Padding rather than a margin: the backdrop is a background, and a
             margin would leave an untinted frame around it.

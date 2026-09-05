@@ -1849,31 +1849,36 @@ async fn refresh_named_catalog<Fut>(
         }
         Ok(Ok(_)) => {
             tracing::warn!("{label} library fetch was empty — keeping what was cached");
-            if vinilo_core::library_cache::load().is_empty() {
+            // An empty YouTube Music library is normal: the account may have
+            // nothing saved, and Listen Now still has the home page.
+            if vinilo_core::library_cache::load().is_empty() && label != "youtube music" {
                 daemon.publish(Event::Error {
                     detail: vinilo_core::i18n::t(vinilo_core::i18n::Key::CatalogLibraryFailed)
                         .into(),
                 });
             }
+            discover(daemon);
             finish_and_maybe_chain(daemon, generation, false);
         }
         Ok(Err(err)) => {
             tracing::warn!(?err, "{label} library refresh failed");
-            if vinilo_core::library_cache::load().is_empty() {
+            if vinilo_core::library_cache::load().is_empty() && label != "youtube music" {
                 daemon.publish(Event::Error {
                     detail: format!("{err}"),
                 });
             }
+            discover(daemon);
             finish_and_maybe_chain(daemon, generation, false);
         }
         Err(_) => {
             tracing::warn!("{label} library refresh timed out — keeping what was cached");
-            if vinilo_core::library_cache::load().is_empty() {
+            if vinilo_core::library_cache::load().is_empty() && label != "youtube music" {
                 daemon.publish(Event::Error {
                     detail: vinilo_core::i18n::t(vinilo_core::i18n::Key::CatalogLibraryFailed)
                         .into(),
                 });
             }
+            discover(daemon);
             finish_and_maybe_chain(daemon, generation, false);
         }
     }
@@ -1976,12 +1981,7 @@ fn catalog_homemade(daemon: &Daemon) -> vinilo_core::discover::Discover {
     }
     drop(model);
     let cached = vinilo_core::library_cache::load();
-    vinilo_core::discover::homemade(
-        &cached.songs,
-        &cached.albums,
-        &cached.playlists,
-        &history,
-    )
+    vinilo_core::discover::homemade(&cached.songs, &cached.albums, &cached.playlists, &history)
 }
 
 fn publish_discover(daemon: &Daemon, page: vinilo_core::discover::Discover) {
@@ -2630,6 +2630,10 @@ fn discover(daemon: &Rc<Daemon>) {
         discover_spotify(daemon);
         return;
     }
+    if provider == vinilo_core::provider::Provider::YoutubeMusic {
+        discover_ytmusic(daemon);
+        return;
+    }
 
     let homemade = catalog_homemade(daemon);
 
@@ -2656,6 +2660,37 @@ fn discover(daemon: &Rc<Daemon>) {
             "listen now shelves"
         );
         publish_discover(&daemon, page);
+    });
+}
+
+fn discover_ytmusic(daemon: &Rc<Daemon>) {
+    publish_discover(daemon, catalog_homemade(daemon));
+    let daemon = daemon.clone();
+    tokio::task::spawn_local(async move {
+        let http = vinilo_core::streams::http_long();
+        let fetch = vinilo_core::ytmusic::discover(&http);
+        match tokio::time::timeout(std::time::Duration::from_secs(25), fetch).await {
+            Ok(Ok(mut page)) => {
+                page.fill_gaps(catalog_homemade(&daemon));
+                tracing::info!(
+                    recently_played = page.recently_played.len(),
+                    made_for_you = page.recommended_playlists.len(),
+                    recommended_songs = page.recommended_songs.len(),
+                    recently_added = page.recently_added.len(),
+                    charts = page.charts.len(),
+                    "youtube music listen now"
+                );
+                publish_discover(&daemon, page);
+            }
+            Ok(Err(err)) => {
+                tracing::warn!(?err, "youtube music home failed");
+                publish_discover(&daemon, catalog_homemade(&daemon));
+            }
+            Err(_) => {
+                tracing::warn!("youtube music home timed out");
+                publish_discover(&daemon, catalog_homemade(&daemon));
+            }
+        }
     });
 }
 
