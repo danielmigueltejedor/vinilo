@@ -103,6 +103,13 @@ impl AppModel {
                 // dialling. Read the cache now, then ask for a refresh so a
                 // first empty/failed load is retried without a manual Reload.
                 self.reload_from_cache(sender);
+                if self.settings.provider.is_catalog()
+                    && self.all_tracks.is_empty()
+                    && self.playlists.is_empty()
+                {
+                    self.set_library_refreshing(true);
+                    self.loading_discover = true;
+                }
                 self.ask(Request::Refresh);
                 self.refresh_discover();
                 if !self.pending_files.is_empty() {
@@ -237,6 +244,7 @@ impl AppModel {
     }
 
     pub(super) fn set_library_refreshing(&mut self, refreshing: bool) {
+        tracing::debug!(refreshing, "library refresh spinner");
         self.loading_library = refreshing;
         self.loading_albums = refreshing;
         self.loading_artists = refreshing;

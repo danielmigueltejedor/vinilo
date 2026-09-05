@@ -235,6 +235,18 @@ pub fn homemade(
         .collect();
     recently_added.sort_by(|a, b| date_of(b).cmp(&date_of(a)));
     recently_added.truncate(SHELF);
+    // YouTube Music (and some other catalogs) often omit date_added. Still
+    // show the user's playlists on Discover so the page is not an empty
+    // "Made for You". They stay out of recommended_playlists on purpose.
+    if recently_added.is_empty() {
+        recently_added = playlists
+            .iter()
+            .cloned()
+            .map(Entry::Playlist)
+            .chain(albums.iter().cloned().map(Entry::Album))
+            .take(SHELF)
+            .collect();
+    }
 
     let mut recommended_songs: Vec<Track> = songs.iter().filter(|t| t.favorite).cloned().collect();
     if recommended_songs.is_empty() {
@@ -333,5 +345,24 @@ mod tests {
         let made = homemade(&[], &[], &[playlist("Gym"), playlist("Drive")], &[]);
         assert!(made.recommended_playlists.is_empty());
         assert!(made.charts.is_empty());
+    }
+
+    fn playlist_undated(name: &str) -> Playlist {
+        Playlist {
+            date_added: String::new(),
+            ..playlist(name)
+        }
+    }
+
+    #[test]
+    fn homemade_lists_undated_playlists_when_nothing_is_dated() {
+        let made = homemade(
+            &[],
+            &[],
+            &[playlist_undated("Gym"), playlist_undated("Drive")],
+            &[],
+        );
+        assert_eq!(made.recently_added.len(), 2);
+        assert!(made.recommended_playlists.is_empty());
     }
 }

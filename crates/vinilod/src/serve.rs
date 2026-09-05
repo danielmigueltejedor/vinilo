@@ -418,6 +418,7 @@ pub async fn run() -> Result<()> {
         daemon.model.borrow_mut().stage = Stage::Ready;
         daemon.publish(Event::Stage(Stage::Ready));
         if source.is_catalog() {
+            hydrate_library_from_cache(&daemon);
             refresh_library(&daemon);
         }
         // The sidecar loop below is what keeps `run` from returning. Without
@@ -881,6 +882,9 @@ fn answer(
             if !daemon.model.borrow().library.is_empty() {
                 daemon.publish(Event::LibraryChanged);
             }
+            if daemon.refreshing.get().is_some() {
+                daemon.publish(Event::LibraryRefreshing { refreshing: true });
+            }
             // The first thing a subscriber gets is where things stand, so it
             // never has to draw an empty bar waiting for a change.
             Some(Event::Snapshot(daemon.model.borrow().snapshot()))
@@ -1114,6 +1118,7 @@ fn answer(
         Request::Refresh => {
             if daemon.refreshing.get().is_some() {
                 daemon.refresh_again.set(true);
+                daemon.publish(Event::LibraryRefreshing { refreshing: true });
                 return None;
             }
             refresh_library(daemon);
@@ -1481,6 +1486,26 @@ fn write_catalog(
     });
 }
 
+fn hydrate_library_from_cache(daemon: &Daemon) {
+    let cached = vinilo_core::library_cache::load();
+    if cached.is_empty() {
+        return;
+    }
+    tracing::info!(
+        songs = cached.songs.len(),
+        albums = cached.albums.len(),
+        artists = cached.artists.len(),
+        playlists = cached.playlists.len(),
+        "restored catalogue library from cache"
+    );
+    remember_songs(daemon, &cached.songs);
+    let mut model = daemon.model.borrow_mut();
+    model.library.tracks = cached.songs;
+    model.library.albums = cached.albums;
+    model.library.artists = cached.artists;
+    model.library.playlists = cached.playlists;
+}
+
 fn insert_created_playlist(daemon: &Daemon, list_id: String, name: Option<String>) {
     if list_id.is_empty() {
         return;
@@ -1793,13 +1818,13 @@ async fn refresh_spotify_library(daemon: &Rc<Daemon>, generation: u64) {
             finish_and_maybe_chain(daemon, generation, true);
             return;
         }
-        if attempt == 0 {
-            // Keep retrying off the spinner: an empty first fetch used to hold
-            // the window on "loading" until every backoff finished.
-            daemon.publish(Event::LibraryRefreshing { refreshing: false });
-        }
     }
     tracing::warn!("spotify library still empty after retries — keeping what was cached");
+    if daemon.model.borrow().library.is_empty() && vinilo_core::library_cache::load().is_empty() {
+        daemon.publish(Event::Error {
+            detail: vinilo_core::i18n::t(vinilo_core::i18n::Key::CatalogLibraryFailed).into(),
+        });
+    }
     finish_and_maybe_chain(daemon, generation, false);
 }
 
@@ -1824,14 +1849,31 @@ async fn refresh_named_catalog<Fut>(
         }
         Ok(Ok(_)) => {
             tracing::warn!("{label} library fetch was empty — keeping what was cached");
+            if vinilo_core::library_cache::load().is_empty() {
+                daemon.publish(Event::Error {
+                    detail: vinilo_core::i18n::t(vinilo_core::i18n::Key::CatalogLibraryFailed)
+                        .into(),
+                });
+            }
             finish_and_maybe_chain(daemon, generation, false);
         }
         Ok(Err(err)) => {
             tracing::warn!(?err, "{label} library refresh failed");
+            if vinilo_core::library_cache::load().is_empty() {
+                daemon.publish(Event::Error {
+                    detail: format!("{err}"),
+                });
+            }
             finish_and_maybe_chain(daemon, generation, false);
         }
         Err(_) => {
             tracing::warn!("{label} library refresh timed out — keeping what was cached");
+            if vinilo_core::library_cache::load().is_empty() {
+                daemon.publish(Event::Error {
+                    detail: vinilo_core::i18n::t(vinilo_core::i18n::Key::CatalogLibraryFailed)
+                        .into(),
+                });
+            }
             finish_and_maybe_chain(daemon, generation, false);
         }
     }
@@ -1903,12 +1945,19 @@ fn apply_catalog_library(
     model.library.playlists = playlists;
     drop(model);
     daemon.publish(Event::LibraryChanged);
+    discover(daemon);
     finish_and_maybe_chain(daemon, generation, true);
 }
 
 fn should_surface_spotify_error(detail: &str) -> bool {
     let lower = detail.to_ascii_lowercase();
-    lower.contains("sign in") || lower.contains("iniciar sesión")
+    lower.contains("sign in")
+        || lower.contains("iniciar sesión")
+        || lower.contains("rate limit")
+        || lower.contains("rate-limit")
+        || lower.contains("too many")
+        || lower.contains("esperar")
+        || lower.contains("429")
 }
 
 fn discover_spotify(daemon: &Rc<Daemon>) {
@@ -1929,6 +1978,9 @@ fn discover_spotify(daemon: &Rc<Daemon>) {
         vinilo_core::discover::save(&homemade);
         daemon.publish(Event::Discover(homemade));
         return;
+    }
+    if !homemade.is_empty() {
+        daemon.publish(Event::Discover(homemade.clone()));
     }
     let daemon = daemon.clone();
     tokio::task::spawn_local(async move {
@@ -2819,7 +2871,10 @@ mod tests {
         let mut feed = None;
         assert!(answer(r#"{"req":"refresh"}"#, &daemon, &mut feed).is_none());
         assert!(daemon.refresh_again.get());
-        assert!(events.try_recv().is_err());
+        assert!(matches!(
+            events.try_recv(),
+            Ok(Event::LibraryRefreshing { refreshing: true })
+        ));
         assert_eq!(daemon.refreshing.get(), Some(0));
     }
 

@@ -60,7 +60,7 @@ impl AppModel {
             View::Artists => !self.artists.is_empty() || self.loading_artists,
             View::Playlists => !self.playlists.is_empty() || self.loading_playlists,
             View::Discover => !self.discover.is_empty() || self.loading_discover,
-            _ => !self.all_tracks.is_empty(),
+            View::Songs | View::Search => !self.all_tracks.is_empty() || self.loading_library,
         }
     }
 

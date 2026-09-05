@@ -218,6 +218,11 @@ pub struct AppModel {
     /// this flag: clear the query without it and the words stay in the field
     /// over a list that is no longer filtered.
     sync_entry: bool,
+    /// How many `search-changed` emissions to ignore after we write the entry
+    /// ourselves. GtkSearchEntry delays that signal and also flushes it on
+    /// focus-out, so leaving Search for Listen Now would otherwise put the
+    /// old catalog query back and bounce the sidebar to Buscar.
+    ignore_search_echo: u32,
     /// Whether the search entry is showing, on a narrow header where it is a
     /// button until asked for. Meaningless while `narrow_header` is false: the
     /// entry is simply the title then.
@@ -1511,6 +1516,7 @@ impl Component for AppModel {
             searching: false,
             focus_search: false,
             sync_entry: false,
+            ignore_search_echo: 0,
             animated_shown: std::cell::Cell::new(None),
             section_spinners: Vec::new(),
             pin_labels: Vec::new(),
@@ -1534,7 +1540,7 @@ impl Component for AppModel {
             library_query: String::new(),
             catalog_query: String::new(),
             view: if settings.provider.is_catalog() {
-                View::Search
+                View::Discover
             } else {
                 View::from(settings.section)
             },
@@ -1715,10 +1721,7 @@ impl Component for AppModel {
         self.sync_section_spinners();
 
         if self.view != view_before {
-            // `set_text` fires `search-changed`, but `SearchChanged` returns
-            // early when the text already matches the active query — which it
-            // does by now, because `update` set it first. No loop.
-            widgets.search_entry.set_text(self.query());
+            self.write_search_entry(&widgets.search_entry);
             self.sync_sort_menu(&widgets.sort_button);
             // Keep the sidebar on the section the reducer just switched to —
             // typing in Listen Now lands on Search without a click, and a
@@ -1739,7 +1742,7 @@ impl Component for AppModel {
             widgets.nav_list.invalidate_headers();
         }
         if std::mem::take(&mut self.sync_entry) {
-            widgets.search_entry.set_text(self.query());
+            self.write_search_entry(&widgets.search_entry);
         }
         if std::mem::take(&mut self.focus_search) {
             widgets.search_entry.grab_focus();
@@ -1977,8 +1980,19 @@ impl AppModel {
             AppMsg::MovePin { from, slot } => self.move_pinned(from, slot),
             AppMsg::Tick => self.push_snapshot(),
             AppMsg::SearchChanged(query) => {
+                if self.ignore_search_echo > 0 {
+                    self.ignore_search_echo -= 1;
+                    return;
+                }
                 if self.view == View::Discover {
                     if query.trim().is_empty() {
+                        return;
+                    }
+                    // GtkSearchEntry flushes `search-changed` on focus-out.
+                    // Clicking Listen Now therefore delivers the catalog query
+                    // we just left *after* the view has already changed. That
+                    // echo must not bounce us back to Search.
+                    if query == self.catalog_query {
                         return;
                     }
                     // The search box on Listen Now is the same one every
@@ -2295,6 +2309,9 @@ impl AppModel {
                 self.searching = true;
                 self.focus_search = true;
                 self.sync_entry = true;
+                if self.view == View::Discover {
+                    self.handle(AppMsg::SetView(View::Search), &sender, root);
+                }
                 let mut query = self.query().to_owned();
                 query.push_str(&text);
                 // Straight through the ordinary path, so filtering, the
@@ -2948,6 +2965,13 @@ impl AppModel {
             self.stage = Stage::Connecting;
             self.forget_session(sender);
             self.reload_from_cache(sender);
+            if self.all_tracks.is_empty()
+                && self.playlists.is_empty()
+                && (provider.is_catalog() || provider.needs_apple())
+            {
+                self.set_library_refreshing(true);
+                self.loading_discover = true;
+            }
             self.rebuild_sidebar_pins();
             self.refresh_pin_names();
         } else if !provider.needs_apple() {
@@ -2955,7 +2979,7 @@ impl AppModel {
         }
 
         if provider.is_catalog() {
-            self.handle(AppMsg::SetView(View::Search), sender, root);
+            self.handle(AppMsg::SetView(View::Discover), sender, root);
         } else {
             self.handle(AppMsg::SetView(View::Songs), sender, root);
         }

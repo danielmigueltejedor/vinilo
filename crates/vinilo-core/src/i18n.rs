@@ -293,6 +293,7 @@ pub enum Key {
     SpotifyNotSignedIn,
     SpotifyTokenRefused,
     CatalogLoginFailed,
+    CatalogLibraryFailed,
     SpotifyRateLimited,
     SpotifyTimeout,
     SpotifyCatalogueChanged,
@@ -576,6 +577,9 @@ fn en(key: Key) -> &'static str {
         Key::CatalogLoginFailed => {
             "Could not keep the session. Stay on the signed-in page, then press Done."
         }
+        Key::CatalogLibraryFailed => {
+            "Could not load this catalog's library. Try Refresh, or sign in again if this source needs it."
+        }
         Key::SpotifyRateLimited => "Spotify asked us to wait. Try Reload in a minute.",
         Key::SpotifyTimeout => "Spotify did not answer in time. Try again.",
         Key::SpotifyCatalogueChanged => {
@@ -836,6 +840,9 @@ fn es(key: Key) -> &'static str {
         }
         Key::CatalogLoginFailed => {
             "No se ha podido guardar la sesión. Quédate en la página ya iniciada y pulsa Listo."
+        }
+        Key::CatalogLibraryFailed => {
+            "No se pudo cargar la biblioteca de este catálogo. Prueba Actualizar, o vuelve a iniciar sesión si esta fuente lo pide."
         }
         Key::SpotifyRateLimited => {
             "Spotify pide que esperemos. Prueba Recargar dentro de un minuto."
