@@ -587,7 +587,8 @@ fn tracks_from_browse(value: &Value) -> Vec<Track> {
             return;
         }
         let video = video_id_from_node(node);
-        let Some(video) = video.filter(|s| !s.is_empty() && !s.contains(':')) else {
+        let Some(video) = video.filter(|s| !s.is_empty() && !s.contains(':') && s.len() >= 11)
+        else {
             return;
         };
         let id = format!("yt:{video}");
@@ -597,18 +598,26 @@ fn tracks_from_browse(value: &Value) -> Vec<Track> {
         {
             return;
         }
-        let title = first_text(node).unwrap_or_else(|| video.to_owned());
+        // Overlay/watchEndpoint nodes carry a videoId and nothing else.
+        // Using that as the title is how Listen Now showed `vrY1THC_NQE`.
+        let Some(title) = first_text(node).filter(|t| {
+            let t = t.trim();
+            !t.is_empty() && t != video && t != id
+        }) else {
+            return;
+        };
         let artist = flex_column_text(node, 1)
             .or_else(|| subtitle_text(node, 0))
             .unwrap_or_default();
         let album = flex_column_text(node, 2).unwrap_or_default();
+        let artwork = thumbnail(node).or_else(|| Some(youtube_thumb(video)));
         let hit = StreamHit {
             id: id.clone(),
             title,
             artist,
             album,
             duration_ms: 0,
-            artwork: thumbnail(node),
+            artwork,
             play_query: format!("https://www.youtube.com/watch?v={video}"),
         };
         if let Some(mut song) = hit.into_entry().into_song() {
@@ -857,8 +866,16 @@ fn first_text(value: &Value) -> Option<String> {
     value
         .pointer("/flexColumns/0/musicResponsiveListItemFlexColumnRenderer/text/runs/0/text")
         .or_else(|| value.pointer("/title/runs/0/text"))
+        .or_else(|| value.pointer("/title/simpleText"))
+        .or_else(|| {
+            value
+                .pointer("/flexColumns/0/musicResponsiveListItemFlexColumnRenderer/text/simpleText")
+        })
         .or_else(|| value.pointer("/flexColumns/0/text/runs/0/text"))
+        .or_else(|| value.pointer("/accessibility/accessibilityData/label"))
         .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
         .map(str::to_owned)
 }
 
@@ -879,15 +896,44 @@ fn subtitle_text(value: &Value, index: usize) -> Option<String> {
 }
 
 fn thumbnail(value: &Value) -> Option<String> {
+    const PATHS: &[&str] = &[
+        "/thumbnail/musicThumbnailRenderer/thumbnail/thumbnails",
+        "/thumbnailRenderer/musicThumbnailRenderer/thumbnail/thumbnails",
+        "/thumbnail/thumbnails",
+        "/musicThumbnailRenderer/thumbnail/thumbnails",
+        "/croppedSquareThumbnailRenderer/thumbnail/thumbnails",
+    ];
+    for path in PATHS {
+        if let Some(url) = last_thumb(value.pointer(path)) {
+            return Some(url);
+        }
+    }
+    let mut found = None;
+    walk(value, &mut |node| {
+        if found.is_some() {
+            return;
+        }
+        if let Some(url) = last_thumb(node.get("thumbnails")) {
+            if url.contains("ytimg") || url.contains("googleusercontent") || url.contains("ggpht") {
+                found = Some(url);
+            }
+        }
+    });
+    found
+}
+
+fn last_thumb(value: Option<&Value>) -> Option<String> {
     value
-        .pointer("/thumbnail/musicThumbnailRenderer/thumbnail/thumbnails")
-        .or_else(|| value.pointer("/thumbnailRenderer/musicThumbnailRenderer/thumbnail/thumbnails"))
-        .or_else(|| value.pointer("/thumbnail/thumbnails"))
         .and_then(Value::as_array)
         .and_then(|thumbs| thumbs.last())
         .and_then(|thumb| thumb.get("url"))
         .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
         .map(str::to_owned)
+}
+
+fn youtube_thumb(video: &str) -> String {
+    format!("https://i.ytimg.com/vi/{video}/hqdefault.jpg")
 }
 
 trait IntoSong {
@@ -1100,5 +1146,38 @@ mod tests {
         assert_eq!(page.recently_played.len(), 1);
         assert_eq!(page.recommended_playlists.len(), 1);
         assert_eq!(page.recommended_playlists[0].title(), "Your mix");
+    }
+
+    #[test]
+    fn a_bare_watch_endpoint_is_not_a_song() {
+        let json = json!({
+            "navigationEndpoint": {
+                "watchEndpoint": { "videoId": "vrY1THC_NQE" }
+            }
+        });
+        assert!(tracks_from_browse(&json).is_empty());
+    }
+
+    #[test]
+    fn a_titled_row_keeps_its_name_and_gets_a_cover() {
+        let json = json!({
+            "musicTwoRowItemRenderer": {
+                "title": { "runs": [{ "text": "Pa Mal" }] },
+                "subtitle": { "runs": [{ "text": "Aitana" }] },
+                "navigationEndpoint": {
+                    "watchEndpoint": { "videoId": "vrY1THC_NQE" }
+                }
+            }
+        });
+        let songs = tracks_from_browse(&json);
+        assert_eq!(songs.len(), 1);
+        assert_eq!(songs[0].title, "Pa Mal");
+        assert_ne!(songs[0].title, "vrY1THC_NQE");
+        let art = songs[0]
+            .artwork
+            .as_ref()
+            .map(|a| a.url(300))
+            .expect("cover");
+        assert!(art.contains("vrY1THC_NQE"), "{art}");
     }
 }

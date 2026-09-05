@@ -2424,18 +2424,36 @@ fn play_streams(daemon: &Rc<Daemon>, ids: Vec<String>, index: usize, start: Star
             return;
         }
         publish_local(&daemon);
-        for hit in rest {
+        prefetch_stream_hits(&daemon, dir, rest).await;
+        publish_local(&daemon);
+    });
+}
+
+/// Pull the next couple of tracks in parallel so Next is not waiting on a
+/// single-file ffmpeg transcode of the whole queue.
+async fn prefetch_stream_hits(
+    daemon: &Rc<Daemon>,
+    dir: std::path::PathBuf,
+    hits: Vec<vinilo_core::streams::StreamHit>,
+) {
+    for chunk in hits.chunks(2) {
+        let mut tasks = Vec::new();
+        for hit in chunk {
             let dir = dir.clone();
-            let download = hit.clone();
-            match tokio::task::spawn_blocking(move || crate::ytdlp::download(&download, &dir)).await
-            {
-                Ok(Ok(path)) => daemon.local.borrow_mut().append_hit(path, hit),
+            let hit = hit.clone();
+            tasks.push(tokio::task::spawn_blocking(move || {
+                crate::ytdlp::download(&hit, &dir).map(|path| (path, hit))
+            }));
+        }
+        for task in tasks {
+            match task.await {
+                Ok(Ok((path, hit))) => daemon.local.borrow_mut().append_hit(path, hit),
                 Ok(Err(err)) => tracing::warn!(%err, "skipping a catalogue track"),
                 Err(err) => tracing::warn!(?err, "skipping a catalogue track"),
             }
         }
-        publish_local(&daemon);
-    });
+        publish_local(daemon);
+    }
 }
 
 fn enqueue_streams(daemon: &Rc<Daemon>, ids: Vec<String>) {
@@ -2444,20 +2462,13 @@ fn enqueue_streams(daemon: &Rc<Daemon>, ids: Vec<String>) {
         let Some(dir) = vinilo_core::paths::cache_dir().map(|p| p.join("streams")) else {
             return;
         };
+        let mut hits = Vec::new();
         for id in ids {
-            let Some(hit) = resolve_stream_hit(&daemon, &id).await else {
-                continue;
-            };
-            let dir = dir.clone();
-            let download = hit.clone();
-            match tokio::task::spawn_blocking(move || crate::ytdlp::download(&download, &dir)).await
-            {
-                Ok(Ok(path)) => daemon.local.borrow_mut().append_hit(path, hit),
-                Ok(Err(err)) => tracing::warn!(%err, "could not add catalogue track"),
-                Err(err) => tracing::warn!(?err, "could not add catalogue track"),
+            if let Some(hit) = resolve_stream_hit(&daemon, &id).await {
+                hits.push(hit);
             }
         }
-        publish_local(&daemon);
+        prefetch_stream_hits(&daemon, dir, hits).await;
     });
 }
 
@@ -2484,13 +2495,16 @@ fn stream_hit(daemon: &Daemon, id: &str) -> Option<vinilo_core::streams::StreamH
     // After a daemon restart the search cache is gone. Reconstruct a
     // playable target from the id so a click still reaches yt-dlp.
     if let Some(video) = id.strip_prefix("yt:") {
+        if video.contains(':') {
+            return None;
+        }
         return Some(vinilo_core::streams::StreamHit {
             id: id.to_owned(),
             title: video.to_owned(),
             artist: String::new(),
             album: String::new(),
             duration_ms: 0,
-            artwork: None,
+            artwork: Some(format!("https://i.ytimg.com/vi/{video}/hqdefault.jpg")),
             play_query: format!("https://www.youtube.com/watch?v={video}"),
         });
     }
