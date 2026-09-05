@@ -1,4 +1,5 @@
 // SPDX-FileCopyrightText: 2026 Miguel Rincon
+// SPDX-FileCopyrightText: 2026 Daniel Miguel Tejedor
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 //! The row context menu: what it offers, and what each item sends.
@@ -20,6 +21,23 @@ use crate::components::track_row::RowMenuRequest;
 use vinilo_core::i18n::{self, Key};
 
 impl AppModel {
+    /// Playlists the user can add a song to. Liked-songs shortcuts and
+    /// editorial mixes are left out: those are not writable lists.
+    pub(super) fn writable_playlists(&self) -> Vec<(String, String)> {
+        self.playlists
+            .iter()
+            .filter(|list| {
+                list.library
+                    && list.id != "sp:liked"
+                    && list.id != "sp:top"
+                    && list.id != "yt:liked"
+                    && list.id != "td:liked"
+                    && !list.id.contains(":collection:")
+            })
+            .map(|list| (list.id.clone(), list.name.clone()))
+            .collect()
+    }
+
     /// Show a row's context menu where it was clicked.
     ///
     /// Built fresh each time and parented to the row: a single long-lived
@@ -33,30 +51,15 @@ impl AppModel {
         queue.append(Some(i18n::t(Key::AddToQueue)), Some("row.play-later"));
         menu.append_section(None, &queue);
 
-        // A second section, because these leave the app and change the user's
-        // account — a different kind of act from reordering a queue.
-        //
-        // Each item appears only when it would do something. Offering "Add to
-        // Library" for a track read *out of* the library, or "Favourite" for
-        // one already starred, is a menu that lies about the state of things.
         let account = gtk::gio::Menu::new();
         if req.in_library {
-            // Only when we hold the library id — the catalog id will not do,
-            // and offering a removal we cannot perform is worse than not
-            // offering one.
-            if req.library_id.is_some() {
-                account.append(
-                    Some(i18n::t(Key::RemoveFromLibrary)),
-                    Some("row.remove-from-library"),
-                );
-            }
+            account.append(
+                Some(i18n::t(Key::RemoveFromLibrary)),
+                Some("row.remove-from-library"),
+            );
         } else {
             account.append(Some(i18n::t(Key::AddToLibrary)), Some("row.add-to-library"));
         }
-        // Both directions now. The removals go out through the sidecar rather
-        // than `music/client.rs`: over REST this exact favourites path answers
-        // "400 Insufficient Permissions", and library removal has no documented
-        // endpoint at all. MusicKit's own client does both (#34).
         if req.favorite {
             account.append(Some(i18n::t(Key::RemoveFavourite)), Some("row.unfavorite"));
         } else {
@@ -66,14 +69,23 @@ impl AppModel {
             menu.append_section(None, &account);
         }
 
+        let lists = gtk::gio::Menu::new();
+        lists.append(Some(i18n::t(Key::NewPlaylist)), Some("row.new-playlist"));
+        for (id, name) in self.writable_playlists().into_iter().take(24) {
+            lists.append(Some(&name), Some(&format!("row.add-to-playlist::{id}")));
+        }
+        menu.append_section(None, &{
+            let section = gtk::gio::Menu::new();
+            section.append_submenu(Some(i18n::t(Key::AddToPlaylist)), &lists);
+            section
+        });
+
         let popover = gtk::PopoverMenu::from_model(Some(&menu));
         popover.set_has_arrow(false);
         popover.set_halign(gtk::Align::Start);
         popover.set_pointing_to(Some(&gtk::gdk::Rectangle::new(req.at.0, req.at.1, 1, 1)));
         popover.set_parent(&req.over);
 
-        // The actions live on the popover, so they go away with it rather than
-        // accumulating on the window one right-click at a time.
         let actions = gtk::gio::SimpleActionGroup::new();
         for (name, next) in [("play-next", true), ("play-later", false)] {
             let action = gtk::gio::SimpleAction::new(name, None);
@@ -88,22 +100,20 @@ impl AppModel {
             actions.add_action(&action);
         }
 
-        // The two removals. Separate from the adds below because they take a
-        // different route entirely — the sidecar, not HTTP — and because
-        // removal needs the *library* id while un-favouriting needs the
-        // *catalog* one.
         {
             let action = gtk::gio::SimpleAction::new("remove-from-library", None);
-            let library_id = req.library_id.clone();
+            let library_id = req
+                .library_id
+                .clone()
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| req.catalog_id.clone());
             let catalog_id = req.catalog_id.clone();
             let sender = self.menu_sender.clone();
             action.connect_activate(move |_, _| {
-                if let Some(library_id) = library_id.clone() {
-                    sender.input(AppMsg::RemoveFromLibrary {
-                        library_id,
-                        catalog_id: catalog_id.clone(),
-                    });
-                }
+                sender.input(AppMsg::RemoveFromLibrary {
+                    library_id: library_id.clone(),
+                    catalog_id: catalog_id.clone(),
+                });
             });
             actions.add_action(&action);
 
@@ -133,17 +143,35 @@ impl AppModel {
             });
             actions.add_action(&action);
         }
+
+        {
+            let action = gtk::gio::SimpleAction::new("new-playlist", None);
+            let track_id = req.catalog_id.clone();
+            let sender = self.menu_sender.clone();
+            action.connect_activate(move |_, _| {
+                sender.input(AppMsg::PromptNewPlaylist {
+                    track_id: Some(track_id.clone()),
+                });
+            });
+            actions.add_action(&action);
+
+            let action =
+                gtk::gio::SimpleAction::new("add-to-playlist", Some(gtk::glib::VariantTy::STRING));
+            let track_id = req.catalog_id.clone();
+            let sender = self.menu_sender.clone();
+            action.connect_activate(move |_, param| {
+                let Some(playlist_id) = param.and_then(|v| v.str().map(str::to_owned)) else {
+                    return;
+                };
+                sender.input(AppMsg::AddToPlaylist {
+                    playlist_id,
+                    track_id: track_id.clone(),
+                });
+            });
+            actions.add_action(&action);
+        }
         popover.insert_action_group("row", Some(&actions));
 
-        // Unparent on close, or it leaks and keeps the row widget alive after
-        // the list has recycled it out from under us — but **not during** the
-        // close.
-        //
-        // GTK closes a PopoverMenu *before* activating the item you clicked. So
-        // unparenting here tore down the action group a moment before the
-        // action fired, and every menu item silently did nothing: no command
-        // left Rust, and the sidecar logged nothing because nothing was sent.
-        // Deferring to an idle lets the activation land first.
         popover.connect_closed(|p| {
             let p = p.clone();
             gtk::glib::idle_add_local_once(move || p.unparent());

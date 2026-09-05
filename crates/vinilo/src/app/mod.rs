@@ -508,10 +508,22 @@ pub enum AppMsg {
         catalog_id: String,
         next: bool,
     },
-    /// Write to the user's Apple Music account: save a track, or star it.
+    /// Write to the user's library: save a track, or star it.
     LibraryWrite {
         catalog_id: String,
         action: LibraryAction,
+    },
+    /// Ask for a playlist name, then create it. `track_id` is added if present.
+    PromptNewPlaylist {
+        track_id: Option<String>,
+    },
+    CreatePlaylist {
+        name: String,
+        track_id: Option<String>,
+    },
+    AddToPlaylist {
+        playlist_id: String,
+        track_id: String,
     },
     /// Repaint the seek bar from the interpolated position.
     Tick,
@@ -1033,6 +1045,27 @@ impl Component for AppModel {
                                                 "search"
                                             } else {
                                                 "title"
+                                            },
+                                        },
+
+                                        pack_end = &gtk::Button {
+                                            set_icon_name: "list-add-symbolic",
+                                            #[watch]
+                                            set_tooltip_text: Some({
+                                                let _ = model.locale_tick;
+                                                i18n::t(Key::NewPlaylistTitle)
+                                            }),
+                                            add_css_class: "flat",
+                                            #[watch]
+                                            set_visible: model.view == View::Playlists
+                                                && model.settings.provider
+                                                    != vinilo_core::provider::Provider::Local,
+                                            #[watch]
+                                            set_sensitive: model.controls_live(),
+                                            connect_clicked[sender] => move |_| {
+                                                sender.input(AppMsg::PromptNewPlaylist {
+                                                    track_id: None,
+                                                });
                                             },
                                         },
 
@@ -2454,16 +2487,20 @@ impl AppModel {
                 library_id,
                 catalog_id,
             } => {
-                tracing::info!(%library_id, "removing from library");
+                let id = if library_id.is_empty() {
+                    catalog_id.clone()
+                } else {
+                    library_id
+                };
+                tracing::info!(%id, "removing from library");
                 self.ask(Request::Write {
                     action: WriteAction::RemoveFromLibrary,
-                    id: library_id,
+                    id,
+                    playlist_id: None,
+                    name: None,
                 });
-                // Mirrored locally for the same reason the star is: the menu
-                // reads this, and making someone reload to see their own click
-                // is absurd. `include=library` is cached for tens of seconds
-                // besides, so a read-back would disagree for a while (#34).
                 self.set_in_library(&catalog_id, false);
+                self.set_favorite(&catalog_id, false);
                 self.toast(i18n::t(Key::ToastRemoveLibrary));
             }
             AppMsg::Unfavorite { catalog_id } => {
@@ -2471,29 +2508,54 @@ impl AppModel {
                 self.ask(Request::Write {
                     action: WriteAction::Unfavorite,
                     id: catalog_id.clone(),
+                    playlist_id: None,
+                    name: None,
                 });
-                // The star only. The song stays in the library — see the note
-                // on `AppMsg::Unfavorite`.
                 self.set_favorite(&catalog_id, false);
-                // Present continuous, not a claim: nothing has been confirmed
-                // yet, and `undo_pending_write` is what happens if it is not.
                 self.toast(i18n::t(Key::ToastRemoveFavourite));
             }
             AppMsg::LibraryWrite { catalog_id, action } => {
-                // Said out loud before the request goes out: these are
-                // fire-and-forget, and a click with no feedback at all reads as
-                // a click that did not register.
                 self.toast(action.sent());
                 tracing::info!(?action, "library write");
-                // The daemon decides whether this goes over REST or through
-                // MusicKit — only it can do the second, and only it has the
-                // tokens for the first.
+                match action {
+                    LibraryAction::Favorite => {
+                        self.set_favorite(&catalog_id, true);
+                        self.set_in_library(&catalog_id, true);
+                    }
+                    LibraryAction::AddToLibrary => self.set_in_library(&catalog_id, true),
+                }
                 self.ask(Request::Write {
                     action: match action {
                         LibraryAction::Favorite => WriteAction::Favorite,
                         LibraryAction::AddToLibrary => WriteAction::AddToLibrary,
                     },
                     id: catalog_id,
+                    playlist_id: None,
+                    name: None,
+                });
+            }
+            AppMsg::PromptNewPlaylist { track_id } => {
+                self.prompt_new_playlist(&sender, root, track_id);
+            }
+            AppMsg::CreatePlaylist { name, track_id } => {
+                self.toast(i18n::t(Key::ToastCreatePlaylist));
+                self.ask(Request::Write {
+                    action: WriteAction::CreatePlaylist,
+                    id: track_id.unwrap_or_default(),
+                    playlist_id: None,
+                    name: Some(name),
+                });
+            }
+            AppMsg::AddToPlaylist {
+                playlist_id,
+                track_id,
+            } => {
+                self.toast(i18n::t(Key::ToastAddToPlaylist));
+                self.ask(Request::Write {
+                    action: WriteAction::AddToPlaylist,
+                    id: track_id,
+                    playlist_id: Some(playlist_id),
+                    name: None,
                 });
             }
             AppMsg::ToggleSortDirection => {

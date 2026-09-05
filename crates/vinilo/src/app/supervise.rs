@@ -99,6 +99,11 @@ impl AppModel {
                 self.ask(Request::Stage);
                 self.ask(Request::Snapshot);
                 self.ask(Request::Queue);
+                // The daemon may have finished a Spotify fetch while we were
+                // dialling. Read the cache now, then ask for a refresh so a
+                // first empty/failed load is retried without a manual Reload.
+                self.reload_from_cache(sender);
+                self.ask(Request::Refresh);
                 self.refresh_discover();
                 if !self.pending_files.is_empty() {
                     let paths = std::mem::take(&mut self.pending_files);

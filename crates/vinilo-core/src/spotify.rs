@@ -29,6 +29,9 @@ use crate::streams::{self, StreamHit};
 
 mod partner;
 mod totp;
+mod write;
+
+pub use write::{apply as write, created_playlist};
 
 const API: &str = "https://api.spotify.com/v1";
 const PLAYER_TOKEN: &str = "https://open.spotify.com/api/token";
@@ -118,6 +121,12 @@ pub fn catalog_entries(page: SearchPage, filter: CatalogFilter) -> (Vec<StreamHi
     let SearchPage { hits, results } = page;
     let (entries, _) = crate::catalog::catalog_rows(filter, results, true);
     (hits, entries)
+}
+
+/// Mint (or reuse) a partner session. Library refresh calls this first so a
+/// slow TOTP round-trip is not counted as an empty catalogue.
+pub async fn warm_session(http: &reqwest::Client) -> Result<()> {
+    session(http).await.map(|_| ())
 }
 
 pub async fn library(http: &reqwest::Client) -> Result<Library> {
@@ -295,7 +304,7 @@ pub fn tracks_from_search(value: &Value) -> Vec<StreamHit> {
     items.iter().filter_map(hit_from_track).collect()
 }
 
-async fn session(http: &reqwest::Client) -> Result<partner::Session> {
+pub(super) async fn session(http: &reqwest::Client) -> Result<partner::Session> {
     if let Some(cached) = cached_session() {
         return Ok(cached);
     }
@@ -331,7 +340,7 @@ fn cached_session() -> Option<partner::Session> {
     (cached.expires > Instant::now()).then(|| cached.session.clone())
 }
 
-pub(super) fn cooldown_left() -> Option<Duration> {
+pub fn cooldown_left() -> Option<Duration> {
     let until = *COOLDOWN.lock().ok()?;
     let until = until?;
     let now = Instant::now();
@@ -567,7 +576,7 @@ async fn api_get(http: &reqwest::Client, token: &str, url: &str) -> Result<Value
     res.json().await.context("spotify json")
 }
 
-async fn partner_query(
+pub(super) async fn partner_query(
     http: &reqwest::Client,
     session: &partner::Session,
     operation: &str,
@@ -1658,7 +1667,7 @@ fn gql_date(data: &Value) -> String {
         .unwrap_or_default()
 }
 
-fn uri_tail(uri: &str) -> String {
+pub(super) fn uri_tail(uri: &str) -> String {
     uri.rsplit(':').next().unwrap_or("").to_owned()
 }
 
@@ -1883,7 +1892,7 @@ fn hit_to_song(hit: &StreamHit) -> Option<Track> {
         year: String::new(),
         favorite: false,
         in_library: false,
-        library_id: None,
+        library_id: Some(hit.id.clone()),
         id: TrackId(hit.id.clone()),
         catalog_id: Some(hit.id.clone()),
         title: hit.title.clone(),

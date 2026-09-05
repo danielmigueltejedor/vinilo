@@ -869,6 +869,9 @@ fn answer(
             if feed.is_none() {
                 *feed = Some(daemon.events.subscribe());
             }
+            if !daemon.model.borrow().library.is_empty() {
+                daemon.publish(Event::LibraryChanged);
+            }
             // The first thing a subscriber gets is where things stand, so it
             // never has to draw an empty bar waiting for a change.
             Some(Event::Snapshot(daemon.model.borrow().snapshot()))
@@ -1090,8 +1093,13 @@ fn answer(
             vinilo_core::session::clear();
             None
         }
-        Request::Write { action, id } => {
-            write(daemon, action, id);
+        Request::Write {
+            action,
+            id,
+            playlist_id,
+            name,
+        } => {
+            write(daemon, action, id, playlist_id, name);
             None
         }
         Request::Refresh => {
@@ -1293,13 +1301,23 @@ fn fetch_artwork(daemon: &Rc<Daemon>) {
     });
 }
 
-/// Change what Apple holds for this account.
+/// Change what the signed-in catalogue holds for this account.
 ///
-/// Two routes out, and the client does not need to know which: adding and
-/// favouriting go over REST, while removing and un-favouriting can only be done
-/// by MusicKit itself — the identical REST calls answer
-/// `400 Insufficient Permissions`.
-fn write(daemon: &Rc<Daemon>, action: WriteAction, id: String) {
+/// Apple Music still splits: adding and starring go over REST, removing goes
+/// through MusicKit. Spotify / YouTube Music / Tidal stay in this process.
+fn write(
+    daemon: &Rc<Daemon>,
+    action: WriteAction,
+    id: String,
+    playlist_id: Option<String>,
+    name: Option<String>,
+) {
+    let provider = daemon.source;
+    if provider.is_catalog() {
+        write_catalog(daemon, provider, action, id, playlist_id, name);
+        return;
+    }
+
     match action {
         WriteAction::RemoveFromLibrary => {
             daemon.send(Command::RemoveFromLibrary { id });
@@ -1307,6 +1325,12 @@ fn write(daemon: &Rc<Daemon>, action: WriteAction, id: String) {
         }
         WriteAction::Unfavorite => {
             daemon.send(Command::Unfavorite { id });
+            return;
+        }
+        WriteAction::CreatePlaylist
+        | WriteAction::AddToPlaylist
+        | WriteAction::RemoveFromPlaylist => {
+            write_apple_playlist(daemon, action, id, playlist_id, name);
             return;
         }
         _ => {}
@@ -1326,15 +1350,124 @@ fn write(daemon: &Rc<Daemon>, action: WriteAction, id: String) {
             _ => unreachable!("handled above"),
         };
         match result {
-            // Apple answers 202 Accepted with an empty body — "acceptable, may
-            // not have completed" — so this is *sent*, not done. The refresh is
-            // what makes it true, which is why nothing here edits the mirror.
             Ok(()) => {
                 tracing::info!(?action, %id, "library write sent");
                 refresh_library(&daemon);
             }
             Err(err) => {
                 tracing::warn!(?err, ?action, %id, "library write failed");
+                daemon.publish(Event::Error {
+                    detail: format!("{err}"),
+                });
+            }
+        }
+    });
+}
+
+fn write_apple_playlist(
+    daemon: &Rc<Daemon>,
+    action: WriteAction,
+    id: String,
+    playlist_id: Option<String>,
+    name: Option<String>,
+) {
+    let Some(client) = daemon.client() else {
+        daemon.publish(Event::Error {
+            detail: "Not signed in yet".into(),
+        });
+        return;
+    };
+    let daemon = daemon.clone();
+    tokio::task::spawn_local(async move {
+        let result = match action {
+            WriteAction::CreatePlaylist => {
+                let title = name.as_deref().unwrap_or("New playlist");
+                let seed = if id.is_empty() {
+                    None
+                } else {
+                    Some(id.as_str())
+                };
+                client.create_playlist(title, seed).await.map(|_| ())
+            }
+            WriteAction::AddToPlaylist => {
+                let Some(list) = playlist_id.as_deref() else {
+                    daemon.publish(Event::Error {
+                        detail: "missing playlist id".into(),
+                    });
+                    return;
+                };
+                client.add_to_playlist(list, &id).await
+            }
+            WriteAction::RemoveFromPlaylist => Err(anyhow::anyhow!(
+                "Removing a song from an Apple Music playlist is not wired yet"
+            )),
+            _ => unreachable!(),
+        };
+        match result {
+            Ok(()) => {
+                tracing::info!(?action, "playlist write sent");
+                refresh_library(&daemon);
+            }
+            Err(err) => {
+                tracing::warn!(?err, ?action, "playlist write failed");
+                daemon.publish(Event::Error {
+                    detail: format!("{err}"),
+                });
+            }
+        }
+    });
+}
+
+fn write_catalog(
+    daemon: &Rc<Daemon>,
+    provider: vinilo_core::provider::Provider,
+    action: WriteAction,
+    id: String,
+    playlist_id: Option<String>,
+    name: Option<String>,
+) {
+    let daemon = daemon.clone();
+    tokio::task::spawn_local(async move {
+        let http = vinilo_core::streams::http_long();
+        match vinilo_core::catalog_write::apply(
+            &http,
+            provider,
+            action,
+            &id,
+            playlist_id.as_deref(),
+            name.as_deref(),
+        )
+        .await
+        {
+            Ok(created) => {
+                tracing::info!(?action, %id, created = ?created, "catalogue write sent");
+                if let Some(list_id) = created {
+                    let title = name.unwrap_or_else(|| "New playlist".into());
+                    let list = vinilo_core::music::types::Playlist {
+                        id: list_id,
+                        date_added: String::new(),
+                        last_modified: String::new(),
+                        name: title,
+                        curator: String::new(),
+                        description: String::new(),
+                        artwork: None,
+                        library: true,
+                    };
+                    daemon.model.borrow_mut().library.playlists.insert(0, list);
+                    let model = daemon.model.borrow();
+                    vinilo_core::library_cache::save(
+                        &model.library.tracks,
+                        &model.library.albums,
+                        &model.library.artists,
+                        &model.library.playlists,
+                    );
+                    drop(model);
+                    daemon.publish(Event::LibraryChanged);
+                }
+                refresh_library(&daemon);
+            }
+            Err(err) => {
+                tracing::warn!(?err, ?action, %id, "catalogue write failed");
                 daemon.publish(Event::Error {
                     detail: format!("{err}"),
                 });
@@ -1427,76 +1560,199 @@ fn refresh_catalog_library(daemon: &Rc<Daemon>, provider: vinilo_core::provider:
         tracing::debug!("library refresh already running");
         return;
     };
-    if provider != vinilo_core::provider::Provider::Spotify {
-        finish_library_refresh(daemon, generation);
-        return;
-    }
     let daemon = daemon.clone();
     tokio::task::spawn_local(async move {
-        let http = vinilo_core::streams::http();
+        match provider {
+            vinilo_core::provider::Provider::Spotify => {
+                refresh_spotify_library(&daemon, generation).await;
+            }
+            vinilo_core::provider::Provider::YoutubeMusic => {
+                let http = vinilo_core::streams::http_long();
+                refresh_named_catalog(
+                    &daemon,
+                    generation,
+                    "youtube music",
+                    vinilo_core::ytmusic::library(&http),
+                )
+                .await;
+            }
+            vinilo_core::provider::Provider::Tidal => {
+                let http = vinilo_core::streams::http_long();
+                refresh_named_catalog(
+                    &daemon,
+                    generation,
+                    "tidal",
+                    vinilo_core::tidal::library(&http),
+                )
+                .await;
+            }
+            _ => {
+                finish_library_refresh(&daemon, generation);
+            }
+        }
+    });
+}
+
+fn library_is_empty(library: &vinilo_core::spotify::Library) -> bool {
+    library.songs.is_empty()
+        && library.albums.is_empty()
+        && library.artists.is_empty()
+        && library.playlists.is_empty()
+}
+
+fn cache_library_is_empty(library: &vinilo_core::library_cache::Library) -> bool {
+    library.is_empty()
+}
+
+async fn refresh_spotify_library(daemon: &Daemon, generation: u64) {
+    let http = vinilo_core::streams::http_long();
+    if let Err(err) = vinilo_core::spotify::warm_session(&http).await {
+        tracing::warn!(?err, "spotify session warm-up failed");
+        let detail = format!("{err}");
+        if should_surface_spotify_error(&detail) {
+            if daemon.model.borrow().library.is_empty()
+                && vinilo_core::library_cache::load().is_empty()
+            {
+                daemon.publish(Event::Error { detail });
+            }
+            finish_library_refresh(daemon, generation);
+            return;
+        }
+    }
+
+    const BACKOFF_SECS: [u64; 5] = [0, 3, 8, 18, 35];
+    for (attempt, wait) in BACKOFF_SECS.iter().enumerate() {
+        if daemon.authorization_generation.get() != generation {
+            finish_library_refresh(daemon, generation);
+            return;
+        }
+        if *wait > 0 {
+            if let Some(cool) = vinilo_core::spotify::cooldown_left() {
+                tokio::time::sleep(cool.min(std::time::Duration::from_secs(90))).await;
+            } else {
+                tokio::time::sleep(std::time::Duration::from_secs(*wait)).await;
+            }
+        }
+        if daemon.authorization_generation.get() != generation {
+            finish_library_refresh(daemon, generation);
+            return;
+        }
         let fetch = vinilo_core::spotify::library(&http);
-        match tokio::time::timeout(std::time::Duration::from_secs(45), fetch).await {
-            Ok(Ok(library)) => {
-                if daemon.authorization_generation.get() != generation {
-                    finish_library_refresh(&daemon, generation);
-                    return;
-                }
-                if library.songs.is_empty()
-                    && library.albums.is_empty()
-                    && library.artists.is_empty()
-                    && library.playlists.is_empty()
-                {
-                    tracing::warn!("spotify library fetch was empty — keeping what was cached");
-                    finish_library_refresh(&daemon, generation);
-                    return;
-                }
-                tracing::info!(
-                    songs = library.songs.len(),
-                    albums = library.albums.len(),
-                    artists = library.artists.len(),
-                    playlists = library.playlists.len(),
-                    "spotify library refreshed"
+        match tokio::time::timeout(std::time::Duration::from_secs(90), fetch).await {
+            Ok(Ok(library)) if !library_is_empty(&library) => {
+                apply_catalog_library(
+                    daemon,
+                    generation,
+                    library.songs,
+                    library.albums,
+                    library.artists,
+                    library.playlists,
                 );
-                remember_songs(&daemon, &library.songs);
-                vinilo_core::library_cache::save(
-                    &library.songs,
-                    &library.albums,
-                    &library.artists,
-                    &library.playlists,
+                return;
+            }
+            Ok(Ok(_)) => {
+                tracing::warn!(
+                    attempt = attempt + 1,
+                    "spotify library fetch was empty — retrying"
                 );
-                let mut model = daemon.model.borrow_mut();
-                model.library.tracks = library.songs;
-                model.library.albums = library.albums;
-                model.library.artists = library.artists;
-                model.library.playlists = library.playlists;
-                drop(model);
-                daemon.publish(Event::LibraryChanged);
             }
             Ok(Err(err)) => {
-                tracing::warn!(?err, "spotify library refresh failed");
+                tracing::warn!(
+                    ?err,
+                    attempt = attempt + 1,
+                    "spotify library refresh failed"
+                );
                 let detail = format!("{err}");
-                if should_surface_spotify_error(&detail)
-                    && daemon.model.borrow().library.tracks.is_empty()
-                    && vinilo_core::library_cache::load().is_empty()
-                {
-                    daemon.publish(Event::Error { detail });
+                if should_surface_spotify_error(&detail) {
+                    if daemon.model.borrow().library.is_empty()
+                        && vinilo_core::library_cache::load().is_empty()
+                    {
+                        daemon.publish(Event::Error { detail });
+                    }
+                    finish_library_refresh(daemon, generation);
+                    return;
                 }
             }
             Err(_) => {
-                tracing::warn!("spotify library refresh timed out — keeping what was cached");
+                tracing::warn!(
+                    attempt = attempt + 1,
+                    "spotify library refresh timed out — retrying"
+                );
             }
         }
-        finish_library_refresh(&daemon, generation);
-    });
+    }
+    tracing::warn!("spotify library still empty after retries — keeping what was cached");
+    finish_library_refresh(daemon, generation);
+}
+
+async fn refresh_named_catalog<Fut>(
+    daemon: &Daemon,
+    generation: u64,
+    label: &'static str,
+    fetch: Fut,
+) where
+    Fut: std::future::Future<Output = anyhow::Result<vinilo_core::library_cache::Library>>,
+{
+    match tokio::time::timeout(std::time::Duration::from_secs(60), fetch).await {
+        Ok(Ok(library)) if !cache_library_is_empty(&library) => {
+            apply_catalog_library(
+                daemon,
+                generation,
+                library.songs,
+                library.albums,
+                library.artists,
+                library.playlists,
+            );
+        }
+        Ok(Ok(_)) => {
+            tracing::warn!("{label} library fetch was empty — keeping what was cached");
+            finish_library_refresh(daemon, generation);
+        }
+        Ok(Err(err)) => {
+            tracing::warn!(?err, "{label} library refresh failed");
+            finish_library_refresh(daemon, generation);
+        }
+        Err(_) => {
+            tracing::warn!("{label} library refresh timed out — keeping what was cached");
+            finish_library_refresh(daemon, generation);
+        }
+    }
+}
+
+fn apply_catalog_library(
+    daemon: &Daemon,
+    generation: u64,
+    songs: Vec<vinilo_core::music::types::Track>,
+    albums: Vec<vinilo_core::music::types::Album>,
+    artists: Vec<vinilo_core::music::types::Artist>,
+    playlists: Vec<vinilo_core::music::types::Playlist>,
+) {
+    if daemon.authorization_generation.get() != generation {
+        finish_library_refresh(daemon, generation);
+        return;
+    }
+    tracing::info!(
+        songs = songs.len(),
+        albums = albums.len(),
+        artists = artists.len(),
+        playlists = playlists.len(),
+        "catalogue library refreshed"
+    );
+    remember_songs(daemon, &songs);
+    vinilo_core::library_cache::save(&songs, &albums, &artists, &playlists);
+    let mut model = daemon.model.borrow_mut();
+    model.library.tracks = songs;
+    model.library.albums = albums;
+    model.library.artists = artists;
+    model.library.playlists = playlists;
+    drop(model);
+    daemon.publish(Event::LibraryChanged);
+    finish_library_refresh(daemon, generation);
 }
 
 fn should_surface_spotify_error(detail: &str) -> bool {
     let lower = detail.to_ascii_lowercase();
-    lower.contains("429")
-        || lower.contains("rate-limited")
-        || lower.contains("rate limited")
-        || lower.contains("sign in")
-        || lower.contains("iniciar sesión")
+    lower.contains("sign in") || lower.contains("iniciar sesión")
 }
 
 fn discover_spotify(daemon: &Rc<Daemon>) {

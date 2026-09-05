@@ -296,6 +296,14 @@ pub enum Key {
     SpotifyRateLimited,
     SpotifyTimeout,
     SpotifyCatalogueChanged,
+    NewPlaylist,
+    NewPlaylistTitle,
+    NewPlaylistPlaceholder,
+    Create,
+    AddToPlaylist,
+    ToastCreatePlaylist,
+    ToastAddToPlaylist,
+    WriteWrongSource,
 }
 
 /// Resolve `key` in the current language.
@@ -573,6 +581,14 @@ fn en(key: Key) -> &'static str {
         Key::SpotifyCatalogueChanged => {
             "Spotify's catalogue API changed. Sign in again, then Reload."
         }
+        Key::NewPlaylist => "New _playlist",
+        Key::NewPlaylistTitle => "New playlist",
+        Key::NewPlaylistPlaceholder => "Playlist name",
+        Key::Create => "Create",
+        Key::AddToPlaylist => "Add to _playlist",
+        Key::ToastCreatePlaylist => "Creating playlist…",
+        Key::ToastAddToPlaylist => "Adding to playlist…",
+        Key::WriteWrongSource => "That item belongs to another music source.",
     }
 }
 
@@ -828,6 +844,14 @@ fn es(key: Key) -> &'static str {
         Key::SpotifyCatalogueChanged => {
             "La API del catálogo de Spotify ha cambiado. Vuelve a iniciar sesión y pulsa Recargar."
         }
+        Key::NewPlaylist => "Nueva _lista",
+        Key::NewPlaylistTitle => "Nueva lista",
+        Key::NewPlaylistPlaceholder => "Nombre de la lista",
+        Key::Create => "Crear",
+        Key::AddToPlaylist => "Añadir a una _lista",
+        Key::ToastCreatePlaylist => "Creando la lista…",
+        Key::ToastAddToPlaylist => "Añadiendo a la lista…",
+        Key::WriteWrongSource => "Esa canción pertenece a otra fuente de música.",
     }
 }
 

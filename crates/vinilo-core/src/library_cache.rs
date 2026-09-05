@@ -48,6 +48,22 @@ impl Library {
             && self.artists.is_empty()
             && self.playlists.is_empty()
     }
+
+    pub fn from_parts(
+        songs: Vec<Track>,
+        albums: Vec<Album>,
+        artists: Vec<Artist>,
+        playlists: Vec<Playlist>,
+    ) -> Self {
+        Self {
+            version: VERSION,
+            provider: String::new(),
+            songs,
+            albums,
+            artists,
+            playlists,
+        }
+    }
 }
 
 /// Written by borrowing the model's own vectors, so saving never clones the

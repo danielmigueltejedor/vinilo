@@ -9,6 +9,7 @@
 
 pub mod artwork;
 pub mod catalog;
+pub mod catalog_write;
 pub mod discover;
 pub mod entry;
 pub mod i18n;
@@ -28,7 +29,9 @@ pub mod setup;
 pub mod sort;
 pub mod spotify;
 pub mod streams;
+pub mod tidal;
 pub mod unplayable;
+pub mod ytmusic;
 
 /// The application id. It must match the `.desktop` file name, the GResource
 /// prefix, `RelmApp::new()` and the MPRIS bus name suffix.

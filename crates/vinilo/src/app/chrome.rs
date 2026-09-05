@@ -12,6 +12,7 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use relm4::adw::prelude::*;
+use relm4::gtk::prelude::*;
 use relm4::{ComponentSender, adw, gtk};
 
 use super::{AppModel, AppMsg};
@@ -454,6 +455,49 @@ impl AppModel {
             if response == "sign-out" {
                 sender.input(AppMsg::SignOutConfirmed);
             }
+        });
+        dialog.present(Some(parent));
+    }
+
+    /// Name a new playlist. Optional `track_id` is added after it exists.
+    pub(super) fn prompt_new_playlist(
+        &self,
+        sender: &ComponentSender<Self>,
+        parent: &adw::ApplicationWindow,
+        track_id: Option<String>,
+    ) {
+        let dialog = adw::AlertDialog::new(Some(t(Key::NewPlaylistTitle)), None);
+        let entry = gtk::Entry::builder()
+            .placeholder_text(t(Key::NewPlaylistPlaceholder))
+            .activates_default(true)
+            .hexpand(true)
+            .build();
+        dialog.set_extra_child(Some(&entry));
+        dialog.add_response("cancel", t(Key::Cancel));
+        dialog.add_response("create", t(Key::Create));
+        dialog.set_response_appearance("create", adw::ResponseAppearance::Suggested);
+        dialog.set_default_response(Some("create"));
+        dialog.set_close_response("cancel");
+
+        let sender = sender.clone();
+        dialog.connect_response(None, move |dialog, response| {
+            if response != "create" {
+                return;
+            }
+            let Some(child) = dialog.extra_child() else {
+                return;
+            };
+            let Ok(entry) = child.downcast::<gtk::Entry>() else {
+                return;
+            };
+            let name = entry.text().trim().to_string();
+            if name.is_empty() {
+                return;
+            }
+            sender.input(AppMsg::CreatePlaylist {
+                name,
+                track_id: track_id.clone(),
+            });
         });
         dialog.present(Some(parent));
     }

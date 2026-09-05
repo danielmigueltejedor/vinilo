@@ -188,14 +188,24 @@ pub fn save_hits(hits: &std::collections::HashMap<String, StreamHit>) {
 }
 
 pub fn http() -> reqwest::Client {
+    http_with_timeout(Duration::from_secs(12))
+}
+
+/// Longer budget for a first library load: TOTP + client-token + several
+/// Pathfinder pages often exceed the search timeout.
+pub fn http_long() -> reqwest::Client {
+    http_with_timeout(Duration::from_secs(25))
+}
+
+fn http_with_timeout(timeout: Duration) -> reqwest::Client {
     reqwest::Client::builder()
         .user_agent(WEB)
-        .timeout(Duration::from_secs(12))
+        .timeout(timeout)
         .connect_timeout(Duration::from_secs(8))
         .build()
         .unwrap_or_else(|_| {
             reqwest::Client::builder()
-                .timeout(Duration::from_secs(12))
+                .timeout(timeout)
                 .build()
                 .unwrap_or_else(|_| reqwest::Client::new())
         })

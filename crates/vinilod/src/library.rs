@@ -31,6 +31,13 @@ impl Library {
         }
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.tracks.is_empty()
+            && self.albums.is_empty()
+            && self.artists.is_empty()
+            && self.playlists.is_empty()
+    }
+
     /// One window of one section.
     ///
     /// Returns the total *before* the window, so a client can size a scrollbar

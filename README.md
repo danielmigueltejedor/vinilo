@@ -25,7 +25,7 @@ La primera vez eliges idioma y fuente. Luego puedes cambiarlos en **Preferencias
 ## Qué hace
 
 - **Dos clientes nativos.** La aplicación GNOME o `aguja` en la terminal. Ambos controlan el mismo motor.
-- **Toda tu biblioteca.** Canciones, álbumes, artistas y listas. Reproducir una lista la convierte en la cola.
+- **Toda tu biblioteca.** Canciones, álbumes, artistas y listas. Reproducir una lista la convierte en la cola. En Spotify, YouTube Music, Tidal y Apple Music puedes marcar favoritos, guardar en la biblioteca y **crear listas nuevas** (menú de la canción o el botón + en Listas).
 - **Reproducción sin cortes** y reproductor a pantalla completa con portada y cola.
 - **Controles del escritorio.** Barra superior de GNOME, pantalla de bloqueo o teclas multimedia. La música sigue si cierras la ventana.
 - **Búsqueda en Apple Music.** Artistas, álbumes, listas y canciones.

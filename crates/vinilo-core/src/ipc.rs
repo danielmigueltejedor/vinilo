@@ -440,9 +440,19 @@ pub enum Request {
     #[serde(rename = "clearQueue")]
     ClearQueue,
 
-    /// Change what Apple holds for this account.
+    /// Change what the signed-in catalogue holds for this account.
+    ///
+    /// `id` is the track (or the playlist, for removals). `playlist_id` and
+    /// `name` are only set for playlist writes.
     #[serde(rename = "write")]
-    Write { action: WriteAction, id: String },
+    Write {
+        action: WriteAction,
+        id: String,
+        #[serde(default)]
+        playlist_id: Option<String>,
+        #[serde(default)]
+        name: Option<String>,
+    },
 
     /// Re-read the library from Apple. Happens on its own once tokens arrive;
     /// this is for a client offering a reload button.
@@ -537,11 +547,11 @@ impl CatalogFilter {
     }
 }
 
-/// Something we can ask Apple to do to this account.
+/// Something we can ask the signed-in catalogue to do to this account.
 ///
-/// Adding and favouriting go over REST; removing and un-favouriting can only be
-/// done by MusicKit itself, which is why they take different routes out. A
-/// client does not need to know that.
+/// The daemon picks the route: MusicKit for Apple Music, Pathfinder for
+/// Spotify, InnerTube for YouTube Music, Tidal's own REST. A client does not
+/// need to know which.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum WriteAction {
@@ -549,6 +559,9 @@ pub enum WriteAction {
     Unfavorite,
     AddToLibrary,
     RemoveFromLibrary,
+    CreatePlaylist,
+    AddToPlaylist,
+    RemoveFromPlaylist,
 }
 
 /// Which library section to browse.
@@ -838,6 +851,38 @@ mod tests {
             finished,
             r#"{"event":"libraryRefreshing","refreshing":false}"#
         );
+    }
+
+    #[test]
+    fn an_older_write_without_playlist_fields_still_parses() {
+        let req: Request =
+            serde_json::from_str(r#"{"req":"write","action":"favorite","id":"sp:abc"}"#).unwrap();
+        match req {
+            Request::Write {
+                action: WriteAction::Favorite,
+                id,
+                playlist_id,
+                name,
+            } => {
+                assert_eq!(id, "sp:abc");
+                assert!(playlist_id.is_none());
+                assert!(name.is_none());
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_new_playlist_write_carries_the_name() {
+        let line = serde_json::to_string(&Request::Write {
+            action: WriteAction::CreatePlaylist,
+            id: String::new(),
+            playlist_id: None,
+            name: Some("Noche".into()),
+        })
+        .unwrap();
+        assert!(line.contains("createPlaylist"));
+        assert!(line.contains("Noche"));
     }
 
     #[test]

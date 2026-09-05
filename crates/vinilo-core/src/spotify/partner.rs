@@ -63,6 +63,15 @@ pub const WHATS_NEW: &[&str] = &[
     "d889c8c936ab192af8ced595427f5ba2acdf63478fdc0a181c8d477f8322630e",
     "3b53dede3c6054e8b7c962dd280eb6761c5d1c82b06b039f4110d76a62b4966b",
 ];
+/// Library and playlist mutations from the 2026-09-04 web player. add/remove
+/// share a persisted document; the operation name is what Pathfinder routes on.
+pub const ADD_TO_LIBRARY: &[&str] = &[
+    "1ad0d40b3c09660d818b9e770eb1e84745dfbe941df159a64f8772b6fa2bfc3a",
+    "656c491c3f65d9d08d259be6632f4ef1931540ebcf766488ed17f76bb9156d15",
+];
+pub const ADD_TO_PLAYLIST: &[&str] =
+    &["47b2a1234b17748d332dd0431534f22450e9ecbb3d5ddcdacbd83368636a0990"];
+pub const PLAYLIST_V2: &str = "https://spclient.wg.spotify.com/playlist/v2";
 
 #[derive(Debug, Clone)]
 pub struct Session {

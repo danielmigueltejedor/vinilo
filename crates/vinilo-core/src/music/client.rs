@@ -13,6 +13,7 @@
 
 use anyhow::{Context, Result};
 use reqwest::{Client as HttpClient, StatusCode};
+use serde_json::json;
 use std::collections::HashMap;
 
 use serde::Deserialize;
@@ -294,6 +295,62 @@ impl Client {
             "favouriting",
         )
         .await
+    }
+
+    /// Create a library playlist. `track_id` is optional seed.
+    pub async fn create_playlist(&self, name: &str, track_id: Option<&str>) -> Result<String> {
+        let mut body = json!({
+            "attributes": { "name": name }
+        });
+        if let Some(id) = track_id.filter(|s| !s.is_empty()) {
+            body["relationships"] = json!({
+                "tracks": { "data": [{ "id": id, "type": "songs" }] }
+            });
+        }
+        let res = self
+            .post_json("/me/library/playlists", &body)
+            .send()
+            .await
+            .map_err(Self::transport_error)
+            .context("creating playlist")?;
+        if !res.status().is_success() {
+            return Err(self.explain(res).await);
+        }
+        let value: serde_json::Value = res.json().await.context("creating playlist json")?;
+        value
+            .pointer("/data/id")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned)
+            .context("Apple Music did not return a playlist id")
+    }
+
+    /// Append a catalog or library song to a library playlist.
+    pub async fn add_to_playlist(&self, playlist_id: &str, track_id: &str) -> Result<()> {
+        let body = json!({
+            "data": [{ "id": track_id, "type": "songs" }]
+        });
+        self.accepted(
+            self.post_json(
+                &format!("/me/library/playlists/{playlist_id}/tracks"),
+                &body,
+            ),
+            "adding to playlist",
+        )
+        .await
+    }
+
+    fn post_json(&self, path: &str, body: &serde_json::Value) -> reqwest::RequestBuilder {
+        let req = self
+            .http
+            .post(format!("{API_BASE}{path}"))
+            .bearer_auth(&self.developer_token)
+            .header("Origin", WEB_ORIGIN)
+            .header("Referer", WEB_REFERER)
+            .json(body);
+        match &self.music_user_token {
+            Some(t) => req.header("Music-User-Token", t.as_str()),
+            None => req,
+        }
     }
 
     // There is deliberately no `remove_from_favorites`.
