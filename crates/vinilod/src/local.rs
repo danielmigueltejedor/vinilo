@@ -187,6 +187,13 @@ impl Player {
         if !self.active {
             return;
         }
+        if self
+            .queue
+            .iter()
+            .any(|t| t.catalog_id.as_deref() == Some(hit.id.as_str()))
+        {
+            return;
+        }
         let track = read_track_labeled(&path, Some(&hit));
         if let Some(original) = self.unshuffled.as_mut() {
             original.push(track.clone());

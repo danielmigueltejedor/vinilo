@@ -98,13 +98,27 @@ impl StreamHit {
 
     /// True when the title is just the raw id (a reconstructed hit after restart).
     pub fn title_is_placeholder(&self) -> bool {
-        let rest = self
-            .id
-            .split_once(':')
-            .map(|(_, rest)| rest)
-            .unwrap_or(self.id.as_str());
-        self.title.is_empty() || self.title == rest || self.title == self.id
+        title_is_raw_id(&self.id, &self.title)
     }
+}
+
+/// Empty titles, or ones that are only the catalogue id / video id.
+pub fn title_is_raw_id(id: &str, title: &str) -> bool {
+    let title = title.trim();
+    if title.is_empty() {
+        return true;
+    }
+    let rest = id.split_once(':').map(|(_, rest)| rest).unwrap_or(id);
+    title == rest || title == id
+}
+
+pub fn track_title_is_placeholder(track: &Track) -> bool {
+    let id = track.catalog_id.as_deref().unwrap_or(track.id.0.as_str());
+    title_is_raw_id(id, &track.title)
+}
+
+pub fn youtube_thumb(video: &str) -> String {
+    format!("https://i.ytimg.com/vi/{video}/hqdefault.jpg")
 }
 
 /// Sidecar JSON next to a downloaded file, so the now-playing bar keeps the
@@ -139,6 +153,9 @@ fn sidecar_path(audio: &std::path::Path) -> Option<std::path::PathBuf> {
 }
 
 pub fn write_sidecar(audio: &std::path::Path, hit: &StreamHit) {
+    if hit.title_is_placeholder() {
+        return;
+    }
     let Some(path) = sidecar_path(audio) else {
         return;
     };
@@ -220,8 +237,14 @@ pub fn youtube_hit_from_json(value: &Value) -> Option<StreamHit> {
     let title = value
         .get("title")
         .and_then(Value::as_str)
-        .unwrap_or("Unknown")
+        .unwrap_or("")
+        .trim()
         .to_owned();
+    let title = if title.is_empty() || title == id || title == "NA" {
+        String::new()
+    } else {
+        title
+    };
     let artist = value
         .get("uploader")
         .or_else(|| value.get("channel"))
@@ -237,10 +260,15 @@ pub fn youtube_hit_from_json(value: &Value) -> Option<StreamHit> {
     let artwork = value
         .get("thumbnails")
         .and_then(Value::as_array)
-        .and_then(|thumbs| thumbs.last())
+        .and_then(|thumbs| {
+            thumbs
+                .iter()
+                .max_by_key(|t| t.get("width").and_then(Value::as_u64).unwrap_or(0))
+        })
         .and_then(|t| t.get("url"))
         .and_then(Value::as_str)
-        .map(str::to_owned);
+        .map(str::to_owned)
+        .or_else(|| Some(youtube_thumb(&id)));
     Some(StreamHit {
         play_query: format!("https://www.youtube.com/watch?v={id}"),
         id: format!("yt:{id}"),
@@ -363,11 +391,31 @@ mod tests {
         let hit = youtube_hit_from_json(&json).unwrap();
         assert_eq!(hit.id, "yt:dQw4w9WgXcQ");
         assert!(StreamHit::is_stream_id(&hit.id));
+        assert!(!hit.title_is_placeholder());
         let Entry::Song(track) = hit.into_entry() else {
             panic!("song");
         };
         assert!(track.playable());
         assert_eq!(track.title, "Never Gonna Give You Up");
+    }
+
+    #[test]
+    fn a_reconstructed_id_title_is_a_placeholder() {
+        assert!(title_is_raw_id("yt:vrY1THC_NQE", "vrY1THC_NQE"));
+        assert!(title_is_raw_id("yt:vrY1THC_NQE", ""));
+        assert!(!title_is_raw_id("yt:vrY1THC_NQE", "Pa Mal"));
+    }
+
+    #[test]
+    fn a_flat_line_without_a_title_is_a_placeholder() {
+        let json = serde_json::json!({ "id": "vrY1THC_NQE" });
+        let hit = youtube_hit_from_json(&json).unwrap();
+        assert!(hit.title_is_placeholder());
+        assert!(
+            hit.artwork
+                .as_deref()
+                .is_some_and(|u| u.contains("vrY1THC_NQE"))
+        );
     }
 
     #[test]

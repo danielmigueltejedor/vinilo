@@ -10,7 +10,7 @@ checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
 name = "aguja"
-version = "0.19.0"
+version = "0.20.0"
 dependencies = [
  "anyhow",
  "crossterm",
@@ -3319,7 +3319,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "vinilo"
-version = "0.19.0"
+version = "0.20.0"
 dependencies = [
  "anyhow",
  "ashpd",
@@ -3336,7 +3336,7 @@ dependencies = [
 
 [[package]]
 name = "vinilo-core"
-version = "0.19.0"
+version = "0.20.0"
 dependencies = [
  "anyhow",
  "hmac",
@@ -3353,7 +3353,7 @@ dependencies = [
 
 [[package]]
 name = "vinilod"
-version = "0.19.0"
+version = "0.20.0"
 dependencies = [
  "anyhow",
  "libpulse-binding",

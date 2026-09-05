@@ -108,6 +108,9 @@ pub struct Daemon {
     /// Search hits for Spotify / YouTube Music / Tidal, keyed by the id we
     /// minted (`yt:`, `sp:`, `td:`), so a later Play can fetch audio.
     pub stream_hits: RefCell<HashMap<String, vinilo_core::streams::StreamHit>>,
+    /// Catalogue tracks waiting to be downloaded behind the one that is
+    /// playing, so Next can pull the next file instead of sitting on silence.
+    pub catalog_rest: RefCell<Vec<vinilo_core::streams::StreamHit>>,
     /// The source this process booted with. Preferences may rewrite the
     /// provider file before we quit; the queue we save still belongs to this.
     pub source: vinilo_core::provider::Provider,
@@ -254,6 +257,7 @@ pub async fn run() -> Result<()> {
         mixer: crate::mixer::Mixer::start(),
         last_listen: RefCell::new(None),
         stream_hits: RefCell::new(vinilo_core::streams::load_hits()),
+        catalog_rest: RefCell::new(Vec::new()),
         source,
         refresh_again: std::cell::Cell::new(false),
         refresh_dirty: std::cell::Cell::new(false),
@@ -1178,6 +1182,7 @@ fn publish_local(daemon: &Rc<Daemon>) {
 }
 
 fn play_files(daemon: &Rc<Daemon>, paths: Vec<String>, index: usize) -> Option<Event> {
+    daemon.catalog_rest.borrow_mut().clear();
     let paths: Vec<std::path::PathBuf> = paths.into_iter().map(std::path::PathBuf::from).collect();
     if daemon.sidecar.borrow().is_some() {
         daemon.send(Command::Pause);
@@ -1201,7 +1206,10 @@ fn route_local_transport(daemon: &Rc<Daemon>, transport: Transport) {
         Transport::Pause => daemon.local.borrow_mut().pause(),
         Transport::PlayPause => daemon.local.borrow_mut().play_pause(),
         Transport::Next => {
-            let _ = daemon.local.borrow_mut().next();
+            let moved = daemon.local.borrow_mut().next().unwrap_or(false);
+            if !moved {
+                pull_next_catalog(daemon);
+            }
         }
         Transport::Previous => {
             let _ = daemon.local.borrow_mut().previous();
@@ -2345,6 +2353,13 @@ fn remember_hits(daemon: &Daemon, hits: Vec<vinilo_core::streams::StreamHit>) {
     {
         let mut map = daemon.stream_hits.borrow_mut();
         for hit in hits {
+            if hit.title_is_placeholder()
+                && map
+                    .get(&hit.id)
+                    .is_some_and(|old| !old.title_is_placeholder())
+            {
+                continue;
+            }
             map.insert(hit.id.clone(), hit);
         }
         vinilo_core::streams::save_hits(&map);
@@ -2361,7 +2376,7 @@ fn play_streams(daemon: &Rc<Daemon>, ids: Vec<String>, index: usize, start: Star
     tokio::task::spawn_local(async move {
         let mut hits = Vec::new();
         for id in &ids {
-            if let Some(hit) = resolve_stream_hit(&daemon, id).await {
+            if let Some(hit) = peek_stream_hit(&daemon, id) {
                 hits.push(hit);
             }
         }
@@ -2380,20 +2395,29 @@ fn play_streams(daemon: &Rc<Daemon>, ids: Vec<String>, index: usize, start: Star
         if shuffled {
             shuffle_hits(&mut hits);
         }
-        let rest = hits;
+        let mut rest = hits;
         let Some(dir) = vinilo_core::paths::cache_dir().map(|p| p.join("streams")) else {
             daemon.publish(Event::Error {
                 detail: "No cache directory".into(),
             });
             return;
         };
+        let first = hydrate_hit(&daemon, first).await;
+        let next = match rest.first().cloned() {
+            Some(hit) => Some(hydrate_hit(&daemon, hit).await),
+            None => None,
+        };
+        *daemon.catalog_rest.borrow_mut() = rest.clone();
         let dir_first = dir.clone();
-        let download = first.clone();
-        let path = match tokio::task::spawn_blocking(move || {
-            crate::ytdlp::download(&download, &dir_first)
-        })
-        .await
-        {
+        let download_first = first.clone();
+        let first_task = tokio::task::spawn_blocking(move || {
+            crate::ytdlp::download(&download_first, &dir_first)
+        });
+        let next_task = next.clone().map(|hit| {
+            let dir_next = dir.clone();
+            tokio::task::spawn_blocking(move || crate::ytdlp::download(&hit, &dir_next))
+        });
+        let path = match first_task.await {
             Ok(Ok(path)) => path,
             Ok(Err(detail)) => {
                 daemon.publish(Event::Error { detail });
@@ -2424,6 +2448,20 @@ fn play_streams(daemon: &Rc<Daemon>, ids: Vec<String>, index: usize, start: Star
             return;
         }
         publish_local(&daemon);
+        if let (Some(task), Some(hit)) = (next_task, next) {
+            match task.await {
+                Ok(Ok(path)) => {
+                    daemon.local.borrow_mut().append_hit(path, hit.clone());
+                    take_catalog(&daemon, &hit.id);
+                    if !rest.is_empty() && rest[0].id == hit.id {
+                        rest.remove(0);
+                    }
+                    publish_local(&daemon);
+                }
+                Ok(Err(err)) => tracing::warn!(%err, "skipping a catalogue track"),
+                Err(err) => tracing::warn!(?err, "skipping a catalogue track"),
+            }
+        }
         prefetch_stream_hits(&daemon, dir, rest).await;
         publish_local(&daemon);
     });
@@ -2437,17 +2475,23 @@ async fn prefetch_stream_hits(
     hits: Vec<vinilo_core::streams::StreamHit>,
 ) {
     for chunk in hits.chunks(2) {
-        let mut tasks = Vec::new();
+        let mut prepared = Vec::new();
         for hit in chunk {
+            prepared.push(hydrate_hit(daemon, hit.clone()).await);
+        }
+        let mut tasks = Vec::new();
+        for hit in prepared {
             let dir = dir.clone();
-            let hit = hit.clone();
             tasks.push(tokio::task::spawn_blocking(move || {
                 crate::ytdlp::download(&hit, &dir).map(|path| (path, hit))
             }));
         }
         for task in tasks {
             match task.await {
-                Ok(Ok((path, hit))) => daemon.local.borrow_mut().append_hit(path, hit),
+                Ok(Ok((path, hit))) => {
+                    daemon.local.borrow_mut().append_hit(path, hit.clone());
+                    take_catalog(daemon, &hit.id);
+                }
                 Ok(Err(err)) => tracing::warn!(%err, "skipping a catalogue track"),
                 Err(err) => tracing::warn!(?err, "skipping a catalogue track"),
             }
@@ -2464,19 +2508,87 @@ fn enqueue_streams(daemon: &Rc<Daemon>, ids: Vec<String>) {
         };
         let mut hits = Vec::new();
         for id in ids {
-            if let Some(hit) = resolve_stream_hit(&daemon, &id).await {
+            if let Some(hit) = peek_stream_hit(&daemon, &id) {
                 hits.push(hit);
             }
         }
+        daemon
+            .catalog_rest
+            .borrow_mut()
+            .extend(hits.iter().cloned());
         prefetch_stream_hits(&daemon, dir, hits).await;
     });
+}
+
+fn pull_next_catalog(daemon: &Rc<Daemon>) {
+    let Some(hit) = daemon.catalog_rest.borrow().first().cloned() else {
+        return;
+    };
+    let daemon = daemon.clone();
+    tokio::task::spawn_local(async move {
+        let Some(dir) = vinilo_core::paths::cache_dir().map(|p| p.join("streams")) else {
+            return;
+        };
+        let hit = hydrate_hit(&daemon, hit).await;
+        let download = hit.clone();
+        match tokio::task::spawn_blocking(move || crate::ytdlp::download(&download, &dir)).await {
+            Ok(Ok(path)) => {
+                daemon.local.borrow_mut().append_hit(path, hit.clone());
+                take_catalog(&daemon, &hit.id);
+                let _ = daemon.local.borrow_mut().next();
+                publish_local(&daemon);
+            }
+            Ok(Err(err)) => tracing::warn!(%err, "next catalogue track is not ready"),
+            Err(err) => tracing::warn!(?err, "next catalogue track is not ready"),
+        }
+    });
+}
+
+fn take_catalog(daemon: &Daemon, id: &str) {
+    daemon.catalog_rest.borrow_mut().retain(|hit| hit.id != id);
+}
+
+fn peek_stream_hit(daemon: &Daemon, id: &str) -> Option<vinilo_core::streams::StreamHit> {
+    stream_hit(daemon, id)
+}
+
+async fn hydrate_hit(
+    daemon: &Daemon,
+    hit: vinilo_core::streams::StreamHit,
+) -> vinilo_core::streams::StreamHit {
+    if !hit.title_is_placeholder() && hit.artwork.is_some() {
+        return hit;
+    }
+    let Some(fresh) = resolve_stream_hit(daemon, &hit.id).await else {
+        return hit;
+    };
+    if fresh.title_is_placeholder() && !hit.title_is_placeholder() {
+        let mut merged = hit;
+        if merged.artwork.is_none() {
+            merged.artwork = fresh.artwork;
+        }
+        return merged;
+    }
+    fresh
 }
 
 async fn resolve_stream_hit(daemon: &Daemon, id: &str) -> Option<vinilo_core::streams::StreamHit> {
     if let Some(hit) = daemon.stream_hits.borrow().get(id).cloned()
         && !hit.title_is_placeholder()
+        && hit.artwork.is_some()
     {
         return Some(hit);
+    }
+    if id.starts_with("yt:")
+        && id
+            .strip_prefix("yt:")
+            .is_some_and(|v| !v.is_empty() && !v.contains(':'))
+    {
+        let http = vinilo_core::streams::http();
+        if let Ok(hit) = vinilo_core::ytmusic::video_hit(&http, id).await {
+            remember_hits(daemon, vec![hit.clone()]);
+            return Some(hit);
+        }
     }
     if let Some(vinilo_core::spotify::Ref::Track(sp)) = vinilo_core::spotify::Ref::parse(id) {
         let http = vinilo_core::streams::http();
@@ -2504,7 +2616,7 @@ fn stream_hit(daemon: &Daemon, id: &str) -> Option<vinilo_core::streams::StreamH
             artist: String::new(),
             album: String::new(),
             duration_ms: 0,
-            artwork: Some(format!("https://i.ytimg.com/vi/{video}/hqdefault.jpg")),
+            artwork: Some(vinilo_core::streams::youtube_thumb(video)),
             play_query: format!("https://www.youtube.com/watch?v={video}"),
         });
     }
@@ -2906,6 +3018,7 @@ mod tests {
             last_listen: RefCell::new(None),
             quitting: tokio::sync::Notify::new(),
             stream_hits: RefCell::new(HashMap::new()),
+            catalog_rest: RefCell::new(Vec::new()),
             source: vinilo_core::provider::Provider::AppleMusic,
             refresh_again: std::cell::Cell::new(false),
             refresh_dirty: std::cell::Cell::new(false),

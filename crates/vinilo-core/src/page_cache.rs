@@ -38,7 +38,13 @@ fn file_name(kind: PageKind, id: &str) -> String {
     };
     let id: String = id
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '.' || c == '-' { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '.' || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
     format!("{kind}-{id}.json")
 }
@@ -49,8 +55,15 @@ fn path(kind: PageKind, id: &str) -> Option<std::path::PathBuf> {
 
 pub fn load(kind: PageKind, id: &str) -> Option<CachedPage> {
     let raw = std::fs::read_to_string(path(kind, id)?).ok()?;
-    let page: CachedPage = serde_json::from_str(&raw).ok()?;
-    (page.version == VERSION).then_some(page)
+    let mut page: CachedPage = serde_json::from_str(&raw).ok()?;
+    if page.version != VERSION {
+        return None;
+    }
+    page.entries.retain(|e| {
+        !matches!(e, Entry::Song(t) if crate::streams::track_title_is_placeholder(t))
+            && !crate::streams::title_is_raw_id(e.id(), e.title())
+    });
+    Some(page)
 }
 
 pub fn save(kind: PageKind, id: &str, header: &Entry, entries: &[Entry]) {

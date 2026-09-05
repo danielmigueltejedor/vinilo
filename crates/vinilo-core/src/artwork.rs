@@ -30,6 +30,8 @@ pub fn cache_path(art: &Artwork, size: u32) -> Option<PathBuf> {
     Some(artwork_dir()?.join(format!("{}-{size}.jpg", art.cache_key())))
 }
 
+const FETCH_UA: &str = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36";
+
 /// surfacing an error, because a missing cover is not worth a toast.
 pub async fn fetch(art: Artwork, size: u32) -> Result<PathBuf> {
     let path = cache_path(&art, size).context("no cache directory available")?;
@@ -38,7 +40,38 @@ pub async fn fetch(art: Artwork, size: u32) -> Result<PathBuf> {
     }
 
     let url = art.url(size);
-    let bytes = reqwest::get(&url)
+    let mut last_err = None;
+    for candidate in artwork_candidates(&url) {
+        match download_bytes(&candidate).await {
+            Ok(bytes) if !bytes.is_empty() => {
+                write_atomically(&path, &bytes)?;
+                return Ok(path);
+            }
+            Ok(_) => last_err = Some(anyhow::anyhow!("empty artwork {candidate}")),
+            Err(err) => last_err = Some(err),
+        }
+    }
+    Err(last_err.unwrap_or_else(|| anyhow::anyhow!("artwork request failed")))
+}
+
+fn artwork_candidates(url: &str) -> Vec<String> {
+    let mut out = vec![url.to_owned()];
+    if url.contains("i.ytimg.com/vi/") && url.contains("hqdefault") {
+        out.push(url.replace("hqdefault.jpg", "mqdefault.jpg"));
+        out.push(url.replace("hqdefault.jpg", "0.jpg"));
+    }
+    out
+}
+
+async fn download_bytes(url: &str) -> Result<Vec<u8>> {
+    let client = reqwest::Client::builder()
+        .user_agent(FETCH_UA)
+        .timeout(std::time::Duration::from_secs(12))
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new());
+    let bytes = client
+        .get(url)
+        .send()
         .await
         .with_context(|| format!("requesting artwork {url}"))?
         .error_for_status()
@@ -46,9 +79,7 @@ pub async fn fetch(art: Artwork, size: u32) -> Result<PathBuf> {
         .bytes()
         .await
         .context("reading artwork body")?;
-
-    write_atomically(&path, &bytes)?;
-    Ok(path)
+    Ok(bytes.to_vec())
 }
 
 /// `rename` within the same directory is atomic.

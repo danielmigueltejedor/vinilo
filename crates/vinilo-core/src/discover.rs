@@ -59,6 +59,18 @@ impl Discover {
         }
     }
 
+    /// Drop songs (and tiles) whose title is just a YouTube video id, left in
+    /// the on-disk cache before we stopped minting those rows.
+    pub fn drop_placeholder_titles(&mut self) {
+        self.recently_played.retain(|e| !entry_title_is_raw_id(e));
+        self.recommended_playlists
+            .retain(|e| !entry_title_is_raw_id(e));
+        self.recommended_songs
+            .retain(|t| !crate::streams::track_title_is_placeholder(t));
+        self.recently_added.retain(|e| !entry_title_is_raw_id(e));
+        self.charts.retain(|e| !entry_title_is_raw_id(e));
+    }
+
     pub fn is_empty(&self) -> bool {
         self.recently_played.is_empty()
             && self.recommended_playlists.is_empty()
@@ -86,6 +98,10 @@ impl Discover {
             self.charts = homemade.charts;
         }
     }
+}
+
+fn entry_title_is_raw_id(entry: &Entry) -> bool {
+    crate::streams::title_is_raw_id(entry.id(), entry.title())
 }
 
 fn cache_file() -> Option<std::path::PathBuf> {
@@ -130,7 +146,10 @@ pub fn load() -> Discover {
         return Discover::default();
     };
     match serde_json::from_str::<Discover>(&raw) {
-        Ok(cache) if cache.version == VERSION && fits_current_source(&cache) => cache,
+        Ok(mut cache) if cache.version == VERSION && fits_current_source(&cache) => {
+            cache.drop_placeholder_titles();
+            cache
+        }
         _ => Discover::default(),
     }
 }

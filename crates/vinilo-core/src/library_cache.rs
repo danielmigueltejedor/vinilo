@@ -126,6 +126,22 @@ pub fn load() -> Library {
     cache
 }
 
+fn scrub_placeholders(mut cache: Library) -> Library {
+    cache
+        .songs
+        .retain(|t| !crate::streams::track_title_is_placeholder(t));
+    cache
+        .albums
+        .retain(|a| !crate::streams::title_is_raw_id(&a.id, &a.name));
+    cache
+        .artists
+        .retain(|a| !crate::streams::title_is_raw_id(&a.id, &a.name));
+    cache
+        .playlists
+        .retain(|p| !crate::streams::title_is_raw_id(&p.id, &p.name));
+    cache
+}
+
 fn cache_stem_of(cache: &Library) -> Option<&'static str> {
     crate::provider::Provider::parse(&cache.provider)
         .and_then(|p| p.cache_stem())
@@ -190,7 +206,7 @@ fn fits_source(cache: &Library, current: crate::provider::Provider) -> bool {
 /// The half of `load` that is not I/O, so tests never touch a home directory.
 fn parse(raw: &str) -> Library {
     match serde_json::from_str::<Library>(raw) {
-        Ok(cache) if cache.version == VERSION => cache,
+        Ok(cache) if cache.version == VERSION => scrub_placeholders(cache),
         Ok(cache) => {
             tracing::debug!(
                 found = cache.version,
@@ -397,6 +413,22 @@ mod tests {
         );
         assert!(fits_source(&cache, crate::provider::Provider::Spotify));
         assert_eq!(infer_catalog_stem(&cache), Some("spotify"));
+    }
+
+    #[test]
+    fn a_youtube_video_id_for_a_title_is_dropped() {
+        let mut stub = a_track();
+        stub.catalog_id = Some("yt:vrY1THC_NQE".into());
+        stub.id = TrackId("yt:vrY1THC_NQE".into());
+        stub.title = "vrY1THC_NQE".into();
+        let back = parse(&write(&Library {
+            version: VERSION,
+            provider: "youtube-music".into(),
+            songs: vec![stub, a_track()],
+            ..Library::default()
+        }));
+        assert_eq!(back.songs.len(), 1);
+        assert_eq!(back.songs[0].title, "Bloom");
     }
 
     #[test]

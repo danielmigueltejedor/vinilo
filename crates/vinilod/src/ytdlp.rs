@@ -90,24 +90,34 @@ pub fn download(hit: &StreamHit, dir: &Path) -> Result<PathBuf, String> {
         .chars()
         .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
         .collect::<String>();
-    if let Some(existing) = existing_file(dir, &stem) {
+    let lock = dir.join(format!("{stem}.downloading"));
+    if lock.is_file() {
+        if let Some(path) = wait_for_download(dir, &stem, &lock) {
+            streams::write_sidecar(&path, hit);
+            return Ok(path);
+        }
+    } else if let Some(existing) = find_audio(dir, &stem, Duration::from_millis(300)) {
         streams::write_sidecar(&existing, hit);
         return Ok(existing);
     }
+    let _ = std::fs::write(&lock, b"");
     let template = dir.join(format!("{stem}.%(ext)s"));
     try_download(&hit.play_query, &template, false);
-    if existing_file(dir, &stem).is_none() && !hit.id.starts_with("yt:") {
+    if find_audio(dir, &stem, Duration::ZERO).is_none() && !hit.id.starts_with("yt:") {
         try_download(&hit.youtube_search_spec(), &template, false);
     }
-    if let Some(path) = existing_file(dir, &stem) {
+    if let Some(path) = find_audio(dir, &stem, Duration::ZERO) {
         let path = ensure_native(path);
         streams::write_sidecar(&path, hit);
+        let _ = std::fs::remove_file(&lock);
         return Ok(path);
     }
     // Last resort: ffmpeg mp3. Quality 5 is plenty for skipping tracks;
     // quality 0 re-encoded every song and made Next wait on the transcode.
     try_download(&hit.play_query, &template, true);
-    let path = existing_file(dir, &stem).ok_or_else(|| "yt-dlp wrote no file".to_string())?;
+    let found = find_audio(dir, &stem, Duration::ZERO);
+    let _ = std::fs::remove_file(&lock);
+    let path = found.ok_or_else(|| "yt-dlp wrote no file".to_string())?;
     streams::write_sidecar(&path, hit);
     Ok(path)
 }
@@ -125,7 +135,7 @@ fn run_download(target: &str, template: &Path, extract_mp3: bool) -> Result<(), 
         &template.to_string_lossy(),
         "--no-playlist",
         "--no-warnings",
-        "--newline",
+        "--no-progress",
         "-N",
         "4",
         "--no-mtime",
@@ -176,7 +186,17 @@ fn ensure_native(path: PathBuf) -> PathBuf {
     }
 }
 
-fn existing_file(dir: &Path, stem: &str) -> Option<PathBuf> {
+fn wait_for_download(dir: &Path, stem: &str, lock: &Path) -> Option<PathBuf> {
+    for _ in 0..200 {
+        std::thread::sleep(Duration::from_millis(100));
+        if !lock.is_file() {
+            return find_audio(dir, stem, Duration::ZERO);
+        }
+    }
+    find_audio(dir, stem, Duration::ZERO)
+}
+
+fn find_audio(dir: &Path, stem: &str, min_age: Duration) -> Option<PathBuf> {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return None;
     };
@@ -185,7 +205,15 @@ fn existing_file(dir: &Path, stem: &str) -> Option<PathBuf> {
     for entry in entries.flatten() {
         let path = entry.path();
         let name = path.file_name()?.to_string_lossy();
-        if name.ends_with(".json") || name.ends_with(".part") || name.ends_with(".ytdl") {
+        if name.ends_with(".json")
+            || name.ends_with(".part")
+            || name.ends_with(".ytdl")
+            || name.ends_with(".downloading")
+        {
+            continue;
+        }
+        let part = PathBuf::from(format!("{}.part", path.display()));
+        if part.is_file() {
             continue;
         }
         let ext = path.extension()?.to_string_lossy().to_ascii_lowercase();
@@ -203,8 +231,7 @@ fn existing_file(dir: &Path, stem: &str) -> Option<PathBuf> {
                 .and_then(|m| m.modified().ok())
                 .and_then(|t| t.elapsed().ok())
                 .unwrap_or(Duration::from_secs(0));
-            // A half-written download from a killed process is useless.
-            if age > Duration::from_millis(50) {
+            if age >= min_age {
                 if NATIVE.iter().any(|want| *want == ext) {
                     native = Some(path);
                 } else {

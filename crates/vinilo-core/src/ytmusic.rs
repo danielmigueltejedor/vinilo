@@ -480,13 +480,15 @@ fn discover_from_home(value: &Value) -> Discover {
     recommended_songs.truncate(SHELF);
     recently_added.truncate(SHELF);
     charts.truncate(SHELF);
-    Discover::shelves(
+    let mut page = Discover::shelves(
         recently_played,
         recommended_playlists,
         recommended_songs,
         recently_added,
         charts,
-    )
+    );
+    page.drop_placeholder_titles();
+    page
 }
 
 pub async fn open(http: &reqwest::Client, kind: PageKind, id: &str) -> Result<(Entry, Vec<Entry>)> {
@@ -577,6 +579,55 @@ async fn browse(http: &reqwest::Client, browse_id: &str) -> Result<Value> {
     innertube(http, "browse", json!({ "browseId": browse_id })).await
 }
 
+/// Title, artist and cover for one video. Used when a reconstructed `yt:` hit
+/// would otherwise play under the raw id (`vrY1THC_NQE`) with no artwork.
+pub async fn video_hit(http: &reqwest::Client, id: &str) -> Result<StreamHit> {
+    let video = video_id(id)?;
+    let value = innertube(http, "player", json!({ "videoId": video })).await?;
+    hit_from_player(&video, &value)
+        .or_else(|| {
+            tracks_from_browse(&value)
+                .into_iter()
+                .next()
+                .and_then(|track| StreamHit::from_song(&track))
+        })
+        .context("YouTube Music player had no title")
+}
+
+fn hit_from_player(video: &str, value: &Value) -> Option<StreamHit> {
+    let details = value.get("videoDetails")?;
+    let title = details
+        .get("title")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|t| !t.is_empty() && *t != video)?;
+    let artist = details
+        .get("author")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_owned();
+    let duration_ms = details
+        .get("lengthSeconds")
+        .and_then(|v| {
+            v.as_u64()
+                .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+        })
+        .unwrap_or(0)
+        .saturating_mul(1000);
+    let artwork = thumbnail(details)
+        .or_else(|| last_thumb(details.pointer("/thumbnail/thumbnails")))
+        .or_else(|| Some(crate::streams::youtube_thumb(video)));
+    Some(StreamHit {
+        id: format!("yt:{video}"),
+        title: title.to_owned(),
+        artist,
+        album: String::new(),
+        duration_ms,
+        artwork,
+        play_query: format!("https://www.youtube.com/watch?v={video}"),
+    })
+}
+
 fn tracks_from_browse(value: &Value) -> Vec<Track> {
     let mut songs = Vec::new();
     walk(value, &mut |node| {
@@ -600,17 +651,15 @@ fn tracks_from_browse(value: &Value) -> Vec<Track> {
         }
         // Overlay/watchEndpoint nodes carry a videoId and nothing else.
         // Using that as the title is how Listen Now showed `vrY1THC_NQE`.
-        let Some(title) = first_text(node).filter(|t| {
-            let t = t.trim();
-            !t.is_empty() && t != video && t != id
-        }) else {
+        let Some(title) = song_title(node, video) else {
             return;
         };
         let artist = flex_column_text(node, 1)
             .or_else(|| subtitle_text(node, 0))
+            .filter(|s| s != video && !crate::streams::title_is_raw_id(&id, s))
             .unwrap_or_default();
         let album = flex_column_text(node, 2).unwrap_or_default();
-        let artwork = thumbnail(node).or_else(|| Some(youtube_thumb(video)));
+        let artwork = thumbnail(node).or_else(|| Some(crate::streams::youtube_thumb(video)));
         let hit = StreamHit {
             id: id.clone(),
             title,
@@ -646,7 +695,9 @@ fn playlists_from_browse(value: &Value) -> Vec<Playlist> {
         if lists.iter().any(|p: &Playlist| p.id == id) {
             return;
         }
-        let name = first_text(node).unwrap_or_else(|| playlist.clone());
+        let Some(name) = first_text(node).filter(|n| n != &playlist) else {
+            return;
+        };
         lists.push(Playlist {
             id,
             date_added: String::new(),
@@ -674,7 +725,9 @@ fn albums_from_browse(value: &Value) -> Vec<Album> {
         if albums.iter().any(|a: &Album| a.id == id) {
             return;
         }
-        let name = first_text(node).unwrap_or_else(|| album_id.clone());
+        let Some(name) = first_text(node).filter(|n| n != &album_id) else {
+            return;
+        };
         let artist = subtitle_text(node, 0)
             .or_else(|| flex_column_text(node, 1))
             .unwrap_or_default();
@@ -708,7 +761,9 @@ fn artists_from_browse(value: &Value) -> Vec<Artist> {
         if artists.iter().any(|a: &Artist| a.id == id) {
             return;
         }
-        let name = first_text(node).unwrap_or_else(|| channel.clone());
+        let Some(name) = first_text(node).filter(|n| n != &channel) else {
+            return;
+        };
         artists.push(Artist {
             id,
             name,
@@ -862,21 +917,53 @@ fn walk<'a>(value: &'a Value, visit: &mut impl FnMut(&'a Value)) {
     }
 }
 
+fn song_title(node: &Value, video: &str) -> Option<String> {
+    first_text(node).filter(|t| {
+        let t = t.trim();
+        !t.is_empty() && t != video && t != format!("yt:{video}")
+    })
+}
+
 fn first_text(value: &Value) -> Option<String> {
-    value
-        .pointer("/flexColumns/0/musicResponsiveListItemFlexColumnRenderer/text/runs/0/text")
-        .or_else(|| value.pointer("/title/runs/0/text"))
-        .or_else(|| value.pointer("/title/simpleText"))
-        .or_else(|| {
-            value
-                .pointer("/flexColumns/0/musicResponsiveListItemFlexColumnRenderer/text/simpleText")
-        })
-        .or_else(|| value.pointer("/flexColumns/0/text/runs/0/text"))
-        .or_else(|| value.pointer("/accessibility/accessibilityData/label"))
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(str::to_owned)
+    runs_text(
+        value,
+        "/flexColumns/0/musicResponsiveListItemFlexColumnRenderer/text/runs",
+    )
+    .or_else(|| runs_text(value, "/title/runs"))
+    .or_else(|| runs_text(value, "/headline/runs"))
+    .or_else(|| runs_text(value, "/flexColumns/0/text/runs"))
+    .or_else(|| {
+        value
+            .pointer("/title/simpleText")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned)
+    })
+    .or_else(|| {
+        value
+            .pointer("/flexColumns/0/musicResponsiveListItemFlexColumnRenderer/text/simpleText")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned)
+    })
+}
+
+fn runs_text(value: &Value, pointer: &str) -> Option<String> {
+    let runs = value.pointer(pointer)?.as_array()?;
+    let mut out = String::new();
+    for run in runs {
+        if let Some(text) = run.get("text").and_then(Value::as_str) {
+            out.push_str(text);
+        }
+    }
+    let out = out.trim();
+    if out.is_empty() {
+        None
+    } else {
+        Some(out.to_owned())
+    }
 }
 
 fn flex_column_text(value: &Value, index: usize) -> Option<String> {
@@ -923,17 +1010,16 @@ fn thumbnail(value: &Value) -> Option<String> {
 }
 
 fn last_thumb(value: Option<&Value>) -> Option<String> {
-    value
-        .and_then(Value::as_array)
-        .and_then(|thumbs| thumbs.last())
-        .and_then(|thumb| thumb.get("url"))
-        .and_then(Value::as_str)
-        .filter(|s| !s.is_empty())
-        .map(str::to_owned)
-}
-
-fn youtube_thumb(video: &str) -> String {
-    format!("https://i.ytimg.com/vi/{video}/hqdefault.jpg")
+    value.and_then(Value::as_array).and_then(|thumbs| {
+        thumbs
+            .iter()
+            .max_by_key(|thumb| thumb.get("width").and_then(Value::as_u64).unwrap_or(0))
+            .or_else(|| thumbs.last())
+            .and_then(|thumb| thumb.get("url"))
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned)
+    })
 }
 
 trait IntoSong {
@@ -1179,5 +1265,47 @@ mod tests {
             .map(|a| a.url(300))
             .expect("cover");
         assert!(art.contains("vrY1THC_NQE"), "{art}");
+    }
+
+    #[test]
+    fn an_accessibility_label_that_is_the_video_id_is_not_a_title() {
+        let json = json!({
+            "accessibility": {
+                "accessibilityData": { "label": "vrY1THC_NQE" }
+            },
+            "navigationEndpoint": {
+                "watchEndpoint": { "videoId": "vrY1THC_NQE" }
+            }
+        });
+        assert!(tracks_from_browse(&json).is_empty());
+    }
+
+    #[test]
+    fn player_details_become_a_named_hit_with_cover() {
+        let json = json!({
+            "videoDetails": {
+                "videoId": "vrY1THC_NQE",
+                "title": "Pa Mal",
+                "author": "Aitana",
+                "lengthSeconds": "180",
+                "thumbnail": {
+                    "thumbnails": [
+                        { "url": "https://i.ytimg.com/vi/vrY1THC_NQE/default.jpg", "width": 120 },
+                        { "url": "https://i.ytimg.com/vi/vrY1THC_NQE/hqdefault.jpg", "width": 480 }
+                    ]
+                }
+            }
+        });
+        let hit = hit_from_player("vrY1THC_NQE", &json).unwrap();
+        assert_eq!(hit.title, "Pa Mal");
+        assert_eq!(hit.artist, "Aitana");
+        assert_eq!(hit.duration_ms, 180_000);
+        assert!(
+            hit.artwork
+                .as_deref()
+                .is_some_and(|u| u.contains("hqdefault")),
+            "{:?}",
+            hit.artwork
+        );
     }
 }
