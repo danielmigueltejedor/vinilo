@@ -15,6 +15,7 @@
 
 use relm4::ComponentSender;
 use relm4::gtk;
+use relm4::gtk::prelude::EditableExt;
 
 use super::{AppModel, CommandMsg, SearchScope, SortBy, Tile, View};
 use crate::components::grid_item::{ArtRegistry, GridItem};
