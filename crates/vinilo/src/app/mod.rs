@@ -503,6 +503,8 @@ pub enum AppMsg {
     PlayerDrawer(bool),
     /// A row was right-clicked; show its menu there.
     ShowRowMenu(RowMenuRequest),
+    /// The expanded player's ⋮, for the track that is playing now.
+    ShowNowPlayingMenu { at: (i32, i32), over: gtk::Widget },
     /// Empty the queue and stop.
     ClearQueue,
     /// Reorder the queue. `to` is where the item lands.
@@ -712,6 +714,7 @@ fn map_player_output(out: NowPlayingOutput) -> AppMsg {
         NowPlayingOutput::SetShuffle(on) => AppMsg::SetShuffle(on),
         NowPlayingOutput::SetRepeat(r) => AppMsg::SetRepeat(r),
         NowPlayingOutput::ToggleQueue => AppMsg::ToggleQueue,
+        NowPlayingOutput::ShowTrackMenu { at, over } => AppMsg::ShowNowPlayingMenu { at, over },
     }
 }
 
@@ -1403,6 +1406,9 @@ impl Component for AppModel {
                 NowPlayingOutput::SetShuffle(on) => AppMsg::SetShuffle(on),
                 NowPlayingOutput::SetRepeat(mode) => AppMsg::SetRepeat(mode),
                 NowPlayingOutput::ToggleQueue => AppMsg::ToggleQueue,
+                NowPlayingOutput::ShowTrackMenu { at, over } => {
+                    AppMsg::ShowNowPlayingMenu { at, over }
+                }
             });
 
         let library: TypedListView<LibraryItem, gtk::NoSelection> = TypedListView::new();
@@ -2588,6 +2594,7 @@ impl AppModel {
                 self.resort();
             }
             AppMsg::ShowRowMenu(req) => self.show_row_menu(req),
+            AppMsg::ShowNowPlayingMenu { at, over } => self.show_now_playing_menu(at, over),
             AppMsg::Enqueue { catalog_id, next } => {
                 let songs = vec![catalog_id];
                 if self.mirror.queue.is_empty() {

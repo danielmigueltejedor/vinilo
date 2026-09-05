@@ -13,6 +13,7 @@
 //! something else a moment ago, and anything left unset keeps the old value.
 
 use relm4::adw::prelude::*;
+use relm4::gtk::prelude::Cast;
 use relm4::prelude::*;
 use relm4::typed_view::list::RelmListItem;
 use relm4::{gtk, view};
@@ -67,7 +68,7 @@ pub struct RowMenuRequest {
     /// Where in `over` the click landed, so the popover points at the pointer
     /// rather than at the middle of the row.
     pub at: (i32, i32),
-    pub over: gtk::Box,
+    pub over: gtk::Widget,
 }
 
 /// Who shows a row's context menu, once installed.
@@ -282,6 +283,23 @@ impl RelmListItem for LibraryItem {
                     },
                 },
 
+                // Star, then the duration, then the ⋮. The star belongs next
+                // to the time, not between the time and the menu.
+                #[name = "star"]
+                gtk::Image {
+                    set_icon_name: Some("starred-symbolic"),
+                    set_pixel_size: 16,
+                    set_visible: false,
+                    set_valign: gtk::Align::Center,
+                    set_margin_end: 6,
+                    set_tooltip_text: Some(vinilo_core::i18n::t(
+                        vinilo_core::i18n::Key::Favourite,
+                    )),
+                    // Yellow, not the accent: a favourite is a star everywhere
+                    // else it appears, including on the phone this syncs with.
+                    add_css_class: "favorite-star",
+                },
+
                 #[name = "trailing"]
                 gtk::Label {
                     set_valign: gtk::Align::Center,
@@ -289,42 +307,18 @@ impl RelmListItem for LibraryItem {
                     add_css_class: "dim-label",
                 },
 
-                // Star then the ⋮, as one cluster at the end of the row.
-                // Duration used to sit *after* the menu, so the star was not
-                // next to the control it belongs with.
-                gtk::Box {
-                    set_orientation: gtk::Orientation::Horizontal,
-                    set_spacing: 0,
+                #[name = "menu_button"]
+                gtk::Button {
+                    // A plain Button, not a MenuButton: a MenuButton owns
+                    // its popover, and this one has to come from the same
+                    // place the right-click menu does or the two will drift.
+                    set_icon_name: "view-more-symbolic",
+                    set_tooltip_text: Some(vinilo_core::i18n::t(
+                        vinilo_core::i18n::Key::TrackOptions,
+                    )),
                     set_valign: gtk::Align::Center,
-
-                    #[name = "star"]
-                    gtk::Image {
-                        set_icon_name: Some("starred-symbolic"),
-                        set_pixel_size: 16,
-                        set_visible: false,
-                        set_valign: gtk::Align::Center,
-                        set_margin_end: 2,
-                        set_tooltip_text: Some(vinilo_core::i18n::t(
-                            vinilo_core::i18n::Key::Favourite,
-                        )),
-                        // Yellow, not the accent: a favourite is a star everywhere
-                        // else it appears, including on the phone this syncs with.
-                        add_css_class: "favorite-star",
-                    },
-
-                    #[name = "menu_button"]
-                    gtk::Button {
-                        // A plain Button, not a MenuButton: a MenuButton owns
-                        // its popover, and this one has to come from the same
-                        // place the right-click menu does or the two will drift.
-                        set_icon_name: "view-more-symbolic",
-                        set_tooltip_text: Some(vinilo_core::i18n::t(
-                            vinilo_core::i18n::Key::TrackOptions,
-                        )),
-                        set_valign: gtk::Align::Center,
-                        add_css_class: "flat",
-                        add_css_class: "circular",
-                    },
+                    add_css_class: "flat",
+                    add_css_class: "circular",
                 },
 
                 #[name = "chevron"]
@@ -365,7 +359,7 @@ impl RelmListItem for LibraryItem {
                     in_library: shown.in_library,
                     favorite: shown.favorite,
                     at,
-                    over: button_root.clone(),
+                    over: button_root.clone().upcast(),
                 });
             }
         });
@@ -384,7 +378,7 @@ impl RelmListItem for LibraryItem {
                     in_library: shown.in_library,
                     favorite: shown.favorite,
                     at: (x as i32, y as i32),
-                    over: root_for_menu.clone(),
+                    over: root_for_menu.clone().upcast(),
                 });
             }
         });

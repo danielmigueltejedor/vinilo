@@ -202,6 +202,11 @@ pub enum NowPlayingOutput {
     SetShuffle(bool),
     SetRepeat(RepeatMode),
     ToggleQueue,
+    /// The expanded player's ⋮ — same menu a library row uses.
+    ShowTrackMenu {
+        at: (i32, i32),
+        over: gtk::Widget,
+    },
 }
 
 #[relm4::component(pub)]

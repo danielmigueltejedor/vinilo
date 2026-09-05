@@ -12,7 +12,6 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use relm4::adw::prelude::*;
-use relm4::gtk::prelude::*;
 use relm4::{ComponentSender, adw, gtk};
 
 use super::{AppModel, AppMsg};

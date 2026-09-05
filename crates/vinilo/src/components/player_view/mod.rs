@@ -16,6 +16,7 @@
 use relm4::adw;
 use relm4::adw::prelude::*;
 use relm4::gtk;
+use relm4::gtk::prelude::{Cast, WidgetExt};
 use relm4::gtk::{gdk, glib};
 use relm4::prelude::*;
 
@@ -57,6 +58,8 @@ pub struct PlayerView {
     /// widget to hang it on: an animation needs a frame clock, and a frame
     /// clock comes from a widget.
     art_anim: Option<adw::TimedAnimation>,
+    /// The ⋮ beside the title, so a click can parent the popover to it.
+    menu_button: Option<gtk::Button>,
 }
 
 /// The four places something can live, plus the queue itself.
@@ -246,6 +249,8 @@ pub enum PlayerViewInput {
     /// How tall the drawer is about to be. See [`fill_window`].
     RoomFor(i32),
     Relocalize,
+    /// The ⋮ next to the title: open the same track menu a library row uses.
+    ShowTrackMenu,
 }
 
 #[relm4::component(pub)]
@@ -432,9 +437,16 @@ impl SimpleComponent for PlayerView {
                                     },
 
                                     add_named[Some("track")] = &gtk::Box {
-                                        set_orientation: gtk::Orientation::Vertical,
-                                        set_spacing: 2,
+                                        set_orientation: gtk::Orientation::Horizontal,
+                                        set_spacing: 4,
+                                        set_hexpand: true,
                                         set_valign: gtk::Align::Center,
+
+                                        gtk::Box {
+                                            set_orientation: gtk::Orientation::Vertical,
+                                            set_hexpand: true,
+                                            set_spacing: 2,
+                                            set_valign: gtk::Align::Center,
 
                                         // **Two sizes, because it is doing two
                                         // jobs.** Stacked, this is the caption
@@ -475,6 +487,23 @@ impl SimpleComponent for PlayerView {
                                             set_xalign: if model.centred_text() { 0.5 } else { 0.0 },
                                             #[watch]
                                             set_label: &model.subtitle(),
+                                        },
+                                        },
+
+                                        #[name = "track_menu"]
+                                        gtk::Button {
+                                            set_icon_name: "view-more-symbolic",
+                                            set_valign: gtk::Align::Center,
+                                            add_css_class: "flat",
+                                            add_css_class: "circular",
+                                            #[watch]
+                                            set_visible: model.snap.active,
+                                            set_tooltip_text: Some(vinilo_core::i18n::t(
+                                                vinilo_core::i18n::Key::TrackOptions,
+                                            )),
+                                            connect_clicked[sender] => move |_| {
+                                                sender.input(PlayerViewInput::ShowTrackMenu);
+                                            },
                                         },
                                     },
                                 },
@@ -575,6 +604,7 @@ impl SimpleComponent for PlayerView {
             bits: None,
             art_px: std::rc::Rc::new(std::cell::Cell::new(ART_LARGE)),
             art_anim: None,
+            menu_button: None,
         };
         // Rule 5: no `.expect()` here. A missing handover is a construction
         // order mistake rather than a runtime condition, so it should never
@@ -589,6 +619,7 @@ impl SimpleComponent for PlayerView {
         let widgets = view_output!();
         model.cover.attach_first(&widgets.art_slot);
         model.cover.empty_sleeve(ART_LARGE);
+        model.menu_button = Some(widgets.track_menu.clone());
 
         model.bits = Some(build_transport(&model.transport, &sender));
 
@@ -740,7 +771,30 @@ impl SimpleComponent for PlayerView {
                     let _ = sender.output(NowPlayingOutput::SetVolume(v));
                 }
             }
-            PlayerViewInput::Relocalize => self.refresh_transport(),
+            PlayerViewInput::Relocalize => {
+                self.refresh_transport();
+                if let Some(button) = &self.menu_button {
+                    button.set_tooltip_text(Some(vinilo_core::i18n::t(
+                        vinilo_core::i18n::Key::TrackOptions,
+                    )));
+                }
+            }
+            PlayerViewInput::ShowTrackMenu => {
+                if !self.snap.active {
+                    return;
+                }
+                let Some(button) = self.menu_button.as_ref() else {
+                    return;
+                };
+                let at = button
+                    .compute_bounds(button)
+                    .map(|b| (0, b.height() as i32))
+                    .unwrap_or((0, 0));
+                let _ = sender.output(NowPlayingOutput::ShowTrackMenu {
+                    at,
+                    over: button.clone().upcast(),
+                });
+            }
         }
     }
 }

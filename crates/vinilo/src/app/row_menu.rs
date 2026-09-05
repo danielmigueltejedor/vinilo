@@ -17,8 +17,10 @@ use relm4::gtk;
 use relm4::gtk::prelude::*;
 
 use super::{AppModel, AppMsg, LibraryAction};
-use crate::components::track_row::RowMenuRequest;
+use crate::components::overridden;
+use crate::components::track_row::{Entry, RowMenuRequest};
 use vinilo_core::i18n::{self, Key};
+use vinilo_core::music::types::Track;
 
 impl AppModel {
     /// Playlists the user can add a song to. Liked-songs shortcuts and
@@ -36,6 +38,47 @@ impl AppModel {
             })
             .map(|list| (list.id.clone(), list.name.clone()))
             .collect()
+    }
+
+    fn track_for(&self, catalog_id: &str) -> Option<&Track> {
+        self.all_tracks
+            .iter()
+            .find(|track| {
+                track.catalog_id.as_deref() == Some(catalog_id) || track.id.0 == catalog_id
+            })
+            .or_else(|| {
+                self.catalog.iter().find_map(|entry| match entry {
+                    Entry::Song(track)
+                        if track.catalog_id.as_deref() == Some(catalog_id)
+                            || track.id.0 == catalog_id =>
+                    {
+                        Some(track)
+                    }
+                    _ => None,
+                })
+            })
+    }
+
+    /// Same menu a library row uses, for whatever is in the player.
+    pub(super) fn show_now_playing_menu(&self, at: (i32, i32), over: gtk::Widget) {
+        let Some(catalog_id) = self.playing_catalog_id() else {
+            return;
+        };
+        let fetched = self.track_for(&catalog_id);
+        let (favorite, in_library) = overridden(
+            &self.row_overrides,
+            Some(&catalog_id),
+            fetched.is_some_and(|track| track.favorite),
+            fetched.is_some_and(|track| track.in_library),
+        );
+        self.show_row_menu(RowMenuRequest {
+            catalog_id,
+            library_id: fetched.and_then(|track| track.library_id.clone()),
+            in_library,
+            favorite,
+            at,
+            over,
+        });
     }
 
     /// Show a row's context menu where it was clicked.

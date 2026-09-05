@@ -14,6 +14,7 @@
 //! scroll**, so nothing outside a load or a query change may call one.
 
 use relm4::ComponentSender;
+use relm4::gtk;
 
 use super::{AppModel, CommandMsg, SearchScope, SortBy, Tile, View};
 use crate::components::grid_item::{ArtRegistry, GridItem};
