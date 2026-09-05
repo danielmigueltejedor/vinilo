@@ -74,6 +74,9 @@ pub fn cookie_uris(provider: Provider) -> &'static [&'static str] {
             "https://listen.tidal.com/",
             "https://tidal.com/",
             "https://login.tidal.com/",
+            "https://auth.tidal.com/",
+            "https://accounts.tidal.com/",
+            "https://api.tidal.com/",
         ],
         Provider::AppleMusic | Provider::Local => &[],
     }
@@ -95,9 +98,10 @@ pub fn uri_looks_signed_in(provider: Provider, uri: &str) -> bool {
                 && !uri.contains("/signin")
         }
         Provider::Tidal => {
-            (uri.contains("listen.tidal.com") || uri.contains("tidal.com"))
+            (uri.contains("listen.tidal.com") || uri.contains("tidal.com/browse"))
                 && !uri.contains("/login")
                 && !uri.contains("login.tidal")
+                && !uri.contains("accounts.tidal")
         }
         Provider::AppleMusic | Provider::Local => false,
     }
@@ -120,9 +124,34 @@ pub fn looks_signed_in(provider: Provider, names: &[String]) -> bool {
             "__Secure-3PSID",
             "LOGIN_INFO",
         ]),
-        Provider::Tidal => has(&["sid", "token", "_token", "refresh_token", "tidal_sid"]),
+        Provider::Tidal => has(&[
+            "sid",
+            "token",
+            "_token",
+            "refresh_token",
+            "tidal_sid",
+            "access_token",
+            "id_token",
+            "authorization",
+            "refresh",
+            "sessionid",
+            "userid",
+            "user_id",
+            "playback",
+        ]) || names.iter().any(|name| looks_like_tidal_session_cookie(name)),
         Provider::AppleMusic | Provider::Local => false,
     }
+}
+
+fn looks_like_tidal_session_cookie(name: &str) -> bool {
+    let name = name.to_ascii_lowercase();
+    if name.contains("csrf") || name.contains("xsrf") || name.starts_with("_ga") {
+        return false;
+    }
+    (name.contains("tidal")
+        && (name.contains("sid") || name.contains("token") || name.contains("auth")))
+        || name.ends_with("_token")
+        || name.ends_with("-token")
 }
 
 pub fn is_configured(provider: Provider) -> bool {
@@ -448,6 +477,42 @@ mod tests {
             !uri_looks_signed_in(Provider::YoutubeMusic, "https://www.youtube.com/"),
             "plain youtube.com is not the Music session"
         );
+    }
+
+    #[test]
+    fn tidal_home_counts_as_signed_in() {
+        assert!(uri_looks_signed_in(
+            Provider::Tidal,
+            "https://listen.tidal.com/"
+        ));
+        assert!(uri_looks_signed_in(
+            Provider::Tidal,
+            "https://tidal.com/browse"
+        ));
+        assert!(!uri_looks_signed_in(
+            Provider::Tidal,
+            "https://listen.tidal.com/login"
+        ));
+        assert!(!uri_looks_signed_in(
+            Provider::Tidal,
+            "https://login.tidal.com/authorize"
+        ));
+    }
+
+    #[test]
+    fn tidal_session_cookies_are_not_analytics() {
+        assert!(looks_signed_in(
+            Provider::Tidal,
+            &["SID".into(), "_ga".into()]
+        ));
+        assert!(looks_signed_in(
+            Provider::Tidal,
+            &["tidal_access_token".into()]
+        ));
+        assert!(!looks_signed_in(
+            Provider::Tidal,
+            &["_ga".into(), "__cf_bm".into(), "XSRF-TOKEN".into()]
+        ));
     }
 
     #[test]

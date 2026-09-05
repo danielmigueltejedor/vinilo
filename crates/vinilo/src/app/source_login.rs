@@ -14,6 +14,7 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use relm4::adw::prelude::*;
+use relm4::gtk::prelude::GtkWindowExt;
 use relm4::{ComponentSender, adw, gtk};
 use vinilo_core::i18n::{self, Key};
 use vinilo_core::provider::Provider;
@@ -109,12 +110,22 @@ impl AppModel {
             quit.connect_clicked(move |_| sender.input(AppMsg::Quit));
         }
 
+        let back = gtk::Button::builder()
+            .label(t(Key::CatalogSetupBack))
+            .css_classes(["flat"])
+            .build();
+        {
+            let sender = sender.clone();
+            back.connect_clicked(move |_| sender.input(AppMsg::PickAnotherSource));
+        }
+
         let header = adw::HeaderBar::builder()
             .show_start_title_buttons(false)
             .show_end_title_buttons(false)
             .css_classes(["flat"])
             .build();
         header.set_title_widget(Some(&gtk::Label::new(None)));
+        header.pack_start(&back);
         header.pack_end(&quit);
 
         let view = adw::ToolbarView::builder().content(&page).build();
@@ -182,9 +193,67 @@ impl AppModel {
             settings.set_user_agent(Some(CHROME_UA));
             // Google's sign-in (and YouTube Music after it) drives WebGL and
             // the DMA-BUF renderer. On AMD radv that SIGSEGVs the whole
-            // process — not just the WebKit web process.
+            // process — not just the WebKit web process. Tidal's player
+            // shell is the same class of page.
             settings.set_hardware_acceleration_policy(HardwareAccelerationPolicy::Never);
             settings.set_enable_webgl(false);
+        }
+        {
+            let view = webview.clone();
+            webview.connect_decide_policy(move |_, decision, kind| {
+                if kind != webkit6::PolicyDecisionType::NewWindowAction {
+                    return false;
+                }
+                let Some(nav) = decision.downcast_ref::<webkit6::NavigationPolicyDecision>() else {
+                    return false;
+                };
+                let Some(uri) = nav
+                    .navigation_action()
+                    .and_then(|action| action.request())
+                    .and_then(|req| req.uri())
+                else {
+                    return false;
+                };
+                tracing::info!(%uri, "catalogue login opened another window");
+                view.load_uri(&uri);
+                decision.ignore();
+                true
+            });
+        }
+        {
+            let session = session.clone();
+            webview.connect_create(move |_, action| {
+                if let Some(uri) = action.request().and_then(|req| req.uri()) {
+                    tracing::info!(%uri, "catalogue login create");
+                }
+                let popup = WebView::builder().network_session(&session).build();
+                if let Some(settings) = webkit6::prelude::WebViewExt::settings(&popup) {
+                    settings.set_user_agent(Some(CHROME_UA));
+                    settings.set_hardware_acceleration_policy(HardwareAccelerationPolicy::Never);
+                    settings.set_enable_webgl(false);
+                }
+                let window = adw::Window::builder()
+                    .title(i18n::catalog_sign_in(provider))
+                    .default_width(520)
+                    .default_height(640)
+                    .content(&popup)
+                    .build();
+                {
+                    let window = window.clone();
+                    popup.connect_close(move |_| {
+                        window.close();
+                    });
+                }
+                window.present();
+                gtk::prelude::Cast::upcast::<gtk::Widget>(popup)
+            });
+        }
+        {
+            let sender = sender.clone();
+            webview.connect_web_process_terminated(move |_, reason| {
+                tracing::warn!(?reason, "catalogue login web process died");
+                sender.input(AppMsg::CatalogLoginClosed);
+            });
         }
         webview.load_uri(setup::login_url(provider));
 
@@ -204,6 +273,15 @@ impl AppModel {
                     sender.input(AppMsg::CatalogLoginFinished);
                 }
             });
+        }
+
+        let cancel = gtk::Button::builder()
+            .label(t(Key::Cancel))
+            .css_classes(["flat"])
+            .build();
+        {
+            let sender = sender.clone();
+            cancel.connect_clicked(move |_| sender.input(AppMsg::CatalogLoginClosed));
         }
 
         let done = gtk::Button::builder()
@@ -231,6 +309,7 @@ impl AppModel {
             provider,
         )))));
         header.pack_start(&browser);
+        header.pack_start(&cancel);
         header.pack_end(&done);
 
         let view = adw::ToolbarView::builder().content(&webview).build();
@@ -249,7 +328,7 @@ impl AppModel {
             let sender = sender.clone();
             window.connect_close_request(move |_| {
                 sender.input(AppMsg::CatalogLoginClosed);
-                gtk::glib::Propagation::Proceed
+                gtk::glib::Propagation::Stop
             });
         }
 
@@ -263,16 +342,26 @@ impl AppModel {
     }
 
     pub(super) fn close_catalog_login(&mut self) {
-        if let Some(login) = self.catalog_login.take() {
-            login.webview.stop_loading();
-            login.webview.load_uri("about:blank");
-            login.window.set_content(Some(
-                &gtk::Box::builder()
-                    .orientation(gtk::Orientation::Vertical)
-                    .build(),
-            ));
-            login.window.close();
-        }
+        let Some(login) = self.catalog_login.take() else {
+            return;
+        };
+        self.catalog_login_busy = false;
+        login.webview.stop_loading();
+        login.webview.terminate_web_process();
+        login.window.set_content(Some(
+            &gtk::Box::builder()
+                .orientation(gtk::Orientation::Vertical)
+                .build(),
+        ));
+        login.window.set_visible(false);
+        // Dropping a live WebView while GTK is still walking its close
+        // request SIGSEGVs (Tidal's shell is the page that trips it). Let
+        // the web process die, then drop the view on an idle tick.
+        gtk::glib::timeout_add_local_once(std::time::Duration::from_millis(150), move || {
+            let window = login.window.clone();
+            drop(login);
+            window.destroy();
+        });
     }
 
     /// Dump cookies (including session ones), then mark the source configured.

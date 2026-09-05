@@ -195,6 +195,7 @@ pub enum Key {
     CatalogSetupYtOk,
     CatalogSetupYtMissing,
     CatalogSetupContinue,
+    CatalogSetupBack,
     CatalogSignInNote,
     CatalogLoginDone,
     CatalogOpenBrowser,
@@ -448,6 +449,7 @@ fn en(key: Key) -> &'static str {
             "yt-dlp is not on PATH. On Arch: sudo pacman -S yt-dlp ffmpeg. Sign in still works; playback will not until yt-dlp is installed."
         }
         Key::CatalogSetupContinue => "Sign In",
+        Key::CatalogSetupBack => "Choose another source",
         Key::CatalogSignInNote => {
             "The sign-in page opens in a separate window, including two-factor if your account uses it. It closes once you are in."
         }
@@ -709,6 +711,7 @@ fn es(key: Key) -> &'static str {
             "yt-dlp no está en el PATH. En Arch: sudo pacman -S yt-dlp ffmpeg. El inicio de sesión funciona; la reproducción no, hasta que instales yt-dlp."
         }
         Key::CatalogSetupContinue => "Iniciar sesión",
+        Key::CatalogSetupBack => "Elegir otra fuente",
         Key::CatalogSignInNote => {
             "La página de inicio de sesión se abre en una ventana aparte, incluida la verificación en dos pasos si tu cuenta la usa. Se cierra cuando ya estás dentro."
         }

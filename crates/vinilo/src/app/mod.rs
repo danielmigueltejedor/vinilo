@@ -460,6 +460,8 @@ pub enum AppMsg {
     CatalogLoginFailed,
     /// The login window was closed without finishing.
     CatalogLoginClosed,
+    /// Leave catalogue setup and pick Apple / local / another service.
+    PickAnotherSource,
     /// Asks first — see `confirm_sign_out`.
     SignOut,
     SignOutConfirmed,
@@ -1926,8 +1928,16 @@ impl AppModel {
                 self.toast(i18n::t(Key::CatalogLoginFailed));
             }
             AppMsg::CatalogLoginClosed => {
-                self.catalog_login_busy = false;
-                self.catalog_login = None;
+                self.close_catalog_login();
+            }
+            AppMsg::PickAnotherSource => {
+                self.close_catalog_login();
+                if let Some(dialog) = self.onboarding.take() {
+                    dialog.force_close();
+                }
+                self.settings.provider_chosen = false;
+                self.settings.save();
+                self.sync_provider_picker(&sender, root);
             }
             AppMsg::SignOut => {
                 // The menu item is always there; asking to sign out when you
