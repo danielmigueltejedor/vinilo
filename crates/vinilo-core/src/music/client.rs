@@ -303,8 +303,13 @@ impl Client {
             "attributes": { "name": name }
         });
         if let Some(id) = track_id.filter(|s| !s.is_empty()) {
+            let kind = if id.starts_with("i.") {
+                "library-songs"
+            } else {
+                "songs"
+            };
             body["relationships"] = json!({
-                "tracks": { "data": [{ "id": id, "type": "songs" }] }
+                "tracks": { "data": [{ "id": id, "type": kind }] }
             });
         }
         let res = self
@@ -317,11 +322,10 @@ impl Client {
             return Err(self.explain(res).await);
         }
         let value: serde_json::Value = res.json().await.context("creating playlist json")?;
-        value
-            .pointer("/data/id")
-            .and_then(serde_json::Value::as_str)
-            .map(str::to_owned)
-            .context("Apple Music did not return a playlist id")
+        Ok(playlist_id_from_create(&value).unwrap_or_else(|| {
+            tracing::warn!("Apple Music created a playlist without returning an id");
+            String::new()
+        }))
     }
 
     /// Append a catalog or library song to a library playlist.
@@ -1374,6 +1378,18 @@ fn artist_albums_of(resource: &ArtistResource) -> Vec<Album> {
         .unwrap_or_default()
 }
 
+/// Apple's create-playlist response puts the id at `/data/0/id` (an array),
+/// not `/data/id`. Treating that as a missing id made every new list look
+/// like a failure even when MusicKit had already created it.
+fn playlist_id_from_create(value: &serde_json::Value) -> Option<String> {
+    value
+        .pointer("/data/0/id")
+        .or_else(|| value.pointer("/data/id"))
+        .and_then(serde_json::Value::as_str)
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1424,5 +1440,18 @@ mod tests {
         let msg = err.to_string();
         assert!(!msg.contains("sign in"), "misleading message: {msg}");
         assert!(msg.contains("valid session"));
+    }
+
+    #[test]
+    fn a_created_playlist_id_is_inside_the_data_array() {
+        let value: serde_json::Value =
+            serde_json::from_str(r#"{"data":[{"id":"p.rmUMW1EMxo","type":"library-playlists"}]}"#)
+                .unwrap();
+        assert_eq!(
+            playlist_id_from_create(&value).as_deref(),
+            Some("p.rmUMW1EMxo")
+        );
+        assert!(playlist_id_from_create(&serde_json::json!({"data":{"id":"p.x"}})).is_some());
+        assert!(playlist_id_from_create(&serde_json::json!({"data":[]})).is_none());
     }
 }

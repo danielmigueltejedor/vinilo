@@ -89,7 +89,7 @@ pub fn uri_looks_signed_in(provider: Provider, uri: &str) -> bool {
                 && !uri.contains("/login")
         }
         Provider::YoutubeMusic => {
-            (uri.contains("music.youtube.com") || uri.contains("youtube.com"))
+            uri.contains("music.youtube.com")
                 && !uri.contains("accounts.google")
                 && !uri.contains("servicelogin")
                 && !uri.contains("/signin")
@@ -374,6 +374,22 @@ mod tests {
             Provider::Spotify,
             "https://accounts.spotify.com/en/login"
         ));
+    }
+
+    #[test]
+    fn youtube_music_home_counts_as_signed_in() {
+        assert!(uri_looks_signed_in(
+            Provider::YoutubeMusic,
+            "https://music.youtube.com/"
+        ));
+        assert!(!uri_looks_signed_in(
+            Provider::YoutubeMusic,
+            "https://accounts.google.com/ServiceLogin?service=youtube"
+        ));
+        assert!(
+            !uri_looks_signed_in(Provider::YoutubeMusic, "https://www.youtube.com/"),
+            "plain youtube.com is not the Music session"
+        );
     }
 
     #[test]

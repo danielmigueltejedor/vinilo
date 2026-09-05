@@ -114,6 +114,10 @@ pub struct Daemon {
     /// A Refresh arrived while a fetch was already running. Run another when
     /// the current one finishes, so the window connecting at boot is not a no-op.
     pub refresh_again: std::cell::Cell<bool>,
+    /// A library write landed while a fetch was already running. Always run
+    /// another when that fetch finishes, even if it succeeded — otherwise a
+    /// new playlist never appears until the next launch.
+    pub refresh_dirty: std::cell::Cell<bool>,
 }
 
 impl Daemon {
@@ -252,6 +256,7 @@ pub async fn run() -> Result<()> {
         stream_hits: RefCell::new(vinilo_core::streams::load_hits()),
         source,
         refresh_again: std::cell::Cell::new(false),
+        refresh_dirty: std::cell::Cell::new(false),
     });
 
     // After the `Rc` exists: MPRIS holds one so a button on a bar can reach the
@@ -1369,7 +1374,7 @@ fn write(
         match result {
             Ok(()) => {
                 tracing::info!(?action, %id, "library write sent");
-                refresh_library(&daemon);
+                request_library_refresh(&daemon);
             }
             Err(err) => {
                 tracing::warn!(?err, ?action, %id, "library write failed");
@@ -1404,7 +1409,7 @@ fn write_apple_playlist(
                 } else {
                     Some(id.as_str())
                 };
-                client.create_playlist(title, seed).await.map(|_| ())
+                client.create_playlist(title, seed).await.map(Some)
             }
             WriteAction::AddToPlaylist => {
                 let Some(list) = playlist_id.as_deref() else {
@@ -1413,7 +1418,7 @@ fn write_apple_playlist(
                     });
                     return;
                 };
-                client.add_to_playlist(list, &id).await
+                client.add_to_playlist(list, &id).await.map(|()| None)
             }
             WriteAction::RemoveFromPlaylist => Err(anyhow::anyhow!(
                 "Removing a song from an Apple Music playlist is not wired yet"
@@ -1421,9 +1426,12 @@ fn write_apple_playlist(
             _ => unreachable!(),
         };
         match result {
-            Ok(()) => {
-                tracing::info!(?action, "playlist write sent");
-                refresh_library(&daemon);
+            Ok(created) => {
+                tracing::info!(?action, created = ?created, "playlist write sent");
+                if let Some(list_id) = created {
+                    insert_created_playlist(&daemon, list_id, name.clone());
+                }
+                request_library_refresh(&daemon);
             }
             Err(err) => {
                 tracing::warn!(?err, ?action, "playlist write failed");
@@ -1459,29 +1467,9 @@ fn write_catalog(
             Ok(created) => {
                 tracing::info!(?action, %id, created = ?created, "catalogue write sent");
                 if let Some(list_id) = created {
-                    let title = name.unwrap_or_else(|| "New playlist".into());
-                    let list = vinilo_core::music::types::Playlist {
-                        id: list_id,
-                        date_added: String::new(),
-                        last_modified: String::new(),
-                        name: title,
-                        curator: String::new(),
-                        description: String::new(),
-                        artwork: None,
-                        library: true,
-                    };
-                    daemon.model.borrow_mut().library.playlists.insert(0, list);
-                    let model = daemon.model.borrow();
-                    vinilo_core::library_cache::save(
-                        &model.library.tracks,
-                        &model.library.albums,
-                        &model.library.artists,
-                        &model.library.playlists,
-                    );
-                    drop(model);
-                    daemon.publish(Event::LibraryChanged);
+                    insert_created_playlist(&daemon, list_id, name);
                 }
-                refresh_library(&daemon);
+                request_library_refresh(&daemon);
             }
             Err(err) => {
                 tracing::warn!(?err, ?action, %id, "catalogue write failed");
@@ -1491,6 +1479,46 @@ fn write_catalog(
             }
         }
     });
+}
+
+fn insert_created_playlist(daemon: &Daemon, list_id: String, name: Option<String>) {
+    if list_id.is_empty() {
+        return;
+    }
+    let title = name.unwrap_or_else(|| "New playlist".into());
+    let list = vinilo_core::music::types::Playlist {
+        id: list_id,
+        date_added: String::new(),
+        last_modified: String::new(),
+        name: title,
+        curator: String::new(),
+        description: String::new(),
+        artwork: None,
+        library: true,
+    };
+    daemon.model.borrow_mut().library.playlists.insert(0, list);
+    let model = daemon.model.borrow();
+    vinilo_core::library_cache::save(
+        &model.library.tracks,
+        &model.library.albums,
+        &model.library.artists,
+        &model.library.playlists,
+    );
+    drop(model);
+    daemon.publish(Event::LibraryChanged);
+}
+
+/// Refresh now, or remember to do it when the in-flight fetch finishes.
+///
+/// A write during a fetch used to be a no-op, so a new playlist waited until
+/// the next launch. `refresh_again` is only for a connect-time Refresh that
+/// can be skipped after a successful load; writes always need another pass.
+fn request_library_refresh(daemon: &Rc<Daemon>) {
+    if daemon.refreshing.get().is_some() {
+        daemon.refresh_dirty.set(true);
+        return;
+    }
+    refresh_library(daemon);
 }
 
 /// Re-read the library from Apple and tell clients it moved.
@@ -1581,8 +1609,17 @@ fn finish_library_refresh(daemon: &Daemon, generation: u64) -> bool {
 /// a success is how Pathfinder starts returning 429s.
 fn finish_and_maybe_chain(daemon: &Rc<Daemon>, generation: u64, applied: bool) {
     finish_library_refresh(daemon, generation);
+    let dirty = daemon.refresh_dirty.replace(false);
     let again = daemon.refresh_again.replace(false);
-    if !again || applied || daemon.refreshing.get().is_some() {
+    if daemon.refreshing.get().is_some() {
+        return;
+    }
+    if dirty {
+        tracing::info!("refreshing the library after a write that landed during a fetch");
+        refresh_library(daemon);
+        return;
+    }
+    if !again || applied {
         return;
     }
     tracing::info!("running the library refresh that arrived while one was already in flight");
@@ -2695,6 +2732,7 @@ mod tests {
             stream_hits: RefCell::new(HashMap::new()),
             source: vinilo_core::provider::Provider::AppleMusic,
             refresh_again: std::cell::Cell::new(false),
+            refresh_dirty: std::cell::Cell::new(false),
         })
     }
 
@@ -2792,6 +2830,17 @@ mod tests {
         daemon.refresh_again.set(true);
         finish_and_maybe_chain(&daemon, 0, false);
         assert!(!daemon.refresh_again.get());
+        assert_eq!(daemon.refreshing.get(), None);
+    }
+
+    #[test]
+    fn a_write_during_a_fetch_refreshes_again_even_after_success() {
+        let daemon = daemon();
+        daemon.refreshing.set(Some(0));
+        request_library_refresh(&daemon);
+        assert!(daemon.refresh_dirty.get());
+        finish_and_maybe_chain(&daemon, 0, true);
+        assert!(!daemon.refresh_dirty.get());
         assert_eq!(daemon.refreshing.get(), None);
     }
 

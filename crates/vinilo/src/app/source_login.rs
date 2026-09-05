@@ -19,7 +19,7 @@ use vinilo_core::i18n::{self, Key};
 use vinilo_core::provider::Provider;
 use vinilo_core::setup::{self, NetscapeCookie};
 use webkit6::prelude::*;
-use webkit6::{CookieAcceptPolicy, LoadEvent, NetworkSession, WebView};
+use webkit6::{CookieAcceptPolicy, HardwareAccelerationPolicy, LoadEvent, NetworkSession, WebView};
 
 use super::{AppModel, AppMsg};
 
@@ -35,6 +35,7 @@ pub(super) struct CatalogLogin {
     pub window: adw::Window,
     pub cookies: webkit6::CookieManager,
     pub provider: Provider,
+    pub webview: WebView,
 }
 
 impl AppModel {
@@ -179,6 +180,11 @@ impl AppModel {
         let webview = WebView::builder().network_session(&session).build();
         if let Some(settings) = webkit6::prelude::WebViewExt::settings(&webview) {
             settings.set_user_agent(Some(CHROME_UA));
+            // Google's sign-in (and YouTube Music after it) drives WebGL and
+            // the DMA-BUF renderer. On AMD radv that SIGSEGVs the whole
+            // process — not just the WebKit web process.
+            settings.set_hardware_acceleration_policy(HardwareAccelerationPolicy::Never);
+            settings.set_enable_webgl(false);
         }
         webview.load_uri(setup::login_url(provider));
 
@@ -193,6 +199,8 @@ impl AppModel {
                 let uri = view.uri().unwrap_or_default();
                 if setup::uri_looks_signed_in(provider, &uri) {
                     finished.set(true);
+                    view.stop_loading();
+                    view.load_uri("about:blank");
                     sender.input(AppMsg::CatalogLoginFinished);
                 }
             });
@@ -250,11 +258,19 @@ impl AppModel {
             window,
             cookies,
             provider,
+            webview,
         });
     }
 
     pub(super) fn close_catalog_login(&mut self) {
         if let Some(login) = self.catalog_login.take() {
+            login.webview.stop_loading();
+            login.webview.load_uri("about:blank");
+            login.window.set_content(Some(
+                &gtk::Box::builder()
+                    .orientation(gtk::Orientation::Vertical)
+                    .build(),
+            ));
             login.window.close();
         }
     }

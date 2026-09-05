@@ -54,6 +54,18 @@ fn main() {
         )
         .init();
 
+    // WebKitGTK's DMA-BUF / Vulkan path SIGSEGVs on several AMD and NVIDIA
+    // drivers (the login window is the first WebView). Software compositing
+    // is slower and keeps Google's sign-in from taking the whole app down.
+    for (key, value) in [
+        ("WEBKIT_DISABLE_DMABUF_RENDERER", "1"),
+        ("WEBKIT_DISABLE_COMPOSITING_MODE", "1"),
+    ] {
+        if std::env::var_os(key).is_none() {
+            unsafe { std::env::set_var(key, value) };
+        }
+    }
+
     // `RelmApp::new` calls `gtk::init()` and — because we enable relm4's
     // `libadwaita` feature — `adw::init()` too. So there's deliberately no adw
     // init here.

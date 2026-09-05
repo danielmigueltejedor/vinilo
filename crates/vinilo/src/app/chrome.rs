@@ -479,21 +479,19 @@ impl AppModel {
         dialog.set_default_response(Some("create"));
         dialog.set_close_response("cancel");
 
+        // Hold the entry ourselves. libadwaita unparents `extra_child` as the
+        // dialog closes, often *before* this callback, which made Create a
+        // silent no-op — type a name, click, nothing happens.
         let sender = sender.clone();
-        dialog.connect_response(None, move |dialog, response| {
+        dialog.connect_response(None, move |_, response| {
             if response != "create" {
                 return;
             }
-            let Some(child) = dialog.extra_child() else {
-                return;
-            };
-            let Ok(entry) = child.downcast::<gtk::Entry>() else {
-                return;
-            };
             let name = entry.text().trim().to_string();
             if name.is_empty() {
                 return;
             }
+            tracing::info!(%name, has_track = track_id.is_some(), "creating playlist");
             sender.input(AppMsg::CreatePlaylist {
                 name,
                 track_id: track_id.clone(),

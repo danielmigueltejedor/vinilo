@@ -13,6 +13,11 @@ PREFIX  ?= $(HOME)/.local
 BINDIR   = $(PREFIX)/bin
 DATADIR  = $(PREFIX)/share
 APPID    = dev.danielmiguelt.Vinilo
+# rustup's cargo lives here. `make` often inherits a PATH without it
+# (GNOME session, a fish that never ran fish_add_path, etc.) which is
+# exactly `make: cargo: No such file or directory`.
+export PATH := $(HOME)/.cargo/bin:$(PATH)
+CARGO   ?= cargo
 # aguja has an id of its own because it is a separate program with a separate
 # entry — a terminal one, launched by the desktop into a terminal.
 AGUJA   = dev.danielmiguelt.Aguja
@@ -43,19 +48,25 @@ help:
 all: build
 
 build:
-	cargo build --release
+	@if ! command -v $(CARGO) >/dev/null 2>&1; then \
+		echo "No encuentro cargo."; \
+		echo "En fish:  fish_add_path ~/.cargo/bin"; \
+		echo "O instala rustup desde https://rustup.rs y vuelve a abrir la terminal."; \
+		exit 127; \
+	fi
+	$(CARGO) build --release
 
 run:
-	cargo run
+	$(CARGO) run
 
 test:
-	cargo test
+	$(CARGO) test
 
 # The bar from CLAUDE.md. --all-targets so tests are linted too.
 check:
-	cargo fmt --check
-	cargo clippy --all-targets -- -D warnings
-	cargo test
+	$(CARGO) fmt --check
+	$(CARGO) clippy --all-targets -- -D warnings
+	$(CARGO) test
 	# The Flatpak build is offline and does not run on pull requests, so a
 	# dependency added without regenerating the source list only fails after
 	# a merge. Two files and a second, here instead.
@@ -241,5 +252,5 @@ uninstall:
 	@echo "Uninstalled from $(PREFIX)."
 
 clean:
-	cargo clean
+	$(CARGO) clean
 	rm -rf sidecar/node_modules
