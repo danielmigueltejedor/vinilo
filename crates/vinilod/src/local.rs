@@ -62,6 +62,9 @@ pub struct Player {
     index: usize,
     volume: f64,
     repeat: RepeatMode,
+    shuffle: bool,
+    /// Queue order before shuffle was turned on, so turning it off can restore.
+    unshuffled: Option<Vec<Track>>,
     /// True while this, not MusicKit, owns the queue.
     active: bool,
 }
@@ -76,6 +79,8 @@ impl Player {
             index: 0,
             volume: 1.0,
             repeat: RepeatMode::None,
+            shuffle: false,
+            unshuffled: None,
             active: false,
         }
     }
@@ -106,6 +111,7 @@ impl Player {
         }
         self.active = false;
         self.queue.clear();
+        self.unshuffled = None;
         self.index = 0;
     }
 
@@ -118,10 +124,7 @@ impl Player {
         let queue: Vec<Track> = files.iter().map(|p| read_track(p)).collect();
         let index = index.min(queue.len().saturating_sub(1));
         self.ensure_output()?;
-        self.queue = queue;
-        self.index = index;
-        self.start_current()?;
-        self.active = true;
+        self.take_queue(queue, index)?;
         Ok(())
     }
 
@@ -141,11 +144,34 @@ impl Player {
             .collect();
         let index = index.min(queue.len().saturating_sub(1));
         self.ensure_output()?;
-        self.queue = queue;
-        self.index = index;
+        self.take_queue(queue, index)?;
+        Ok(())
+    }
+
+    fn take_queue(&mut self, mut queue: Vec<Track>, index: usize) -> Result<(), String> {
+        let index = index.min(queue.len().saturating_sub(1));
+        if self.shuffle && queue.len() > 1 {
+            queue.swap(0, index);
+            shuffle_tail(&mut queue, 0);
+            self.unshuffled = None;
+            self.queue = queue;
+            self.index = 0;
+        } else {
+            self.unshuffled = None;
+            self.queue = queue;
+            self.index = index;
+        }
         self.start_current()?;
         self.active = true;
         Ok(())
+    }
+
+    pub fn shuffle(&self) -> bool {
+        self.shuffle
+    }
+
+    pub fn repeat(&self) -> RepeatMode {
+        self.repeat
     }
 
     /// Add a file to a queue that is already playing, without restarting.
@@ -161,7 +187,11 @@ impl Player {
         if !self.active {
             return;
         }
-        self.queue.push(read_track_labeled(&path, Some(&hit)));
+        let track = read_track_labeled(&path, Some(&hit));
+        if let Some(original) = self.unshuffled.as_mut() {
+            original.push(track.clone());
+        }
+        self.queue.push(track);
     }
 
     pub fn play(&mut self) {
@@ -228,6 +258,7 @@ impl Player {
         self.volume
     }
 
+    /// User skip: always leave the current track, wrapping when Repeat is All.
     pub fn next(&mut self) -> Result<bool, String> {
         if self.queue.is_empty() {
             return Ok(false);
@@ -237,21 +268,25 @@ impl Player {
             self.start_current()?;
             return Ok(true);
         }
-        match self.repeat {
-            RepeatMode::All => {
-                self.index = 0;
-                self.start_current()?;
-                Ok(true)
-            }
-            RepeatMode::One => {
-                self.start_current()?;
-                Ok(true)
-            }
-            RepeatMode::None => {
-                self.pause();
-                Ok(false)
-            }
+        if self.repeat == RepeatMode::All {
+            self.index = 0;
+            self.start_current()?;
+            return Ok(true);
         }
+        self.pause();
+        Ok(false)
+    }
+
+    /// The decoder ran out: honour Repeat One on this track, else skip.
+    pub fn advance_ended(&mut self) -> Result<bool, String> {
+        if self.queue.is_empty() {
+            return Ok(false);
+        }
+        if self.repeat == RepeatMode::One {
+            self.start_current()?;
+            return Ok(true);
+        }
+        self.next()
     }
 
     pub fn previous(&mut self) -> Result<bool, String> {
@@ -319,6 +354,33 @@ impl Player {
 
     pub fn set_repeat(&mut self, mode: RepeatMode) {
         self.repeat = mode;
+    }
+
+    pub fn set_shuffle(&mut self, shuffle: bool) {
+        if self.shuffle == shuffle {
+            return;
+        }
+        self.shuffle = shuffle;
+        if !self.active || self.queue.len() < 2 {
+            return;
+        }
+        let current = track_key(&self.queue[self.index]);
+        if shuffle {
+            if self.unshuffled.is_none() {
+                self.unshuffled = Some(self.queue.clone());
+            }
+            shuffle_tail(&mut self.queue, self.index);
+            return;
+        }
+        let Some(original) = self.unshuffled.take() else {
+            return;
+        };
+        self.queue = original;
+        self.index = self
+            .queue
+            .iter()
+            .position(|t| track_key(t) == current)
+            .unwrap_or(self.index.min(self.queue.len().saturating_sub(1)));
     }
 
     pub fn remove(&mut self, index: usize) -> Result<(), String> {
@@ -529,6 +591,33 @@ fn apply_meta(track: &mut Track, meta: &streams::FileMeta) {
     }
 }
 
+fn track_key(track: &Track) -> String {
+    track
+        .catalog_id
+        .clone()
+        .unwrap_or_else(|| track.path.to_string_lossy().into_owned())
+}
+
+/// Fisher–Yates on everything after `keep`, so the playing track stays put.
+fn shuffle_tail<T>(items: &mut [T], keep: usize) {
+    if items.len() <= keep + 1 {
+        return;
+    }
+    let mut seed = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(1);
+    if seed == 0 {
+        seed = 1;
+    }
+    for i in ((keep + 1)..items.len()).rev() {
+        seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+        let span = i - keep;
+        let j = keep + 1 + (seed as usize % span);
+        items.swap(i, j);
+    }
+}
+
 /// `cover.jpg` / `folder.png` beside the file, the convention every local
 /// player follows when the tags have no picture.
 fn folder_cover(audio: &Path) -> Option<PathBuf> {
@@ -638,5 +727,41 @@ mod tests {
         assert!((player.volume() - 0.4).abs() < f64::EPSILON);
         player.set_volume(3.0);
         assert!((player.volume() - 1.0).abs() < f64::EPSILON);
+    }
+
+    fn named_track(name: &str) -> Track {
+        Track {
+            path: PathBuf::from(format!("/tmp/{name}")),
+            title: name.to_owned(),
+            artist: "x".into(),
+            album: String::new(),
+            duration_ms: 1_000,
+            art_path: None,
+            catalog_id: Some(name.to_owned()),
+            artwork_template: None,
+        }
+    }
+
+    #[test]
+    fn shuffle_tail_leaves_the_playing_track_in_place() {
+        let mut items: Vec<u8> = (0..8).collect();
+        shuffle_tail(&mut items, 2);
+        assert_eq!(items[2], 2);
+        let mut sorted = items.clone();
+        sorted.sort();
+        assert_eq!(sorted, (0..8).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn turning_shuffle_off_restores_the_original_order() {
+        let mut player = Player::new();
+        player.active = true;
+        player.queue = ["a", "b", "c", "d"].into_iter().map(named_track).collect();
+        player.index = 0;
+        player.set_shuffle(true);
+        assert_eq!(player.queue[0].title, "a");
+        player.set_shuffle(false);
+        let titles: Vec<_> = player.queue.iter().map(|t| t.title.as_str()).collect();
+        assert_eq!(titles, ["a", "b", "c", "d"]);
     }
 }

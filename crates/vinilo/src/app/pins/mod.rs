@@ -24,6 +24,8 @@ use super::pages::Arrival;
 use super::view::{SidebarRow, sidebar_rows};
 use super::{AppModel, AppMsg};
 use crate::components::detail_page::PageKind;
+use vinilo_core::provider::Provider;
+use vinilo_core::streams::StreamHit;
 
 /// What a pin says when the library has never produced its playlist.
 ///
@@ -32,6 +34,27 @@ use crate::components::detail_page::PageKind;
 /// was deleted elsewhere — which is what phase five prunes.
 pub(super) fn unavailable() -> &'static str {
     vinilo_core::i18n::t(vinilo_core::i18n::Key::Unavailable)
+}
+
+/// Whether this pin belongs to the source the window is on.
+///
+/// Apple ids (`p.…`) must not be judged against a Spotify library, or they
+/// show as Unavailable and then get pruned the moment Spotify returns any list.
+pub(super) fn pin_belongs_to(id: &str, provider: Provider) -> bool {
+    match provider {
+        Provider::Spotify => id.starts_with("sp:"),
+        Provider::YoutubeMusic => id.starts_with("yt:"),
+        Provider::Tidal => id.starts_with("td:"),
+        Provider::AppleMusic => !StreamHit::is_stream_id(id),
+        Provider::Local => false,
+    }
+}
+
+pub(super) fn pins_for(pins: &[String], provider: Provider) -> Vec<String> {
+    pins.iter()
+        .filter(|id| pin_belongs_to(id, provider))
+        .cloned()
+        .collect()
 }
 
 /// Which pins point at playlists the library does not have.
@@ -146,6 +169,15 @@ impl AppModel {
         for (id, label) in &self.pin_labels {
             label.set_label(self.pinned_name(id).unwrap_or(unavailable()));
         }
+    }
+
+    fn pins_on_this_source(&self) -> Vec<String> {
+        pins_for(&self.settings.pinned_playlists, self.settings.provider)
+    }
+
+    pub(super) fn rebuild_sidebar_pins(&mut self) {
+        self.sidebar_rows = sidebar_rows(&self.pins_on_this_source());
+        self.pins_dirty = true;
     }
 
     /// The picker: every library playlist, with the pinned ones ticked.
@@ -314,8 +346,10 @@ impl AppModel {
         }
 
         let have: Vec<String> = self.playlists.iter().map(|p| p.id.clone()).collect();
+        let current = self.settings.provider;
         let gone: Vec<String> = stale(&self.settings.pinned_playlists, &have)
             .into_iter()
+            .filter(|id| pin_belongs_to(id, current))
             .map(str::to_owned)
             .collect();
         if gone.is_empty() {
@@ -341,8 +375,7 @@ impl AppModel {
             sender.input(AppMsg::SetView(View::Playlists));
         }
 
-        self.sidebar_rows = sidebar_rows(&self.settings.pinned_playlists);
-        self.pins_dirty = true;
+        self.rebuild_sidebar_pins();
         // Reported, not commanded. "Unpinned a playlist…" is the imperative and
         // reads as an instruction to the person who did not do it — the app did,
         // and the toast exists to say so rather than to ask for anything.
@@ -361,16 +394,23 @@ impl AppModel {
     /// Pin order *is* what the sidebar draws, so this is the whole of the
     /// feature — there is no separate order to keep in step.
     pub(super) fn move_pinned(&mut self, from: usize, slot: usize) {
-        let before = self.settings.pinned_playlists.clone();
-        move_pin(&mut self.settings.pinned_playlists, from, slot);
-        if self.settings.pinned_playlists == before {
-            // Dropping a row on its own edge is a drag that meant nothing, and
-            // rewriting settings for it is a save nobody asked for.
+        let provider = self.settings.provider;
+        let mut visible = pins_for(&self.settings.pinned_playlists, provider);
+        let before = visible.clone();
+        move_pin(&mut visible, from, slot);
+        if visible == before {
             return;
         }
+        let mut next = visible.into_iter();
+        for id in &mut self.settings.pinned_playlists {
+            if pin_belongs_to(id, provider)
+                && let Some(moved) = next.next()
+            {
+                *id = moved;
+            }
+        }
         self.settings.save();
-        self.sidebar_rows = sidebar_rows(&self.settings.pinned_playlists);
-        self.pins_dirty = true;
+        self.rebuild_sidebar_pins();
     }
 
     /// Pin or unpin every library playlist at once.
@@ -386,7 +426,10 @@ impl AppModel {
                 }
             }
         } else {
-            self.settings.pinned_playlists.clear();
+            let provider = self.settings.provider;
+            self.settings
+                .pinned_playlists
+                .retain(|id| !pin_belongs_to(id, provider));
         }
         self.settings.save();
 
@@ -398,8 +441,7 @@ impl AppModel {
             sender.input(AppMsg::SetView(View::Playlists));
         }
 
-        self.sidebar_rows = sidebar_rows(&self.settings.pinned_playlists);
-        self.pins_dirty = true;
+        self.rebuild_sidebar_pins();
     }
 
     /// Pin or unpin one playlist.
@@ -435,10 +477,9 @@ impl AppModel {
             sender.input(AppMsg::SetView(View::Playlists));
         }
 
-        self.sidebar_rows = sidebar_rows(&self.settings.pinned_playlists);
+        self.rebuild_sidebar_pins();
         // The widgets are `wiring`'s and cannot be reached from here — the
         // rebuild happens on the way out, in `sync_pins`.
-        self.pins_dirty = true;
     }
 
     /// The name to draw for a pin, or `None` if the library has never heard of
@@ -540,5 +581,22 @@ mod tests {
         let mut p = pins();
         move_pin(&mut p, 9, 0);
         assert_eq!(p, ["a", "b", "c"]);
+    }
+
+    #[test]
+    fn apple_pins_are_not_judged_on_spotify() {
+        assert!(pin_belongs_to("p.abc", Provider::AppleMusic));
+        assert!(!pin_belongs_to("p.abc", Provider::Spotify));
+        assert!(pin_belongs_to("sp:playlist:1", Provider::Spotify));
+        assert!(!pin_belongs_to("sp:playlist:1", Provider::AppleMusic));
+        let mixed = vec!["p.abc".into(), "sp:playlist:1".into()];
+        assert_eq!(
+            pins_for(&mixed, Provider::AppleMusic),
+            vec!["p.abc".to_owned()]
+        );
+        assert_eq!(
+            pins_for(&mixed, Provider::Spotify),
+            vec!["sp:playlist:1".to_owned()]
+        );
     }
 }

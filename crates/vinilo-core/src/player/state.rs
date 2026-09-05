@@ -231,6 +231,7 @@ impl PlayerState {
 
     pub fn has_next(&self) -> bool {
         self.queue_position + 1 < self.queue.len()
+            || (!self.queue.is_empty() && self.repeat == RepeatMode::All)
     }
 
     pub fn has_previous(&self) -> bool {

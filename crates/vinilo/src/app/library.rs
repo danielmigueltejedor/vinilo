@@ -129,6 +129,7 @@ impl AppModel {
         // A pin whose playlist is gone (#133). The cache read is when we know
         // what still exists, which is what the playlist fetch used to be.
         self.prune_stale_pins(sender);
+        self.refresh_pin_names();
         self.maybe_prune_artwork(sender);
     }
 

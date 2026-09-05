@@ -314,7 +314,7 @@ pub async fn run() -> Result<()> {
             }
             if local_active {
                 if ticking.local.borrow().ended() {
-                    let _ = ticking.local.borrow_mut().next();
+                    let _ = ticking.local.borrow_mut().advance_ended();
                     publish_local(&ticking);
                 } else if ticking.local.borrow().is_playing() {
                     let event = ticking.local.borrow().position_event();
@@ -968,7 +968,7 @@ fn answer(
         Request::Play { ids, index, start } => {
             let provider = daemon.source;
             if provider.is_catalog() {
-                play_streams(daemon, ids, index);
+                play_streams(daemon, ids, index, start.into());
                 None
             } else {
                 let songs: Vec<String> = ids
@@ -999,7 +999,7 @@ fn answer(
                     enqueue_streams(daemon, ids);
                     return None;
                 }
-                play_streams(daemon, ids, 0);
+                play_streams(daemon, ids, 0, Start::InOrder);
                 return None;
             }
             if daemon.local.borrow().is_active() {
@@ -1103,6 +1103,13 @@ fn answer(
             None
         }
         Request::Refresh => {
+            if daemon.refreshing.get().is_some() {
+                // A late Reload must not leave the window on a spinner that the
+                // in-flight fetch will not re-announce. Drop the overlay; the
+                // fetch still finishes and publishes LibraryChanged.
+                daemon.publish(Event::LibraryRefreshing { refreshing: false });
+                return None;
+            }
             refresh_library(daemon);
             None
         }
@@ -1137,6 +1144,8 @@ fn publish_local(daemon: &Rc<Daemon>) {
         model.player.apply(&now);
         model.player.apply(&playback);
         model.player.apply(&position);
+        model.player.shuffle = daemon.local.borrow().shuffle();
+        model.player.repeat = daemon.local.borrow().repeat();
         if art.is_some() {
             model.art_path = art;
         }
@@ -1198,6 +1207,7 @@ fn route_local_transport(daemon: &Rc<Daemon>, transport: Transport) {
             daemon.model.borrow_mut().volume = volume;
         }
         Transport::SetShuffle { shuffle } => {
+            daemon.local.borrow_mut().set_shuffle(shuffle);
             daemon.model.borrow_mut().player.shuffle = shuffle;
         }
         Transport::SetRepeat { mode } => {
@@ -1205,11 +1215,17 @@ fn route_local_transport(daemon: &Rc<Daemon>, transport: Transport) {
             daemon.model.borrow_mut().player.repeat = mode;
         }
     }
-    publish_local(daemon);
+    if daemon.local.borrow().is_active() {
+        publish_local(daemon);
+    } else {
+        daemon.publish_snapshot();
+    }
 }
 
 pub(crate) fn route_transport(daemon: &Rc<Daemon>, transport: Transport) {
-    if daemon.local.borrow().is_active() {
+    // Spotify / YouTube Music / Tidal play through the local decoder, so
+    // shuffle and repeat have to land here even before the first file exists.
+    if daemon.local.borrow().is_active() || daemon.source.is_catalog() {
         route_local_transport(daemon, transport);
         return;
     }
@@ -1606,21 +1622,32 @@ fn cache_library_is_empty(library: &vinilo_core::library_cache::Library) -> bool
 
 async fn refresh_spotify_library(daemon: &Daemon, generation: u64) {
     let http = vinilo_core::streams::http_long();
-    if let Err(err) = vinilo_core::spotify::warm_session(&http).await {
-        tracing::warn!(?err, "spotify session warm-up failed");
-        let detail = format!("{err}");
-        if should_surface_spotify_error(&detail) {
-            if daemon.model.borrow().library.is_empty()
-                && vinilo_core::library_cache::load().is_empty()
-            {
-                daemon.publish(Event::Error { detail });
+    match tokio::time::timeout(
+        std::time::Duration::from_secs(20),
+        vinilo_core::spotify::warm_session(&http),
+    )
+    .await
+    {
+        Ok(Ok(())) => {}
+        Ok(Err(err)) => {
+            tracing::warn!(?err, "spotify session warm-up failed");
+            let detail = format!("{err}");
+            if should_surface_spotify_error(&detail) {
+                if daemon.model.borrow().library.is_empty()
+                    && vinilo_core::library_cache::load().is_empty()
+                {
+                    daemon.publish(Event::Error { detail });
+                }
+                finish_library_refresh(daemon, generation);
+                return;
             }
-            finish_library_refresh(daemon, generation);
-            return;
+        }
+        Err(_) => {
+            tracing::warn!("spotify session warm-up timed out");
         }
     }
 
-    const BACKOFF_SECS: [u64; 5] = [0, 3, 8, 18, 35];
+    const BACKOFF_SECS: [u64; 3] = [0, 4, 12];
     for (attempt, wait) in BACKOFF_SECS.iter().enumerate() {
         if daemon.authorization_generation.get() != generation {
             finish_library_refresh(daemon, generation);
@@ -1628,7 +1655,7 @@ async fn refresh_spotify_library(daemon: &Daemon, generation: u64) {
         }
         if *wait > 0 {
             if let Some(cool) = vinilo_core::spotify::cooldown_left() {
-                tokio::time::sleep(cool.min(std::time::Duration::from_secs(90))).await;
+                tokio::time::sleep(cool.min(std::time::Duration::from_secs(20))).await;
             } else {
                 tokio::time::sleep(std::time::Duration::from_secs(*wait)).await;
             }
@@ -1638,7 +1665,7 @@ async fn refresh_spotify_library(daemon: &Daemon, generation: u64) {
             return;
         }
         let fetch = vinilo_core::spotify::library(&http);
-        match tokio::time::timeout(std::time::Duration::from_secs(90), fetch).await {
+        match tokio::time::timeout(std::time::Duration::from_secs(25), fetch).await {
             Ok(Ok(library)) if !library_is_empty(&library) => {
                 apply_catalog_library(
                     daemon,
@@ -1679,6 +1706,11 @@ async fn refresh_spotify_library(daemon: &Daemon, generation: u64) {
                     "spotify library refresh timed out — retrying"
                 );
             }
+        }
+        if attempt == 0 {
+            // Keep retrying off the spinner: an empty first fetch used to hold
+            // the window on "loading" until every backoff finished.
+            daemon.publish(Event::LibraryRefreshing { refreshing: false });
         }
     }
     tracing::warn!("spotify library still empty after retries — keeping what was cached");
@@ -2062,7 +2094,8 @@ fn remember_songs(daemon: &Daemon, songs: &[vinilo_core::music::types::Track]) {
     remember_hits(daemon, vinilo_core::spotify::hits_from_songs(songs));
 }
 
-fn play_streams(daemon: &Rc<Daemon>, ids: Vec<String>, index: usize) {
+fn play_streams(daemon: &Rc<Daemon>, ids: Vec<String>, index: usize, start: Start) {
+    let shuffled = start.reorders();
     let daemon = daemon.clone();
     tokio::task::spawn_local(async move {
         let mut hits = Vec::new();
@@ -2077,15 +2110,22 @@ fn play_streams(daemon: &Rc<Daemon>, ids: Vec<String>, index: usize) {
             });
             return;
         }
-        let start = index.min(hits.len().saturating_sub(1));
-        let rest: Vec<vinilo_core::streams::StreamHit> = hits[start..].to_vec();
+        let start_at = if shuffled {
+            random_row(hits.len())
+        } else {
+            index.min(hits.len().saturating_sub(1))
+        };
+        let first = hits.remove(start_at);
+        if shuffled {
+            shuffle_hits(&mut hits);
+        }
+        let rest = hits;
         let Some(dir) = vinilo_core::paths::cache_dir().map(|p| p.join("streams")) else {
             daemon.publish(Event::Error {
                 detail: "No cache directory".into(),
             });
             return;
         };
-        let first = rest[0].clone();
         let dir_first = dir.clone();
         let download = first.clone();
         let path = match tokio::task::spawn_blocking(move || {
@@ -2110,13 +2150,20 @@ fn play_streams(daemon: &Rc<Daemon>, ids: Vec<String>, index: usize) {
         }
         *daemon.art_for.borrow_mut() = None;
         let volume = daemon.model.borrow().volume;
-        daemon.local.borrow_mut().set_volume(volume);
+        let repeat = daemon.model.borrow().player.repeat;
+        {
+            let mut local = daemon.local.borrow_mut();
+            local.set_volume(volume);
+            local.set_repeat(repeat);
+            local.set_shuffle(shuffled);
+        }
+        daemon.model.borrow_mut().player.shuffle = shuffled;
         if let Err(detail) = daemon.local.borrow_mut().play_hits(vec![(path, first)], 0) {
             daemon.publish(Event::Error { detail });
             return;
         }
         publish_local(&daemon);
-        for hit in rest.into_iter().skip(1) {
+        for hit in rest {
             let dir = dir.clone();
             let download = hit.clone();
             match tokio::task::spawn_blocking(move || crate::ytdlp::download(&download, &dir)).await
@@ -2418,6 +2465,16 @@ fn random_row(len: usize) -> usize {
         .map(|d| d.subsec_nanos() as usize)
         .unwrap_or(0);
     nanos % len
+}
+
+fn shuffle_hits(hits: &mut [vinilo_core::streams::StreamHit]) {
+    if hits.len() < 2 {
+        return;
+    }
+    for i in (1..hits.len()).rev() {
+        let j = random_row(i + 1);
+        hits.swap(i, j);
+    }
 }
 
 /// Put back what was playing when Vinilo last closed.

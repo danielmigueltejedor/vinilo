@@ -40,7 +40,7 @@ Para **Apple Music** necesitas una suscripción activa, una máquina **x86_64** 
 
 Para **archivos locales** basta con el propio Vinilo: MP3, FLAC, Ogg, WAV y demás que rodio sepa abrir. No hace falta sidecar ni cuenta.
 
-Para **Spotify, YouTube Music y Tidal** Vinilo abre una **ventana de inicio de sesión** (como Apple Music). Con Spotify, después busca en el catálogo de Spotify, muestra tus listas y canciones que te gustan, y Escuchar ahora. El audio se descarga con `yt-dlp` (no es el cliente oficial: Spotify cierra el stream con DRM en Linux). Hace falta `yt-dlp` y, para convertir a MP3, `ffmpeg`. También `webkitgtk-6.0` para la ventana de login.
+Para **Spotify, YouTube Music y Tidal** Vinilo abre una **ventana de inicio de sesión** (como Apple Music). Con Spotify, después busca en el catálogo de Spotify, muestra tus listas y canciones que te gustan, y Escuchar ahora. **El audio no sale de Spotify**: se descarga con `yt-dlp` (YouTube u otras fuentes públicas), porque Spotify cierra el stream con DRM en Linux. Por eso no hay anuncios ni hace falta Premium: no es el cliente oficial. Hace falta `yt-dlp` y, para convertir a MP3, `ffmpeg`. También `webkitgtk-6.0` para la ventana de login.
 
 ## Compilar e instalar
 

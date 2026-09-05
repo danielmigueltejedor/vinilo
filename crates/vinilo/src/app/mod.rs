@@ -1518,7 +1518,10 @@ impl Component for AppModel {
             // Built from the persisted pins before anything is on screen: the
             // library cache has already seeded `playlists`, so a pinned row
             // draws its name at the same moment the sections do.
-            sidebar_rows: sidebar_rows(&settings.pinned_playlists),
+            sidebar_rows: sidebar_rows(&pins::pins_for(
+                &settings.pinned_playlists,
+                settings.provider,
+            )),
             marked_playing: None,
             library_icons: row_registry(),
             current_track: current_track(),
@@ -2943,6 +2946,8 @@ impl AppModel {
             self.stage = Stage::Connecting;
             self.forget_session(sender);
             self.reload_from_cache(sender);
+            self.rebuild_sidebar_pins();
+            self.refresh_pin_names();
         } else if !provider.needs_apple() {
             self.stage = Stage::Ready;
         }
