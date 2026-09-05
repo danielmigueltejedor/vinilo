@@ -48,12 +48,24 @@ impl AppModel {
         let cached = vinilo_core::discover::load();
         if !cached.is_empty() {
             self.discover.fill(cached);
+        } else if self.discover.is_empty() {
+            let homemade = vinilo_core::discover::homemade(
+                &self.all_tracks,
+                &self.albums,
+                &self.playlists,
+                &vinilo_core::listen_history::load(),
+            );
+            if !homemade.is_empty() {
+                self.discover.fill(homemade);
+            }
         }
         if self.daemon.is_none() {
             self.loading_discover = false;
             return;
         }
-        self.loading_discover = true;
+        // Keep whatever is already on screen. A spinner over a page we have
+        // is how Listen Now used to vanish when you left it and came back.
+        self.loading_discover = self.discover.is_empty();
         self.ask(Request::Discover);
     }
 

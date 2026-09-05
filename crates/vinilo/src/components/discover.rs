@@ -85,6 +85,10 @@ impl DiscoverView {
         self.data.is_empty()
     }
 
+    pub fn snapshot(&self) -> Discover {
+        self.data.clone()
+    }
+
     pub fn relocalize(&self) {
         self.empty.set_title(i18n::t(Key::DiscoverEmpty));
         self.empty
@@ -181,11 +185,7 @@ impl DiscoverView {
         if let Some(art) = artwork_of(&entry) {
             let key = art.cache_key();
             (self.request)(key.clone(), art.clone());
-            register(
-                &mut self.registry.borrow_mut(),
-                key,
-                &cover,
-            );
+            register(&mut self.registry.borrow_mut(), key, &cover);
         }
 
         let title = gtk::Label::builder()

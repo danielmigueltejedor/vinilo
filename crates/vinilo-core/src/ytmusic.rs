@@ -1,10 +1,12 @@
 // SPDX-FileCopyrightText: 2026 Daniel Miguel Tejedor
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! YouTube Music InnerTube writes and a thin library read.
+//! YouTube Music InnerTube reads and writes, the same surface ytmusicapi and
+//! Music Assistant use: signed WEB_REMIX `browse` calls.
 //!
 //! Playback is still `yt-dlp`. This is the signed-in catalogue: likes,
-//! playlists, and the lists that should show up in the sidebar after a write.
+//! library albums, artists, playlists, and the lists that should show up in
+//! the sidebar after a write.
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -12,10 +14,11 @@ use anyhow::{Context, Result, bail};
 use serde_json::{Value, json};
 use sha1::{Digest, Sha1};
 
+use crate::entry::Entry;
 use crate::i18n::{self, Key};
-use crate::ipc::WriteAction;
+use crate::ipc::{PageKind, WriteAction};
 use crate::library_cache::Library;
-use crate::music::types::{Artwork, Playlist, Track};
+use crate::music::types::{Album, Artist, Artwork, Playlist, Track};
 use crate::provider::Provider;
 use crate::setup;
 use crate::streams::StreamHit;
@@ -23,6 +26,10 @@ use crate::streams::StreamHit;
 const ORIGIN: &str = "https://music.youtube.com";
 const API: &str = "https://music.youtube.com/youtubei/v1";
 const KEY: &str = "AIzaSyC9XL3ZjWddXya6X74dJoCTL-WEYFDNX30";
+/// Same string ytmusicapi sends. InnerTube 403s a lot of library browses
+/// when this looks like a raw reqwest client.
+const USER_AGENT: &str =
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:88.0) Gecko/20100101 Firefox/88.0";
 
 fn context() -> Value {
     json!({
@@ -31,7 +38,8 @@ fn context() -> Value {
             "clientVersion": "1.20250903.01.00",
             "hl": "en",
             "gl": "US"
-        }
+        },
+        "user": {}
     })
 }
 
@@ -41,19 +49,28 @@ fn cookie_header() -> Result<String> {
 }
 
 fn sapisid_from_cookie(cookie: &str) -> Option<String> {
+    // ytmusicapi hashes `__Secure-3PAPISID`. Prefer that over the older
+    // `SAPISID` name, which can be present and stale in the same jar.
+    let mut sapisid = None;
+    let mut secure1 = None;
+    let mut secure3 = None;
     for part in cookie.split(';') {
         let part = part.trim();
-        let (name, value) = part.split_once('=')?;
-        if name.eq_ignore_ascii_case("SAPISID")
-            || name.eq_ignore_ascii_case("__Secure-1PSAPISID")
-            || name.eq_ignore_ascii_case("__Secure-3PSAPISID")
-        {
-            if !value.is_empty() {
-                return Some(value.to_owned());
-            }
+        let Some((name, value)) = part.split_once('=') else {
+            continue;
+        };
+        if value.is_empty() {
+            continue;
+        }
+        if name.eq_ignore_ascii_case("__Secure-3PAPISID") {
+            secure3 = Some(value.to_owned());
+        } else if name.eq_ignore_ascii_case("__Secure-1PSAPISID") {
+            secure1 = Some(value.to_owned());
+        } else if name.eq_ignore_ascii_case("SAPISID") {
+            sapisid = Some(value.to_owned());
         }
     }
-    None
+    secure3.or(secure1).or(sapisid)
 }
 
 fn sapisidhash(sapisid: &str) -> String {
@@ -76,11 +93,14 @@ async fn innertube(http: &reqwest::Client, endpoint: &str, extras: Value) -> Res
     }
     let mut req = http
         .post(format!("{API}/{endpoint}?alt=json&key={KEY}"))
-        .header("Accept", "application/json")
+        .header("User-Agent", USER_AGENT)
+        .header("Accept", "*/*")
+        .header("Accept-Language", "en-US,en;q=0.9")
         .header("Content-Type", "application/json")
         .header("Origin", ORIGIN)
         .header("Referer", format!("{ORIGIN}/"))
         .header("X-Origin", ORIGIN)
+        .header("X-Goog-AuthUser", "0")
         .header("Cookie", &cookie);
     if let Some(sapisid) = sapisid_from_cookie(&cookie) {
         req = req.header(
@@ -115,12 +135,37 @@ fn video_id(id: &str) -> Result<String> {
 }
 
 fn playlist_key(id: &str) -> Result<String> {
+    if id == "yt:liked" {
+        return Ok("LM".into());
+    }
     let rest = id.strip_prefix("yt:playlist:").unwrap_or(id);
     let rest = rest.strip_prefix("yt:").unwrap_or(rest);
+    let rest = rest.strip_prefix("VL").unwrap_or(rest);
     if rest.is_empty() {
         bail!("not a YouTube Music playlist id");
     }
     Ok(rest.to_owned())
+}
+
+fn album_key(id: &str) -> Result<String> {
+    let rest = id.strip_prefix("yt:album:").unwrap_or(id);
+    let rest = rest.strip_prefix("yt:").unwrap_or(rest);
+    if rest.starts_with("MPREb_") || rest.starts_with("OLAK") {
+        Ok(rest.to_owned())
+    } else {
+        bail!("not a YouTube Music album id")
+    }
+}
+
+fn artist_key(id: &str) -> Result<String> {
+    let rest = id.strip_prefix("yt:artist:").unwrap_or(id);
+    let rest = rest.strip_prefix("yt:").unwrap_or(rest);
+    let rest = rest.strip_prefix("MPLA").unwrap_or(rest);
+    if rest.starts_with("UC") {
+        Ok(rest.to_owned())
+    } else {
+        bail!("not a YouTube Music artist id")
+    }
 }
 
 pub async fn apply(
@@ -196,22 +241,48 @@ pub async fn apply(
     }
 }
 
+/// The same four library tabs ytmusicapi reads: liked songs, playlists,
+/// saved albums, and artists whose songs are in the library.
 pub async fn library(http: &reqwest::Client) -> Result<Library> {
-    let liked = browse(http, "FEmusic_liked_videos")
-        .await
-        .unwrap_or_else(|err| {
-            tracing::warn!(?err, "youtube music liked videos");
-            Value::Null
-        });
-    let lists = browse(http, "FEmusic_liked_playlists")
-        .await
-        .unwrap_or_else(|err| {
-            tracing::warn!(?err, "youtube music playlists");
-            Value::Null
-        });
-    let songs = tracks_from_browse(&liked);
+    let (liked, lists, albums, artists) = tokio::join!(
+        browse(http, "FEmusic_liked_videos"),
+        browse(http, "FEmusic_liked_playlists"),
+        browse(http, "FEmusic_liked_albums"),
+        browse(http, "FEmusic_library_corpus_track_artists"),
+    );
+    let liked = liked.unwrap_or_else(|err| {
+        tracing::warn!(?err, "youtube music liked videos");
+        Value::Null
+    });
+    let lists = lists.unwrap_or_else(|err| {
+        tracing::warn!(?err, "youtube music playlists");
+        Value::Null
+    });
+    let albums_json = albums.unwrap_or_else(|err| {
+        tracing::warn!(?err, "youtube music albums");
+        Value::Null
+    });
+    let artists_json = artists.unwrap_or_else(|err| {
+        tracing::warn!(?err, "youtube music artists");
+        Value::Null
+    });
+
+    let mut songs = tracks_from_browse(&liked);
+    if songs.is_empty() {
+        // ytmusicapi's liked-songs playlist is `LM`, not the liked-videos tab.
+        match browse(http, "VLLM").await {
+            Ok(liked_playlist) => songs = tracks_from_browse(&liked_playlist),
+            Err(err) => tracing::warn!(?err, "youtube music liked playlist"),
+        }
+    }
+    let albums = albums_from_browse(&albums_json);
+    let artists = artists_from_browse(&artists_json);
     let mut playlists = playlists_from_browse(&lists);
-    if !songs.is_empty() {
+    if !songs.is_empty()
+        && !playlists
+            .iter()
+            .any(|p| p.id == "yt:liked" || p.id == "yt:playlist:LM")
+    {
         playlists.insert(
             0,
             Playlist {
@@ -226,12 +297,101 @@ pub async fn library(http: &reqwest::Client) -> Result<Library> {
             },
         );
     }
-    Ok(Library::from_parts(
-        songs,
-        Vec::new(),
-        Vec::new(),
-        playlists,
-    ))
+    tracing::info!(
+        songs = songs.len(),
+        albums = albums.len(),
+        artists = artists.len(),
+        playlists = playlists.len(),
+        "youtube music library"
+    );
+    if songs.is_empty() && albums.is_empty() && artists.is_empty() && playlists.is_empty() {
+        bail!("YouTube Music library was empty");
+    }
+    Ok(Library::from_parts(songs, albums, artists, playlists))
+}
+
+pub async fn open(http: &reqwest::Client, kind: PageKind, id: &str) -> Result<(Entry, Vec<Entry>)> {
+    match kind {
+        PageKind::Playlist | PageKind::LibraryPlaylist => {
+            let key = playlist_key(id)?;
+            let browse_id = if key.starts_with("VL") {
+                key.clone()
+            } else {
+                format!("VL{key}")
+            };
+            let value = browse(http, &browse_id).await?;
+            let songs = tracks_from_browse(&value);
+            let header = Playlist {
+                id: if id.starts_with("yt:") {
+                    id.to_owned()
+                } else {
+                    format!("yt:playlist:{key}")
+                },
+                date_added: String::new(),
+                last_modified: String::new(),
+                name: page_title(&value).unwrap_or_else(|| key.clone()),
+                curator: String::new(),
+                description: String::new(),
+                artwork: songs.first().and_then(|s| s.artwork.clone()),
+                library: true,
+            };
+            Ok((
+                Entry::Playlist(header),
+                songs.into_iter().map(Entry::Song).collect(),
+            ))
+        }
+        PageKind::Album | PageKind::LibraryAlbum => {
+            let key = album_key(id)?;
+            let value = browse(http, &key).await?;
+            let mut songs = tracks_from_browse(&value);
+            if songs.is_empty() {
+                if let Some(audio) = first_playlist_id(&value).filter(|p| p.starts_with("OLAK")) {
+                    if let Ok(extra) = browse(http, &format!("VL{audio}")).await {
+                        songs = tracks_from_browse(&extra);
+                    }
+                }
+            }
+            let albums = albums_from_browse(&value);
+            let mut header = albums.into_iter().next().unwrap_or(Album {
+                id: format!("yt:album:{key}"),
+                date_added: String::new(),
+                name: page_title(&value).unwrap_or_else(|| key.clone()),
+                artist: String::new(),
+                artwork: songs.first().and_then(|s| s.artwork.clone()),
+                year: String::new(),
+                track_count: songs.len() as u32,
+                library: true,
+            });
+            header.track_count = songs.len() as u32;
+            header.library = true;
+            Ok((
+                Entry::Album(header),
+                songs.into_iter().map(Entry::Song).collect(),
+            ))
+        }
+        PageKind::Artist | PageKind::LibraryArtist => {
+            let key = artist_key(id)?;
+            let value = browse(http, &key).await?;
+            let albums = albums_from_browse(&value);
+            let songs = tracks_from_browse(&value);
+            let header = artists_from_browse(&value)
+                .into_iter()
+                .next()
+                .unwrap_or(Artist {
+                    id: format!("yt:artist:{key}"),
+                    name: page_title(&value).unwrap_or_else(|| key.clone()),
+                    artwork: songs.first().and_then(|s| s.artwork.clone()),
+                    genres: String::new(),
+                    library: true,
+                });
+            let entries = if albums.is_empty() {
+                songs.into_iter().map(Entry::Song).collect()
+            } else {
+                albums.into_iter().map(Entry::Album).collect()
+            };
+            Ok((Entry::Artist(header), entries))
+        }
+    }
 }
 
 async fn browse(http: &reqwest::Client, browse_id: &str) -> Result<Value> {
@@ -244,12 +404,11 @@ fn tracks_from_browse(value: &Value) -> Vec<Track> {
         let Some(obj) = node.as_object() else {
             return;
         };
-        let video = obj.get("videoId").and_then(Value::as_str).or_else(|| {
-            obj.get("navigationEndpoint")
-                .and_then(|e| e.pointer("/watchEndpoint/videoId"))
-                .and_then(Value::as_str)
-        });
-        let Some(video) = video.filter(|s| !s.is_empty()) else {
+        if obj.contains_key("browseEndpoint") && !obj.contains_key("watchEndpoint") {
+            return;
+        }
+        let video = video_id_from_node(node);
+        let Some(video) = video.filter(|s| !s.is_empty() && !s.contains(':')) else {
             return;
         };
         let id = format!("yt:{video}");
@@ -260,12 +419,15 @@ fn tracks_from_browse(value: &Value) -> Vec<Track> {
             return;
         }
         let title = first_text(node).unwrap_or_else(|| video.to_owned());
-        let artist = flex_column_text(node, 1).unwrap_or_default();
+        let artist = flex_column_text(node, 1)
+            .or_else(|| subtitle_text(node, 0))
+            .unwrap_or_default();
+        let album = flex_column_text(node, 2).unwrap_or_default();
         let hit = StreamHit {
             id: id.clone(),
             title,
             artist,
-            album: String::new(),
+            album,
             duration_ms: 0,
             artwork: thumbnail(node),
             play_query: format!("https://www.youtube.com/watch?v={video}"),
@@ -283,23 +445,20 @@ fn tracks_from_browse(value: &Value) -> Vec<Track> {
 fn playlists_from_browse(value: &Value) -> Vec<Playlist> {
     let mut lists = Vec::new();
     walk(value, &mut |node| {
-        let Some(obj) = node.as_object() else {
+        if video_id_from_node(node).is_some() {
+            return;
+        }
+        let Some(playlist) = playlist_id_from_node(node) else {
             return;
         };
-        let playlist = obj.get("playlistId").and_then(Value::as_str).or_else(|| {
-            obj.get("navigationEndpoint")
-                .and_then(|e| e.pointer("/browseEndpoint/browseId"))
-                .and_then(Value::as_str)
-                .and_then(|b| b.strip_prefix("VL"))
-        });
-        let Some(playlist) = playlist.filter(|s| s.starts_with("PL") || s.starts_with("LM")) else {
+        if playlist == "LM" {
             return;
-        };
+        }
         let id = format!("yt:playlist:{playlist}");
         if lists.iter().any(|p: &Playlist| p.id == id) {
             return;
         }
-        let name = first_text(node).unwrap_or_else(|| playlist.to_owned());
+        let name = first_text(node).unwrap_or_else(|| playlist.clone());
         lists.push(Playlist {
             id,
             date_added: String::new(),
@@ -312,6 +471,190 @@ fn playlists_from_browse(value: &Value) -> Vec<Playlist> {
         });
     });
     lists
+}
+
+fn albums_from_browse(value: &Value) -> Vec<Album> {
+    let mut albums = Vec::new();
+    walk(value, &mut |node| {
+        if video_id_from_node(node).is_some() {
+            return;
+        }
+        let Some(album_id) = album_id_from_node(node) else {
+            return;
+        };
+        let id = format!("yt:album:{album_id}");
+        if albums.iter().any(|a: &Album| a.id == id) {
+            return;
+        }
+        let name = first_text(node).unwrap_or_else(|| album_id.clone());
+        let artist = subtitle_text(node, 0)
+            .or_else(|| flex_column_text(node, 1))
+            .unwrap_or_default();
+        let year = subtitle_text(node, 1)
+            .filter(|s| s.chars().all(|c| c.is_ascii_digit()))
+            .unwrap_or_default();
+        albums.push(Album {
+            id,
+            date_added: String::new(),
+            name,
+            artist,
+            artwork: thumbnail(node).map(Artwork::new),
+            year,
+            track_count: 0,
+            library: true,
+        });
+    });
+    albums
+}
+
+fn artists_from_browse(value: &Value) -> Vec<Artist> {
+    let mut artists = Vec::new();
+    walk(value, &mut |node| {
+        if video_id_from_node(node).is_some() {
+            return;
+        }
+        let Some(channel) = artist_id_from_node(node) else {
+            return;
+        };
+        let id = format!("yt:artist:{channel}");
+        if artists.iter().any(|a: &Artist| a.id == id) {
+            return;
+        }
+        let name = first_text(node).unwrap_or_else(|| channel.clone());
+        artists.push(Artist {
+            id,
+            name,
+            artwork: thumbnail(node).map(Artwork::new),
+            genres: String::new(),
+            library: true,
+        });
+    });
+    artists
+}
+
+fn video_id_from_node(node: &Value) -> Option<&str> {
+    node.get("videoId")
+        .and_then(Value::as_str)
+        .or_else(|| {
+            node.pointer("/playlistItemData/videoId")
+                .and_then(Value::as_str)
+        })
+        .or_else(|| {
+            node.pointer("/navigationEndpoint/watchEndpoint/videoId")
+                .and_then(Value::as_str)
+        })
+        .or_else(|| {
+            node.pointer("/overlay/musicItemThumbnailOverlayRenderer/content/musicPlayButtonRenderer/playNavigationEndpoint/watchEndpoint/videoId")
+                .and_then(Value::as_str)
+        })
+        .filter(|s| !s.is_empty())
+}
+
+fn playlist_id_from_node(node: &Value) -> Option<String> {
+    let raw = node
+        .get("playlistId")
+        .and_then(Value::as_str)
+        .or_else(|| {
+            node.pointer("/navigationEndpoint/browseEndpoint/browseId")
+                .and_then(Value::as_str)
+        })
+        .or_else(|| {
+            node.pointer("/title/runs/0/navigationEndpoint/browseEndpoint/browseId")
+                .and_then(Value::as_str)
+        })?;
+    normalize_playlist_id(raw)
+}
+
+fn album_id_from_node(node: &Value) -> Option<String> {
+    let raw = node
+        .pointer("/navigationEndpoint/browseEndpoint/browseId")
+        .and_then(Value::as_str)
+        .or_else(|| {
+            node.pointer("/title/runs/0/navigationEndpoint/browseEndpoint/browseId")
+                .and_then(Value::as_str)
+        })?;
+    if raw.starts_with("MPREb_") {
+        Some(raw.to_owned())
+    } else {
+        None
+    }
+}
+
+fn artist_id_from_node(node: &Value) -> Option<String> {
+    let raw = node
+        .pointer("/navigationEndpoint/browseEndpoint/browseId")
+        .and_then(Value::as_str)
+        .or_else(|| {
+            node.pointer("/title/runs/0/navigationEndpoint/browseEndpoint/browseId")
+                .and_then(Value::as_str)
+        })?;
+    let channel = raw.strip_prefix("MPLA").unwrap_or(raw);
+    if channel.starts_with("UC") {
+        Some(channel.to_owned())
+    } else {
+        None
+    }
+}
+
+/// InnerTube wraps playlists as `VL` + id. ytmusicapi strips those two
+/// characters; we do the same, then drop feature pages (`FE…`), albums
+/// (`MPRE…` / `OLAK…`) and radios (`RD…`).
+fn normalize_playlist_id(raw: &str) -> Option<String> {
+    let id = raw.strip_prefix("VL").unwrap_or(raw);
+    if id.is_empty()
+        || id.starts_with("FE")
+        || id.starts_with("MP")
+        || id.starts_with("UC")
+        || id.starts_with("RD")
+        || id.starts_with("OLAK")
+        || id.starts_with("RDEM")
+    {
+        return None;
+    }
+    if id.starts_with("PL")
+        || id.starts_with("LM")
+        || id.starts_with("WL")
+        || id.starts_with("LL")
+        || id.starts_with("OLA")
+        || id.len() >= 11
+    {
+        Some(id.to_owned())
+    } else {
+        None
+    }
+}
+
+fn first_playlist_id(value: &Value) -> Option<String> {
+    let mut found = None;
+    walk(value, &mut |node| {
+        if found.is_some() {
+            return;
+        }
+        if let Some(id) = node.get("playlistId").and_then(Value::as_str) {
+            if !id.is_empty() {
+                found = Some(id.to_owned());
+            }
+        }
+    });
+    found
+}
+
+fn page_title(value: &Value) -> Option<String> {
+    const PATHS: &[&str] = &[
+        "/header/musicDetailHeaderRenderer/title/runs/0/text",
+        "/header/musicEditablePlaylistDetailHeaderRenderer/header/musicDetailHeaderRenderer/title/runs/0/text",
+        "/header/musicVisualHeaderRenderer/title/runs/0/text",
+        "/header/musicImmersiveHeaderRenderer/title/runs/0/text",
+        "/contents/twoColumnBrowseResultsRenderer/tabs/0/tabRenderer/content/sectionListRenderer/contents/0/musicResponsiveHeaderRenderer/title/runs/0/text",
+    ];
+    for path in PATHS {
+        if let Some(text) = value.pointer(path).and_then(Value::as_str) {
+            if !text.is_empty() {
+                return Some(text.to_owned());
+            }
+        }
+    }
+    None
 }
 
 fn walk<'a>(value: &'a Value, visit: &mut impl FnMut(&'a Value)) {
@@ -349,6 +692,13 @@ fn flex_column_text(value: &Value, index: usize) -> Option<String> {
         .map(str::to_owned)
 }
 
+fn subtitle_text(value: &Value, index: usize) -> Option<String> {
+    value
+        .pointer(&format!("/subtitle/runs/{index}/text"))
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+}
+
 fn thumbnail(value: &Value) -> Option<String> {
     value
         .pointer("/thumbnail/musicThumbnailRenderer/thumbnail/thumbnails")
@@ -382,11 +732,126 @@ mod tests {
     fn video_ids_strip_the_prefix() {
         assert_eq!(video_id("yt:dQw4w9WgXcQ").unwrap(), "dQw4w9WgXcQ");
         assert!(video_id("sp:abc").is_err());
+        assert!(video_id("yt:playlist:PLabc").is_err());
     }
 
     #[test]
-    fn sapisid_is_read_from_the_cookie_header() {
+    fn sapisid_prefers_the_secure_cookie_ytmusicapi_hashes() {
+        let cookie = "SID=x; SAPISID=stale; __Secure-3PAPISID=fresh; HSID=y";
+        assert_eq!(sapisid_from_cookie(cookie).as_deref(), Some("fresh"));
+    }
+
+    #[test]
+    fn sapisid_falls_back_when_the_secure_name_is_missing() {
         let cookie = "SID=x; SAPISID=secret; HSID=y";
         assert_eq!(sapisid_from_cookie(cookie).as_deref(), Some("secret"));
+    }
+
+    #[test]
+    fn playlist_ids_accept_innertube_vl_wrappers() {
+        assert_eq!(
+            normalize_playlist_id("VLPLQwVIlKxHM6rz0fDJVv_0UlXGEWf-bFys").as_deref(),
+            Some("PLQwVIlKxHM6rz0fDJVv_0UlXGEWf-bFys")
+        );
+        assert_eq!(
+            normalize_playlist_id("PLabcdefghijk").as_deref(),
+            Some("PLabcdefghijk")
+        );
+        assert!(normalize_playlist_id("FEmusic_liked_playlists").is_none());
+        assert!(normalize_playlist_id("MPREb_G8AiyN7RvFg").is_none());
+        assert!(normalize_playlist_id("RDAMVMHLCsfOykA94").is_none());
+    }
+
+    #[test]
+    fn library_tiles_parse_from_innertube_two_row_items() {
+        let json = json!({
+            "contents": {
+                "singleColumnBrowseResultsRenderer": {
+                    "tabs": [{
+                        "tabRenderer": {
+                            "content": {
+                                "sectionListRenderer": {
+                                    "contents": [{
+                                        "gridRenderer": {
+                                            "items": [
+                                                {
+                                                    "musicTwoRowItemRenderer": {
+                                                        "title": { "runs": [{ "text": "Gym" }] },
+                                                        "navigationEndpoint": {
+                                                            "browseEndpoint": {
+                                                                "browseId": "VLPLQwVIlKxHM6rz0fDJVv_0UlXGEWf-bFys"
+                                                            }
+                                                        },
+                                                        "thumbnailRenderer": {
+                                                            "musicThumbnailRenderer": {
+                                                                "thumbnail": {
+                                                                    "thumbnails": [
+                                                                        { "url": "https://i.ytimg.com/vi/x/hqdefault.jpg" }
+                                                                    ]
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                },
+                                                {
+                                                    "musicTwoRowItemRenderer": {
+                                                        "title": { "runs": [{ "text": "Beautiful" }] },
+                                                        "subtitle": { "runs": [
+                                                            { "text": "Project 46" },
+                                                            { "text": " · " },
+                                                            { "text": "2015" }
+                                                        ]},
+                                                        "navigationEndpoint": {
+                                                            "browseEndpoint": {
+                                                                "browseId": "MPREb_G8AiyN7RvFg"
+                                                            }
+                                                        }
+                                                    }
+                                                },
+                                                {
+                                                    "musicTwoRowItemRenderer": {
+                                                        "title": { "runs": [{ "text": "Aitana" }] },
+                                                        "navigationEndpoint": {
+                                                            "browseEndpoint": {
+                                                                "browseId": "UCxEqaQWosMHaTih-tgzDqug"
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            ]
+                                        }
+                                    }]
+                                }
+                            }
+                        }
+                    }]
+                }
+            }
+        });
+        let lists = playlists_from_browse(&json);
+        assert_eq!(lists.len(), 1);
+        assert_eq!(
+            lists[0].id,
+            "yt:playlist:PLQwVIlKxHM6rz0fDJVv_0UlXGEWf-bFys"
+        );
+        assert_eq!(lists[0].name, "Gym");
+
+        let albums = albums_from_browse(&json);
+        assert_eq!(albums.len(), 1);
+        assert_eq!(albums[0].id, "yt:album:MPREb_G8AiyN7RvFg");
+        assert_eq!(albums[0].name, "Beautiful");
+        assert_eq!(albums[0].artist, "Project 46");
+
+        let artists = artists_from_browse(&json);
+        assert_eq!(artists.len(), 1);
+        assert_eq!(artists[0].id, "yt:artist:UCxEqaQWosMHaTih-tgzDqug");
+        assert_eq!(artists[0].name, "Aitana");
+    }
+
+    #[test]
+    fn playlist_key_accepts_the_synthetic_liked_id() {
+        assert_eq!(playlist_key("yt:liked").unwrap(), "LM");
+        assert_eq!(playlist_key("yt:playlist:PLabc").unwrap(), "PLabc");
+        assert_eq!(playlist_key("yt:playlist:VLPLabc").unwrap(), "PLabc");
     }
 }

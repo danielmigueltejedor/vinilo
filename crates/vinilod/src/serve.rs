@@ -1960,44 +1960,74 @@ fn should_surface_spotify_error(detail: &str) -> bool {
         || lower.contains("429")
 }
 
-fn discover_spotify(daemon: &Rc<Daemon>) {
-    let cached = vinilo_core::discover::load();
-    if !cached.is_empty() {
-        daemon.publish(Event::Discover(cached));
+fn catalog_homemade(daemon: &Daemon) -> vinilo_core::discover::Discover {
+    let history = vinilo_core::listen_history::load();
+    let model = daemon.model.borrow();
+    if !model.library.tracks.is_empty()
+        || !model.library.albums.is_empty()
+        || !model.library.playlists.is_empty()
+    {
+        return vinilo_core::discover::homemade(
+            &model.library.tracks,
+            &model.library.albums,
+            &model.library.playlists,
+            &history,
+        );
     }
-    let homemade = {
-        let library = &daemon.model.borrow().library;
-        vinilo_core::discover::homemade(
-            &library.tracks,
-            &library.albums,
-            &library.playlists,
-            &vinilo_core::listen_history::load(),
-        )
-    };
-    if vinilo_core::spotify::cooling_down() {
-        vinilo_core::discover::save(&homemade);
-        daemon.publish(Event::Discover(homemade));
+    drop(model);
+    let cached = vinilo_core::library_cache::load();
+    vinilo_core::discover::homemade(
+        &cached.songs,
+        &cached.albums,
+        &cached.playlists,
+        &history,
+    )
+}
+
+fn publish_discover(daemon: &Daemon, page: vinilo_core::discover::Discover) {
+    let mut page = page;
+    // Keep shelves a previous fetch already filled. An older request that
+    // left with an empty library used to land charts-only and wipe playlists.
+    page.fill_gaps(vinilo_core::discover::load());
+    if page.is_empty() {
         return;
     }
-    if !homemade.is_empty() {
-        daemon.publish(Event::Discover(homemade.clone()));
+    vinilo_core::discover::save(&page);
+    daemon.publish(Event::Discover(page));
+}
+
+fn discover_spotify(daemon: &Rc<Daemon>) {
+    publish_discover(daemon, catalog_homemade(daemon));
+    if vinilo_core::spotify::cooling_down() {
+        return;
     }
     let daemon = daemon.clone();
     tokio::task::spawn_local(async move {
         let http = vinilo_core::streams::http();
         let snapshot = {
             let library = &daemon.model.borrow().library;
-            vinilo_core::spotify::Library {
+            let mut snapshot = vinilo_core::spotify::Library {
                 songs: library.tracks.clone(),
                 albums: library.albums.clone(),
                 artists: library.artists.clone(),
                 playlists: library.playlists.clone(),
+            };
+            if snapshot.songs.is_empty() && snapshot.playlists.is_empty() {
+                let cached = vinilo_core::library_cache::load();
+                snapshot.songs = cached.songs;
+                snapshot.albums = cached.albums;
+                snapshot.artists = cached.artists;
+                snapshot.playlists = cached.playlists;
             }
+            snapshot
         };
         let fetch = vinilo_core::spotify::discover(&http, &snapshot);
         match tokio::time::timeout(std::time::Duration::from_secs(20), fetch).await {
             Ok(Ok(mut page)) => {
-                page.fill_gaps(homemade);
+                // Homemade from *now*, not from when this fetch started: an
+                // older request that left with an empty library used to land
+                // after the good page and wipe Listen Now.
+                page.fill_gaps(catalog_homemade(&daemon));
                 remember_songs(
                     &daemon,
                     &page
@@ -2018,18 +2048,15 @@ fn discover_spotify(daemon: &Rc<Daemon>) {
                     charts = page.charts.len(),
                     "spotify listen now shelves"
                 );
-                vinilo_core::discover::save(&page);
-                daemon.publish(Event::Discover(page));
+                publish_discover(&daemon, page);
             }
             Ok(Err(err)) => {
                 tracing::warn!(?err, "spotify discover failed");
-                vinilo_core::discover::save(&homemade);
-                daemon.publish(Event::Discover(homemade));
+                publish_discover(&daemon, catalog_homemade(&daemon));
             }
             Err(_) => {
                 tracing::warn!("spotify discover timed out — keeping homemade shelves");
-                vinilo_core::discover::save(&homemade);
-                daemon.publish(Event::Discover(homemade));
+                publish_discover(&daemon, catalog_homemade(&daemon));
             }
         }
     });
@@ -2083,6 +2110,64 @@ fn open_spotify_page(daemon: &Rc<Daemon>, kind: PageKind, id: String) {
             }
             Err(err) => {
                 tracing::warn!(?err, %id, "opening a Spotify page failed");
+                if vinilo_core::page_cache::load(kind, &id).is_none() {
+                    daemon.publish(Event::Error {
+                        detail: format!("{err}"),
+                    });
+                }
+            }
+        }
+    });
+}
+
+fn open_ytmusic_page(daemon: &Rc<Daemon>, kind: PageKind, id: String) {
+    if let Some(cached) = vinilo_core::page_cache::load(kind, &id) {
+        remember_songs(
+            daemon,
+            &cached
+                .entries
+                .iter()
+                .filter_map(|e| match e {
+                    Entry::Song(t) => Some(t.clone()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>(),
+        );
+        daemon.publish(Event::Page {
+            kind,
+            id: id.clone(),
+            header: cached.header,
+            entries: cached.entries,
+        });
+    }
+    let daemon = daemon.clone();
+    tokio::task::spawn_local(async move {
+        let http = vinilo_core::streams::http_long();
+        match vinilo_core::ytmusic::open(&http, kind, &id).await {
+            Ok((header, entries)) => {
+                let songs: Vec<_> = entries
+                    .iter()
+                    .filter_map(|e| match e {
+                        Entry::Song(t) => Some(t.clone()),
+                        _ => None,
+                    })
+                    .collect();
+                remember_songs(&daemon, &songs);
+                let unchanged = vinilo_core::page_cache::load(kind, &id).is_some_and(|cached| {
+                    vinilo_core::page_cache::same(&cached, &header, &entries)
+                });
+                vinilo_core::page_cache::save(kind, &id, &header, &entries);
+                if !unchanged {
+                    daemon.publish(Event::Page {
+                        kind,
+                        id,
+                        header,
+                        entries,
+                    });
+                }
+            }
+            Err(err) => {
+                tracing::warn!(?err, %id, "opening a YouTube Music page failed");
                 if vinilo_core::page_cache::load(kind, &id).is_none() {
                     daemon.publish(Event::Error {
                         detail: format!("{err}"),
@@ -2448,6 +2533,10 @@ fn open_page(daemon: &Rc<Daemon>, kind: PageKind, id: String) {
         open_spotify_page(daemon, kind, id);
         return;
     }
+    if provider == vinilo_core::provider::Provider::YoutubeMusic && id.starts_with("yt:") {
+        open_ytmusic_page(daemon, kind, id);
+        return;
+    }
     if let Some(cached) = vinilo_core::page_cache::load(kind, &id) {
         daemon.publish(Event::Page {
             kind,
@@ -2542,35 +2631,22 @@ fn discover(daemon: &Rc<Daemon>) {
         return;
     }
 
-    let cached = vinilo_core::discover::load();
-    if !cached.is_empty() {
-        daemon.publish(Event::Discover(cached));
-    }
-
-    let homemade = {
-        let library = &daemon.model.borrow().library;
-        vinilo_core::discover::homemade(
-            &library.tracks,
-            &library.albums,
-            &library.playlists,
-            &vinilo_core::listen_history::load(),
-        )
-    };
+    let homemade = catalog_homemade(daemon);
 
     if !provider.needs_apple() {
-        daemon.publish(Event::Discover(homemade));
+        publish_discover(daemon, homemade);
         return;
     }
 
     let Some(client) = daemon.client() else {
-        daemon.publish(Event::Discover(homemade));
+        publish_discover(daemon, homemade);
         return;
     };
 
     let daemon = daemon.clone();
     tokio::task::spawn_local(async move {
         let mut page = client.discover().await;
-        page.fill_gaps(homemade);
+        page.fill_gaps(catalog_homemade(&daemon));
         tracing::info!(
             recently_played = page.recently_played.len(),
             made_for_you = page.recommended_playlists.len(),
@@ -2579,8 +2655,7 @@ fn discover(daemon: &Rc<Daemon>) {
             charts = page.charts.len(),
             "listen now shelves"
         );
-        vinilo_core::discover::save(&page);
-        daemon.publish(Event::Discover(page));
+        publish_discover(&daemon, page);
     });
 }
 

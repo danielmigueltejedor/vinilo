@@ -212,6 +212,11 @@ impl AppModel {
             }
             Event::Discover(page) => {
                 self.loading_discover = false;
+                if page.is_empty() && !self.discover.is_empty() {
+                    return;
+                }
+                let mut page = page;
+                page.fill_gaps(self.discover.snapshot());
                 self.discover.fill(page);
             }
             Event::LibraryRefreshing { refreshing } => {
