@@ -97,6 +97,10 @@ impl DiscoverView {
     }
 
     pub fn fill(&mut self, data: Discover) {
+        if self.data.same_tiles(&data) {
+            self.data = data;
+            return;
+        }
         self.data = data;
         self.fill_body();
         self.stack.set_visible_child_name(if self.data.is_empty() {

@@ -14,6 +14,7 @@
 //! that lies about the state of things.
 
 use relm4::gtk;
+use relm4::gtk::prelude::ToVariant;
 use relm4::gtk::prelude::*;
 
 use super::{AppModel, AppMsg, LibraryAction};
@@ -115,7 +116,12 @@ impl AppModel {
         let lists = gtk::gio::Menu::new();
         lists.append(Some(i18n::t(Key::NewPlaylist)), Some("row.new-playlist"));
         for (id, name) in self.writable_playlists().into_iter().take(24) {
-            lists.append(Some(&name), Some(&format!("row.add-to-playlist::{id}")));
+            // Spotify/YTM ids contain colons (`sp:playlist:…`). GLib parses
+            // `action::target` as a GVariant print, so a detailed name never
+            // activates. Set the target as a real string variant instead.
+            let item = gtk::gio::MenuItem::new(Some(&name), None);
+            item.set_action_and_target_value(Some("row.add-to-playlist"), Some(&id.to_variant()));
+            lists.append_item(&item);
         }
         menu.append_section(None, &{
             let section = gtk::gio::Menu::new();

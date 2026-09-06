@@ -79,6 +79,30 @@ impl Discover {
             && self.charts.is_empty()
     }
 
+    /// Whether two pages would paint the same tiles. Artwork URLs can churn
+    /// between a cache hit and a refresh; rebuilding for that is the flicker
+    /// when you reopen Listen Now.
+    pub fn same_tiles(&self, other: &Discover) -> bool {
+        fn entries(a: &[Entry], b: &[Entry]) -> bool {
+            a.len() == b.len()
+                && a.iter()
+                    .zip(b)
+                    .all(|(left, right)| left.id() == right.id() && left.title() == right.title())
+        }
+        fn songs(a: &[Track], b: &[Track]) -> bool {
+            a.len() == b.len()
+                && a.iter().zip(b).all(|(left, right)| {
+                    song_key(left) == song_key(right) && left.title == right.title
+                })
+        }
+        self.provider == other.provider
+            && entries(&self.recently_played, &other.recently_played)
+            && entries(&self.recommended_playlists, &other.recommended_playlists)
+            && songs(&self.recommended_songs, &other.recommended_songs)
+            && entries(&self.recently_added, &other.recently_added)
+            && entries(&self.charts, &other.charts)
+    }
+
     /// Fill any shelf Apple left empty, without replacing one that already has
     /// editorial content.
     pub fn fill_gaps(&mut self, homemade: Discover) {
@@ -98,6 +122,10 @@ impl Discover {
             self.charts = homemade.charts;
         }
     }
+}
+
+fn song_key(track: &Track) -> &str {
+    track.catalog_id.as_deref().unwrap_or(track.id.0.as_str())
 }
 
 fn entry_title_is_raw_id(entry: &Entry) -> bool {
@@ -329,6 +357,27 @@ mod tests {
         let made = homemade(&songs, &[], &[], &[]);
         assert_eq!(made.recommended_songs.len(), 1);
         assert_eq!(made.recommended_songs[0].title, "star");
+    }
+
+    #[test]
+    fn same_tiles_ignores_artwork_url_churn() {
+        let mut a = Discover::shelves(
+            vec![Entry::Song(song("played", false, ""))],
+            Vec::new(),
+            vec![song("star", true, "")],
+            Vec::new(),
+            Vec::new(),
+        );
+        let mut b = a.clone();
+        if let Entry::Song(track) = &mut a.recently_played[0] {
+            track.artwork = Some(Artwork::new("https://cdn/old/{w}x{h}.jpg"));
+        }
+        if let Entry::Song(track) = &mut b.recently_played[0] {
+            track.artwork = Some(Artwork::new("https://cdn/new/{w}x{h}.jpg"));
+        }
+        assert!(a.same_tiles(&b));
+        b.recommended_songs[0].title = "other".into();
+        assert!(!a.same_tiles(&b));
     }
 
     #[test]

@@ -107,23 +107,101 @@ async fn add_to_playlist(
 ) -> Result<()> {
     let playlist_uri = playlist_uri(playlist_id)?;
     let track_uri = library_item_uri(track_id)?;
-    let variables = json!({
-        "playlistUri": playlist_uri,
-        "playlistItemUris": [track_uri],
-        "newPosition": {
-            "moveType": "BOTTOM_OF_PLAYLIST",
-            "fromUid": null
+    let shapes = [
+        json!({
+            "playlistUri": playlist_uri,
+            "playlistItemUris": [track_uri],
+            "newPosition": {
+                "moveType": "BOTTOM_OF_PLAYLIST",
+                "fromUid": null
+            }
+        }),
+        json!({
+            "playlistUri": playlist_uri,
+            "uris": [track_uri],
+            "newPosition": { "moveType": "BOTTOM" }
+        }),
+    ];
+    let mut last = anyhow::anyhow!("spotify addToPlaylist failed");
+    for variables in shapes {
+        match partner_query(
+            http,
+            session,
+            "addToPlaylist",
+            partner::ADD_TO_PLAYLIST,
+            variables,
+        )
+        .await
+        {
+            Ok(_) => return Ok(()),
+            Err(err) => last = err,
         }
-    });
-    partner_query(
-        http,
-        session,
-        "addToPlaylist",
-        partner::ADD_TO_PLAYLIST,
-        variables,
-    )
-    .await
-    .map(|_| ())
+    }
+    match add_to_playlist_v2(http, session, playlist_id, &track_uri).await {
+        Ok(()) => Ok(()),
+        Err(err) => Err(last).context(format!("spotify addToPlaylist ({err})")),
+    }
+}
+
+fn add_items_body(track_uri: &str) -> Value {
+    json!({
+        "ops": [{
+            "kind": "ADD",
+            "add": {
+                "fromIndex": 0,
+                "items": [{ "uri": track_uri }],
+                "addFirst": false,
+                "addLast": true
+            }
+        }],
+        "info": { "source": { "client": "WEBPLAYER" } }
+    })
+}
+
+/// Pathfinder hashes rotate. The same playlist/v2 Cosmic POST that creates a
+/// list can append a track without a persisted query.
+async fn add_to_playlist_v2(
+    http: &reqwest::Client,
+    session: &Session,
+    playlist_id: &str,
+    track_uri: &str,
+) -> Result<()> {
+    let id = match Ref::parse(playlist_id) {
+        Some(Ref::Playlist(id)) => id,
+        _ => bail!("not a Spotify playlist id"),
+    };
+    let url = format!("{}/playlist/{id}", partner::PLAYLIST_V2);
+    let mut req = http
+        .post(&url)
+        .bearer_auth(&session.access)
+        .header("Accept", "application/json")
+        .header("Content-Type", "application/json")
+        .header("Origin", "https://open.spotify.com")
+        .header("Referer", "https://open.spotify.com/")
+        .header("Spotify-App-Version", &session.client_version)
+        .header("App-Platform", "WebPlayer");
+    if let Some(token) = &session.client_token {
+        req = req.header("client-token", token);
+    }
+    if let Some(cookie) = crate::setup::session_cookie(crate::provider::Provider::Spotify) {
+        req = req.header("Cookie", cookie);
+    }
+    let res = req
+        .json(&add_items_body(track_uri))
+        .send()
+        .await
+        .context("spotify playlist add")?;
+    let status = res.status();
+    let text = res.text().await.unwrap_or_default();
+    if !status.is_success() {
+        tracing::warn!(
+            %status,
+            body = %super::clip_body(&text),
+            "spotify playlist add http error"
+        );
+        bail!("Spotify would not add the track ({status})");
+    }
+    Ok(())
 }
 
 fn create_playlist_body(name: &str) -> Value {
@@ -235,6 +313,24 @@ mod tests {
         assert_eq!(
             body.pointer("/info/source/client").and_then(Value::as_str),
             Some("WEBPLAYER")
+        );
+    }
+
+    #[test]
+    fn add_items_body_appends_the_track() {
+        let body = add_items_body("spotify:track:4uLU6hMCjMI75M1A2tKUQC");
+        assert_eq!(
+            body.pointer("/ops/0/kind").and_then(Value::as_str),
+            Some("ADD")
+        );
+        assert_eq!(
+            body.pointer("/ops/0/add/items/0/uri")
+                .and_then(Value::as_str),
+            Some("spotify:track:4uLU6hMCjMI75M1A2tKUQC")
+        );
+        assert_eq!(
+            body.pointer("/ops/0/add/addLast").and_then(Value::as_bool),
+            Some(true)
         );
     }
 }

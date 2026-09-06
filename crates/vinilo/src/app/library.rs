@@ -40,23 +40,29 @@ impl AppModel {
     /// Listen Now: paint the disk cache immediately, then ask the daemon for a
     /// fresh page. Apple's recommendations can 403; the daemon fills gaps from
     /// the library and the local listen history.
+    ///
+    /// Re-entering the section must not rebuild widgets that are already on
+    /// screen. The cache and the daemon often return the same shelves; painting
+    /// them again is the flicker after the page had already loaded.
     pub(super) fn refresh_discover(&mut self) {
         if self.settings.provider == vinilo_core::provider::Provider::Local {
             self.loading_discover = false;
             return;
         }
-        let cached = vinilo_core::discover::load();
-        if !cached.is_empty() {
-            self.discover.fill(cached);
-        } else if self.discover.is_empty() {
-            let homemade = vinilo_core::discover::homemade(
-                &self.all_tracks,
-                &self.albums,
-                &self.playlists,
-                &vinilo_core::listen_history::load(),
-            );
-            if !homemade.is_empty() {
-                self.discover.fill(homemade);
+        if self.discover.is_empty() {
+            let cached = vinilo_core::discover::load();
+            if !cached.is_empty() {
+                self.discover.fill(cached);
+            } else {
+                let homemade = vinilo_core::discover::homemade(
+                    &self.all_tracks,
+                    &self.albums,
+                    &self.playlists,
+                    &vinilo_core::listen_history::load(),
+                );
+                if !homemade.is_empty() {
+                    self.discover.fill(homemade);
+                }
             }
         }
         if self.daemon.is_none() {
