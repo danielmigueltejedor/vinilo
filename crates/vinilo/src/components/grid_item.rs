@@ -53,7 +53,7 @@ thread_local! {
     /// the empty sleeve while the same JPEG was decoded again; painting from
     /// here is a wrap, not a decode, so it can happen on the GTK thread.
     static ART_CACHE: RefCell<HashMap<String, gtk::gdk::MemoryTexture>> =
-        const { RefCell::new(HashMap::new()) };
+        RefCell::new(HashMap::new());
 }
 
 pub fn art_is_cached(key: &str) -> bool {
