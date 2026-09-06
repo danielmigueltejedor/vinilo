@@ -72,6 +72,9 @@ impl Ref {
                 if let Some(a) = other.strip_prefix("artist:") {
                     return Some(Self::Artist(a.to_owned()));
                 }
+                if let Some(t) = other.strip_prefix("track:") {
+                    return (!t.is_empty() && !t.contains(':')).then(|| Self::Track(t.to_owned()));
+                }
                 if other.is_empty() || other.contains(':') {
                     return None;
                 }
@@ -734,6 +737,19 @@ async fn library_v3_playlists(
     session: &partner::Session,
     max: usize,
 ) -> Result<Vec<Playlist>> {
+    let mut lists = library_v3_playlists_with(http, session, max, "Playlists").await?;
+    if lists.is_empty() {
+        lists = library_v3_playlists_with(http, session, max, "").await?;
+    }
+    Ok(lists)
+}
+
+async fn library_v3_playlists_with(
+    http: &reqwest::Client,
+    session: &partner::Session,
+    max: usize,
+    filter: &str,
+) -> Result<Vec<Playlist>> {
     let mut lists = Vec::new();
     let mut offset = 0usize;
     let limit = partner::page_limit();
@@ -743,7 +759,7 @@ async fn library_v3_playlists(
             session,
             "libraryV3",
             partner::LIBRARY_V3,
-            partner::library_v3_vars("Playlists", offset, limit, true),
+            partner::library_v3_vars(filter, offset, limit, true),
         )
         .await?;
         let lib = value
@@ -1307,14 +1323,7 @@ fn song_from_playlist_item(item: &Value) -> Option<Track> {
 }
 
 fn playlist_from_library_item(item: &Value) -> Option<Playlist> {
-    let wrapper = item.get("item")?;
-    let typename = wrapper
-        .get("__typename")
-        .and_then(Value::as_str)
-        .unwrap_or("");
-    if !typename.contains("Playlist") {
-        return None;
-    }
+    let wrapper = item.get("item").unwrap_or(item);
     let data = wrapper.get("data").unwrap_or(wrapper);
     if data.get("__typename").and_then(Value::as_str) == Some("NotFound") {
         return None;
@@ -1325,10 +1334,21 @@ fn playlist_from_library_item(item: &Value) -> Option<Playlist> {
         .or_else(|| data.get("uri"))
         .and_then(Value::as_str)
         .unwrap_or("");
-    let id = uri_tail(uri);
-    if id.is_empty() || uri.contains(":collection:") {
+    if uri.contains(":collection:") {
         return None;
     }
+    let typename = format!(
+        "{}{}",
+        wrapper
+            .get("__typename")
+            .and_then(Value::as_str)
+            .unwrap_or(""),
+        data.get("__typename").and_then(Value::as_str).unwrap_or("")
+    );
+    if !typename.contains("Playlist") && !uri.contains(":playlist:") {
+        return None;
+    }
+    let id = uri_tail(uri);
     playlist_from_gql(data, &id).map(|mut list| {
         list.library = true;
         list
@@ -1336,15 +1356,20 @@ fn playlist_from_library_item(item: &Value) -> Option<Playlist> {
 }
 
 fn album_from_library_item(item: &Value) -> Option<Album> {
-    let wrapper = item.get("item")?;
+    let wrapper = item.get("item").unwrap_or(item);
     let typename = wrapper
         .get("__typename")
         .and_then(Value::as_str)
         .unwrap_or("");
-    if !typename.contains("Album") {
+    let data = wrapper.get("data").unwrap_or(wrapper);
+    if !typename.contains("Album")
+        && !data
+            .get("__typename")
+            .and_then(Value::as_str)
+            .is_some_and(|t| t.contains("Album"))
+    {
         return None;
     }
-    let data = wrapper.get("data").unwrap_or(wrapper);
     album_from_gql(data, "").map(|mut album| {
         album.library = true;
         album.date_added = item
@@ -2160,6 +2185,7 @@ mod tests {
     #[test]
     fn track_album_and_liked_ids_round_trip() {
         assert_eq!(Ref::parse("sp:abc"), Some(Ref::Track("abc".into())));
+        assert_eq!(Ref::parse("sp:track:abc"), Some(Ref::Track("abc".into())));
         assert_eq!(Ref::parse("sp:album:x"), Some(Ref::Album("x".into())));
         assert_eq!(Ref::parse("sp:playlist:y"), Some(Ref::Playlist("y".into())));
         assert_eq!(Ref::parse("sp:liked"), Some(Ref::Liked));
@@ -2304,6 +2330,18 @@ mod tests {
             list.artwork.as_ref().unwrap().url(64),
             "https://i.scdn.co/image/p"
         );
+        let flat = serde_json::json!({
+            "__typename": "PlaylistResponseWrapper",
+            "uri": "spotify:playlist:pl2",
+            "data": {
+                "__typename": "Playlist",
+                "uri": "spotify:playlist:pl2",
+                "name": "Drive"
+            }
+        });
+        let list = playlist_from_library_item(&flat).unwrap();
+        assert_eq!(list.id, "sp:playlist:pl2");
+        assert!(list.library);
     }
 
     #[test]

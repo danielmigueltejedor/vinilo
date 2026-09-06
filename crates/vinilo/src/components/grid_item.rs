@@ -48,6 +48,38 @@ use relm4::{gtk, view};
 use crate::components::cover::Cover;
 use vinilo_core::music::types::{Album, Artist, Artwork, Playlist};
 
+thread_local! {
+    /// Decoded covers for this process. Rebuilds of Listen Now used to flash
+    /// the empty sleeve while the same JPEG was decoded again; painting from
+    /// here is a wrap, not a decode, so it can happen on the GTK thread.
+    static ART_CACHE: RefCell<HashMap<String, gtk::gdk::MemoryTexture>> =
+        const { RefCell::new(HashMap::new()) };
+}
+
+pub fn art_is_cached(key: &str) -> bool {
+    ART_CACHE.with(|cache| cache.borrow().contains_key(key))
+}
+
+pub fn remember_art(key: String, texture: &gtk::gdk::MemoryTexture) {
+    ART_CACHE.with(|cache| {
+        let mut map = cache.borrow_mut();
+        if map.len() > 400 {
+            map.clear();
+        }
+        map.insert(key, texture.clone());
+    });
+}
+
+pub fn apply_cached_art(cover: &Cover, key: &str) -> bool {
+    ART_CACHE.with(|cache| {
+        let Some(texture) = cache.borrow().get(key).cloned() else {
+            return false;
+        };
+        cover.set_texture(&texture);
+        true
+    })
+}
+
 /// Tile artwork, in logical pixels. Big enough to read, small enough that a
 /// library of a few hundred albums is a few hundred small JPEGs.
 /// How wide a grid tile asks to be.
@@ -125,7 +157,11 @@ impl SameWidget for Cover {
 /// Idempotent: `bind` can be called on a widget already registered for this
 /// key — rebinding the same tile to the same item — and the same widget twice
 /// in the list would be paint work done twice for ever.
-pub(crate) fn register<T: SameWidget + Clone>(registry: &mut HashMap<String, Vec<T>>, key: String, item: &T) {
+pub(crate) fn register<T: SameWidget + Clone>(
+    registry: &mut HashMap<String, Vec<T>>,
+    key: String,
+    item: &T,
+) {
     let showing = registry.entry(key).or_default();
     if !showing.iter().any(|c| c.same(item)) {
         showing.push(item.clone());
@@ -137,7 +173,11 @@ pub(crate) fn register<T: SameWidget + Clone>(registry: &mut HashMap<String, Vec
 /// The half that used to be wrong by construction: with one widget per key
 /// there was nothing to leave alone, so unbinding one tile silently
 /// unregistered whatever other tile had taken the entry.
-pub(crate) fn unregister<T: SameWidget>(registry: &mut HashMap<String, Vec<T>>, key: &str, item: &T) {
+pub(crate) fn unregister<T: SameWidget>(
+    registry: &mut HashMap<String, Vec<T>>,
+    key: &str,
+    item: &T,
+) {
     let Some(showing) = registry.get_mut(key) else {
         return;
     };
@@ -357,16 +397,15 @@ impl RelmGridItem for GridItem {
 
         if let Some(art) = self.tile.artwork() {
             let key = art.cache_key();
+            register(&mut self.registry.borrow_mut(), key.clone(), &widgets.cover);
+            if apply_cached_art(&widgets.cover, &key) {
+                return;
+            }
             // **Always ask; never decode here.** A cover already on disk used
             // to be loaded inline, which is a 2.5ms JPEG decode on the GTK
             // thread — fine for one tile, and half a second of frozen UI for
             // the ~385 a grid materialises in a single frame (#27).
-            //
-            // The request answers off the thread either way: it fetches only
-            // if the file is missing, and decodes in both cases. The tile keeps
-            // its placeholder for a frame or two and then fills in.
-            (self.request)(key.clone(), art.clone());
-            register(&mut self.registry.borrow_mut(), key, &widgets.cover);
+            (self.request)(key, art.clone());
         }
     }
 

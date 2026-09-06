@@ -2178,6 +2178,10 @@ impl AppModel {
             },
             AppMsg::NeedTileArt(key, art) => {
                 // Scrolling rebinds the same tile repeatedly; one request each.
+                // A cover already decoded this session is painted in `bind`.
+                if crate::components::grid_item::art_is_cached(&key) {
+                    return;
+                }
                 if !self.tile_art_pending.insert(key.clone()) {
                     return;
                 }
@@ -2707,6 +2711,7 @@ impl AppModel {
                 // the hidden one and left the visible one blank, which is what
                 // "some artwork does not load" turned out to be.
                 let texture = cover.into_texture();
+                crate::components::grid_item::remember_art(key.clone(), &texture);
                 let mut painted = 0usize;
                 for registry in [
                     &self.album_art_widgets,

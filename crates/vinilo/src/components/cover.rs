@@ -201,6 +201,13 @@ impl Cover {
     /// paints every tile that asked for it. The caller wraps once and hands
     /// the same texture to each.
     pub fn set_texture(&self, texture: &gtk::gdk::MemoryTexture) {
+        // Placeholder → art must not cross-fade: that dissolve is the cover
+        // flicker when Listen Now is already on screen and a tile is rebuilt
+        // or rebound from the in-memory cache.
+        let from_empty = self.empty.get();
+        if from_empty {
+            self.stack.set_transition_duration(0);
+        }
         self.empty.set(false);
         // **Shape first, same as `set_file`.** A round cover is an `AdwAvatar`,
         // not an image with a radius — see this module's header for why. Going
@@ -213,6 +220,9 @@ impl Cover {
         } else {
             self.image.set_paintable(Some(texture));
             self.stack.set_visible_child_name("image");
+        }
+        if from_empty {
+            self.stack.set_transition_duration(SWAP_MS);
         }
     }
 

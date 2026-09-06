@@ -111,6 +111,9 @@ pub struct Daemon {
     /// Catalogue tracks waiting to be downloaded behind the one that is
     /// playing, so Next can pull the next file instead of sitting on silence.
     pub catalog_rest: RefCell<Vec<vinilo_core::streams::StreamHit>>,
+    /// Bumped on every catalogue Play so a click while the previous download
+    /// is still running does not finish into the wrong song.
+    pub stream_play_gen: std::cell::Cell<u64>,
     /// The source this process booted with. Preferences may rewrite the
     /// provider file before we quit; the queue we save still belongs to this.
     pub source: vinilo_core::provider::Provider,
@@ -258,6 +261,7 @@ pub async fn run() -> Result<()> {
         last_listen: RefCell::new(None),
         stream_hits: RefCell::new(vinilo_core::streams::load_hits()),
         catalog_rest: RefCell::new(Vec::new()),
+        stream_play_gen: std::cell::Cell::new(0),
         source,
         refresh_again: std::cell::Cell::new(false),
         refresh_dirty: std::cell::Cell::new(false),
@@ -1736,9 +1740,9 @@ async fn refresh_spotify_library(daemon: &Rc<Daemon>, generation: u64) {
     }
 
     const BACKOFF_SECS: [u64; 3] = [0, 4, 12];
-    // Per-request HTTP already waits 25s. The old 25s cap around the *whole*
-    // library cancelled pagination mid-flight and left the cache empty.
-    const LIBRARY_DEADLINE: std::time::Duration = std::time::Duration::from_secs(180);
+    // Per-request HTTP already waits 25s. Cap one attempt so Songs/Playlists
+    // do not sit on a spinner for three minutes when Pathfinder hangs.
+    const LIBRARY_DEADLINE: std::time::Duration = std::time::Duration::from_secs(45);
     for (attempt, wait) in BACKOFF_SECS.iter().enumerate() {
         if daemon.authorization_generation.get() != generation {
             finish_and_maybe_chain(daemon, generation, false);
@@ -1796,6 +1800,7 @@ async fn refresh_spotify_library(daemon: &Rc<Daemon>, generation: u64) {
                     attempt = attempt + 1,
                     "spotify library fetch was empty — retrying"
                 );
+                daemon.publish(Event::LibraryRefreshing { refreshing: false });
             }
             Ok(Err(err)) => {
                 tracing::warn!(
@@ -1803,6 +1808,7 @@ async fn refresh_spotify_library(daemon: &Rc<Daemon>, generation: u64) {
                     attempt = attempt + 1,
                     "spotify library refresh failed"
                 );
+                daemon.publish(Event::LibraryRefreshing { refreshing: false });
                 let detail = format!("{err}");
                 if should_surface_spotify_error(&detail) {
                     if daemon.model.borrow().library.is_empty()
@@ -1819,6 +1825,7 @@ async fn refresh_spotify_library(daemon: &Rc<Daemon>, generation: u64) {
                     attempt = attempt + 1,
                     "spotify library refresh timed out — retrying"
                 );
+                daemon.publish(Event::LibraryRefreshing { refreshing: false });
             }
         }
         if !vinilo_core::library_cache::load().is_empty() {
@@ -2372,6 +2379,8 @@ fn remember_songs(daemon: &Daemon, songs: &[vinilo_core::music::types::Track]) {
 
 fn play_streams(daemon: &Rc<Daemon>, ids: Vec<String>, index: usize, start: Start) {
     let shuffled = start.reorders();
+    let play_gen = daemon.stream_play_gen.get().wrapping_add(1);
+    daemon.stream_play_gen.set(play_gen);
     let daemon = daemon.clone();
     tokio::task::spawn_local(async move {
         let mut hits = Vec::new();
@@ -2403,10 +2412,16 @@ fn play_streams(daemon: &Rc<Daemon>, ids: Vec<String>, index: usize, start: Star
             return;
         };
         let first = hydrate_hit(&daemon, first).await;
+        if daemon.stream_play_gen.get() != play_gen {
+            return;
+        }
         let next = match rest.first().cloned() {
             Some(hit) => Some(hydrate_hit(&daemon, hit).await),
             None => None,
         };
+        if daemon.stream_play_gen.get() != play_gen {
+            return;
+        }
         *daemon.catalog_rest.borrow_mut() = rest.clone();
         let dir_first = dir.clone();
         let download_first = first.clone();
@@ -2420,16 +2435,23 @@ fn play_streams(daemon: &Rc<Daemon>, ids: Vec<String>, index: usize, start: Star
         let path = match first_task.await {
             Ok(Ok(path)) => path,
             Ok(Err(detail)) => {
-                daemon.publish(Event::Error { detail });
+                if daemon.stream_play_gen.get() == play_gen {
+                    daemon.publish(Event::Error { detail });
+                }
                 return;
             }
             Err(err) => {
-                daemon.publish(Event::Error {
-                    detail: format!("{err}"),
-                });
+                if daemon.stream_play_gen.get() == play_gen {
+                    daemon.publish(Event::Error {
+                        detail: format!("{err}"),
+                    });
+                }
                 return;
             }
         };
+        if daemon.stream_play_gen.get() != play_gen {
+            return;
+        }
         if daemon.sidecar.borrow().is_some() {
             daemon.send(Command::Pause);
         }
@@ -2448,9 +2470,15 @@ fn play_streams(daemon: &Rc<Daemon>, ids: Vec<String>, index: usize, start: Star
             return;
         }
         publish_local(&daemon);
+        if daemon.stream_play_gen.get() != play_gen {
+            return;
+        }
         if let (Some(task), Some(hit)) = (next_task, next) {
             match task.await {
                 Ok(Ok(path)) => {
+                    if daemon.stream_play_gen.get() != play_gen {
+                        return;
+                    }
                     daemon.local.borrow_mut().append_hit(path, hit.clone());
                     take_catalog(&daemon, &hit.id);
                     if !rest.is_empty() && rest[0].id == hit.id {
@@ -2461,6 +2489,9 @@ fn play_streams(daemon: &Rc<Daemon>, ids: Vec<String>, index: usize, start: Star
                 Ok(Err(err)) => tracing::warn!(%err, "skipping a catalogue track"),
                 Err(err) => tracing::warn!(?err, "skipping a catalogue track"),
             }
+        }
+        if daemon.stream_play_gen.get() != play_gen {
+            return;
         }
         prefetch_stream_hits(&daemon, dir, rest).await;
         publish_local(&daemon);
@@ -3019,6 +3050,7 @@ mod tests {
             quitting: tokio::sync::Notify::new(),
             stream_hits: RefCell::new(HashMap::new()),
             catalog_rest: RefCell::new(Vec::new()),
+            stream_play_gen: std::cell::Cell::new(0),
             source: vinilo_core::provider::Provider::AppleMusic,
             refresh_again: std::cell::Cell::new(false),
             refresh_dirty: std::cell::Cell::new(false),

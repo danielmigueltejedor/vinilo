@@ -74,7 +74,8 @@ impl StreamHit {
             return None;
         }
         let play_query = if let Some(sp) = id.strip_prefix("sp:") {
-            if sp.contains(':') {
+            let sp = sp.strip_prefix("track:").unwrap_or(sp);
+            if sp.is_empty() || sp.contains(':') {
                 return None;
             }
             format!("https://open.spotify.com/track/{sp}")
@@ -438,5 +439,28 @@ mod tests {
         assert_eq!(hits[0].play_query, "https://open.spotify.com/track/abc");
         assert_eq!(hits[0].youtube_search_spec(), "ytsearch1:Aitana Pa Mal");
         assert!(!hits[0].title_is_placeholder());
+    }
+
+    #[test]
+    fn a_spotify_track_uri_still_becomes_a_playable_hit() {
+        let track = crate::music::types::Track {
+            id: crate::music::types::TrackId("sp:track:abc".into()),
+            catalog_id: Some("sp:track:abc".into()),
+            title: "Pa Mal".into(),
+            artist: "Aitana".into(),
+            album: "Alpha".into(),
+            favorite: false,
+            in_library: false,
+            library_id: None,
+            date_added: String::new(),
+            year: String::new(),
+            duration_ms: 180_000,
+            track_number: 1,
+            artwork: None,
+        };
+        let hit = StreamHit::from_song(&track).unwrap();
+        assert_eq!(hit.id, "sp:track:abc");
+        assert_eq!(hit.play_query, "https://open.spotify.com/track/abc");
+        assert_eq!(hit.youtube_search_spec(), "ytsearch1:Aitana Pa Mal");
     }
 }

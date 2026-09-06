@@ -19,7 +19,9 @@ use relm4::typed_view::list::RelmListItem;
 use relm4::{gtk, view};
 
 use crate::components::cover::Cover;
-use crate::components::grid_item::{ArtRegistry, ArtRequest, register, unregister};
+use crate::components::grid_item::{
+    ArtRegistry, ArtRequest, apply_cached_art, register, unregister,
+};
 use crate::components::{CurrentTrack, DeadTracks, RowRegistry, TrackOverrides, overridden};
 
 pub use vinilo_core::entry::Entry;
@@ -169,8 +171,14 @@ impl LibraryItem {
     ) {
         if let Some(art) = art {
             let key = art.cache_key();
-            (self.art_request)(key.clone(), art.clone());
-            register(&mut self.art_registry.borrow_mut(), key, &widgets.cover);
+            register(
+                &mut self.art_registry.borrow_mut(),
+                key.clone(),
+                &widgets.cover,
+            );
+            if !apply_cached_art(&widgets.cover, &key) {
+                (self.art_request)(key, art.clone());
+            }
         }
     }
 

@@ -145,6 +145,10 @@ aur-publish:
 	./scripts/aur-publish.sh vinilo-git --push
 
 install: build install-sidecar
+	@if git rev-parse --is-inside-work-tree >/dev/null 2>&1 \
+		&& ! git diff --quiet -- Cargo.lock 2>/dev/null; then \
+		echo "AVISO: Cargo.lock está modificado. Si querías la última versión: make update"; \
+	fi
 	install -Dm755 target/release/vinilo $(BINDIR)/vinilo
 	install -Dm755 target/release/vinilod $(BINDIR)/vinilod
 	install -Dm755 target/release/aguja $(BINDIR)/aguja

@@ -266,8 +266,13 @@ fn is_persisted_query_missing(err: &anyhow::Error) -> bool {
 }
 
 pub fn library_v3_vars(filter: &str, offset: usize, limit: usize, flatten: bool) -> Value {
+    let filters = if filter.is_empty() {
+        json!([])
+    } else {
+        json!([filter])
+    };
     json!({
-        "filters": [filter],
+        "filters": filters,
         "order": null,
         "textFilter": "",
         "features": [
@@ -353,5 +358,23 @@ mod tests {
     fn a_payload_with_data_is_kept() {
         let value = json!({"data": {"me": {"libraryV3": {"items": []}}}});
         assert!(pathfinder_payload(value, "libraryV3").is_ok());
+    }
+
+    #[test]
+    fn an_empty_library_filter_is_an_empty_array() {
+        let vars = library_v3_vars("", 0, 50, true);
+        assert_eq!(
+            vars.get("filters").and_then(Value::as_array).map(Vec::len),
+            Some(0)
+        );
+        let playlists = library_v3_vars("Playlists", 0, 50, true);
+        assert_eq!(
+            playlists
+                .get("filters")
+                .and_then(Value::as_array)
+                .and_then(|a| a.first())
+                .and_then(Value::as_str),
+            Some("Playlists")
+        );
     }
 }

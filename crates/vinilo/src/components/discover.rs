@@ -14,7 +14,7 @@ use relm4::gtk::prelude::*;
 use relm4::{adw, gtk};
 
 use crate::components::cover::Cover;
-use crate::components::grid_item::{ArtRegistry, ArtRequest, TILE_PX, register};
+use crate::components::grid_item::{ArtRegistry, ArtRequest, TILE_PX, apply_cached_art, register};
 use vinilo_core::discover::Discover;
 use vinilo_core::entry::Entry;
 use vinilo_core::i18n::{self, Key};
@@ -188,8 +188,10 @@ impl DiscoverView {
         }
         if let Some(art) = artwork_of(&entry) {
             let key = art.cache_key();
-            (self.request)(key.clone(), art.clone());
-            register(&mut self.registry.borrow_mut(), key, &cover);
+            register(&mut self.registry.borrow_mut(), key.clone(), &cover);
+            if !apply_cached_art(&cover, &key) {
+                (self.request)(key, art.clone());
+            }
         }
 
         let title = gtk::Label::builder()

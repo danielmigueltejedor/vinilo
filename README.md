@@ -50,14 +50,15 @@ El `Makefile` vive **dentro del repositorio**. Si ejecutas `make install` desde 
 make: *** No hay ninguna regla para construir el objetivo 'install'.  Alto.
 ```
 
-Eso no es un fallo de pacman: no hay Makefile en el directorio de trabajo. `git pull` y `make install` van **dentro del clon**, nunca desde `~`:
+Eso no es un fallo de pacman: no hay Makefile en el directorio de trabajo. Actualiza e instala **dentro del clon**, nunca desde `~`:
 
 ```bash
-cd ~/vinilo   # o la carpeta donde está el Makefile
-git pull
+cd ~/vinilo
 pkill vinilo; pkill vinilod
-make install
+make update
 ```
+
+`make update` descarta un `Cargo.lock` local (un `cargo build` lo ensucia), trae `main` e instala. Si usas `git pull` a mano y aborta por `Cargo.lock`, no instales a medias: te quedarías en la versión anterior.
 
 Primero publica el código en GitHub (en Cursor: **Create repo**). Hasta que ese remoto exista, `git clone` fallará: el proyecto vive aquí, no todavía en github.com.
 

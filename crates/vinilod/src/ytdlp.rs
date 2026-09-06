@@ -102,8 +102,23 @@ pub fn download(hit: &StreamHit, dir: &Path) -> Result<PathBuf, String> {
     }
     let _ = std::fs::write(&lock, b"");
     let template = dir.join(format!("{stem}.%(ext)s"));
-    try_download(&hit.play_query, &template, false);
-    if find_audio(dir, &stem, Duration::ZERO).is_none() && !hit.id.starts_with("yt:") {
+    // Spotify/Tidal URLs are DRM. yt-dlp often spends a long time on them and
+    // then says the video is unavailable. Search YouTube by artist and title
+    // first when we have them.
+    let youtube_first = !hit.id.starts_with("yt:")
+        && !hit.artist.trim().is_empty()
+        && !hit.title.trim().is_empty()
+        && !hit.title_is_placeholder();
+    if youtube_first {
+        try_download(&hit.youtube_search_spec(), &template, false);
+    }
+    if find_audio(dir, &stem, Duration::ZERO).is_none() {
+        try_download(&hit.play_query, &template, false);
+    }
+    if find_audio(dir, &stem, Duration::ZERO).is_none()
+        && !hit.id.starts_with("yt:")
+        && !youtube_first
+    {
         try_download(&hit.youtube_search_spec(), &template, false);
     }
     if let Some(path) = find_audio(dir, &stem, Duration::ZERO) {
