@@ -221,8 +221,8 @@ fn tone_wash(color: [u8; 3], size: i32) -> Option<gdk_pixbuf::Pixbuf> {
     let color = lift_chroma(color);
     let n = size as f32;
     let cx = (n - 1.0) / 2.0;
-    for y in 0..size {
-        for x in 0..size {
+    for y in 0..size as u32 {
+        for x in 0..size as u32 {
             let dx = (x as f32 - cx) / n;
             let dy = (y as f32 - cx) / n;
             let t = (dx * dx + dy * dy).sqrt() * 1.35;
