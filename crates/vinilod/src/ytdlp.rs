@@ -4,9 +4,9 @@
 //! `yt-dlp` as the fetch half of Spotify / YouTube Music / Tidal.
 //!
 //! Search for YouTube Music is also `yt-dlp` (`ytsearch`). The binary is
-//! expected on PATH — Arch: `pacman -S yt-dlp`. Playback prefers the native
-//! audio YouTube already has (m4a/mp3); ffmpeg transcode is only the fallback
-//! for webm, because that is what made skipping tracks feel like a download.
+//! expected on PATH — Arch: `pacman -S yt-dlp`. Playback prefers a file
+//! rodio can open; ffmpeg transcode is the fallback when YouTube's dash
+//! m4a or webm panics the decoder.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -177,9 +177,26 @@ pub(crate) fn ensure_native(path: PathBuf) -> PathBuf {
     if NATIVE.iter().any(|want| *want == ext) {
         return path;
     }
-    let mp3 = path.with_extension("mp3");
-    if mp3.is_file() && mp3.metadata().map(|m| m.len() > 0).unwrap_or(false) {
-        return mp3;
+    transcode_mp3(&path).unwrap_or(path)
+}
+
+/// Force an mp3 (or wav if the source is already mp3) rodio can open.
+///
+/// YouTube's dash m4a still trips rodio 0.19 (`Seek errors should not occur
+/// during initialization`) even though the extension is on the native list.
+pub(crate) fn transcode_mp3(path: &Path) -> Result<PathBuf, String> {
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let dest = if ext == "mp3" {
+        path.with_extension("wav")
+    } else {
+        path.with_extension("mp3")
+    };
+    if dest.is_file() && dest.metadata().map(|m| m.len() > 1024).unwrap_or(false) {
+        return Ok(dest);
     }
     let status = Command::new("ffmpeg")
         .args([
@@ -188,16 +205,17 @@ pub(crate) fn ensure_native(path: PathBuf) -> PathBuf {
             "error",
             "-i",
             &path.to_string_lossy(),
+            "-vn",
             "-q:a",
             "4",
-            &mp3.to_string_lossy(),
+            &dest.to_string_lossy(),
         ])
-        .status();
-    if status.map(|s| s.success()).unwrap_or(false) && mp3.is_file() {
-        let _ = std::fs::remove_file(&path);
-        mp3
+        .status()
+        .map_err(|err| format!("ffmpeg: {err}"))?;
+    if status.success() && dest.is_file() && dest.metadata().map(|m| m.len() > 0).unwrap_or(false) {
+        Ok(dest)
     } else {
-        path
+        Err("ffmpeg could not transcode this file".into())
     }
 }
 

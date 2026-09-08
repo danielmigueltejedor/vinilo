@@ -485,13 +485,16 @@ impl Player {
         let decoder = match open_decoder(&path) {
             Ok(decoder) => decoder,
             Err(first) => {
-                // rodio 0.19 panics on some webm/opus instead of returning Err.
+                // rodio 0.19 panics on some YouTube dash m4a / webm instead of
+                // returning Err. The extension is not enough: m4a is "native"
+                // and still needs ffmpeg.
                 tracing::warn!(
                     path = %path.display(),
                     err = %first,
                     "native decode failed; transcoding"
                 );
-                let converted = crate::ytdlp::ensure_native(path.clone());
+                let converted =
+                    crate::ytdlp::transcode_mp3(&path).map_err(|err| format!("{first}; {err}"))?;
                 if converted == path {
                     return Err(first);
                 }
@@ -515,7 +518,13 @@ impl Player {
 
 fn open_decoder(path: &Path) -> Result<Decoder<BufReader<File>>, String> {
     let file = File::open(path).map_err(|err| format!("{}: {err}", path.display()))?;
-    catch_unwind(AssertUnwindSafe(|| Decoder::new(BufReader::new(file))))
+    // catch_unwind still runs the default hook, which printed a panic and
+    // looked like the daemon had died. Quiet it for this call only.
+    let hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(|_| {}));
+    let decoded = catch_unwind(AssertUnwindSafe(|| Decoder::new(BufReader::new(file))));
+    std::panic::set_hook(hook);
+    decoded
         .map_err(|_| {
             format!(
                 "{}: decoder panicked (unsupported or truncated audio)",

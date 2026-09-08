@@ -449,7 +449,7 @@ fn discover_from_home(value: &Value) -> Discover {
         let kind = classify_carousel(title);
         let songs = tracks_from_browse(carousel);
         let albums = albums_from_browse(carousel);
-        let lists = playlists_from_browse(carousel);
+        let lists = mixes_from_browse(carousel);
         match kind {
             HomeShelf::ListenAgain => {
                 recently_played.extend(songs.into_iter().map(Entry::Song));
@@ -494,13 +494,36 @@ pub async fn open(http: &reqwest::Client, kind: PageKind, id: &str) -> Result<(E
     match kind {
         PageKind::Playlist | PageKind::LibraryPlaylist => {
             let key = playlist_key(id)?;
-            let browse_id = if key.starts_with("VL") {
-                key.clone()
+            let liked = key == "LM" || id == "yt:liked";
+            let mut songs = Vec::new();
+            let mut title = None;
+            if liked {
+                match browse(http, "FEmusic_liked_videos").await {
+                    Ok(liked_tab) => songs = tracks_from_browse(&liked_tab),
+                    Err(err) => tracing::warn!(?err, "youtube music liked videos tab"),
+                }
+            }
+            if songs.is_empty() {
+                let browse_id = if key.starts_with("VL") {
+                    key.clone()
+                } else {
+                    format!("VL{key}")
+                };
+                let value = browse(http, &browse_id).await?;
+                songs = tracks_from_browse(&value);
+                title = page_title(&value);
+            }
+            if songs.is_empty() && liked {
+                match browse(http, "VLLM").await {
+                    Ok(liked_list) => songs = tracks_from_browse(&liked_list),
+                    Err(err) => tracing::warn!(?err, "youtube music liked playlist"),
+                }
+            }
+            let name = if liked {
+                i18n::t(Key::LikedSongs).to_owned()
             } else {
-                format!("VL{key}")
+                title.unwrap_or_else(|| key.clone())
             };
-            let value = browse(http, &browse_id).await?;
-            let songs = tracks_from_browse(&value);
             let header = Playlist {
                 id: if id.starts_with("yt:") {
                     id.to_owned()
@@ -509,7 +532,7 @@ pub async fn open(http: &reqwest::Client, kind: PageKind, id: &str) -> Result<(E
                 },
                 date_added: String::new(),
                 last_modified: String::new(),
-                name: page_title(&value).unwrap_or_else(|| key.clone()),
+                name,
                 curator: String::new(),
                 description: String::new(),
                 artwork: songs.first().and_then(|s| s.artwork.clone()),
@@ -780,22 +803,23 @@ struct DirectStream {
 }
 
 async fn direct_stream(http: &reqwest::Client, video: &str) -> Result<DirectStream> {
-    // ANDROID_MUSIC is the one that usually hands back a plain googlevideo
-    // URL. The guest call without cookies often comes back ciphered, so these
-    // all go out signed. WEB_REMIX last: it is the one that ciphers.
-    if let Ok(value) = player_android_music(http, video).await
-        && let Some(stream) = pick_direct_audio(&value, ANDROID_MUSIC_UA, "ANDROID_MUSIC")
-    {
+    // ANDROID / IOS still sometimes hand back a plain googlevideo URL.
+    // WEB_REMIX last: it is the one that ciphers. A miss is not fatal —
+    // the daemon falls through to yt-dlp, which already knows nsig.
+    if let Some(stream) = take_player(
+        "ANDROID_MUSIC",
+        player_android_music(http, video).await,
+        ANDROID_MUSIC_UA,
+    ) {
         return Ok(stream);
     }
-    if let Ok(value) = player_android(http, video).await
-        && let Some(stream) = pick_direct_audio(&value, ANDROID_UA, "ANDROID")
-    {
+    if let Some(stream) = take_player("IOS", player_ios(http, video).await, IOS_UA) {
         return Ok(stream);
     }
-    if let Ok(value) = player_visionos(http, video).await
-        && let Some(stream) = pick_direct_audio(&value, VISION_UA, "VISIONOS")
-    {
+    if let Some(stream) = take_player("ANDROID", player_android(http, video).await, ANDROID_UA) {
+        return Ok(stream);
+    }
+    if let Some(stream) = take_player("VISIONOS", player_visionos(http, video).await, VISION_UA) {
         return Ok(stream);
     }
     let value = innertube(
@@ -808,7 +832,40 @@ async fn direct_stream(http: &reqwest::Client, video: &str) -> Result<DirectStre
         }),
     )
     .await?;
-    pick_direct_audio(&value, USER_AGENT, "WEB_REMIX").context("player had only ciphered audio")
+    take_player("WEB_REMIX", Ok(value), USER_AGENT).context("player had only ciphered audio")
+}
+
+fn take_player(
+    client: &'static str,
+    result: Result<Value>,
+    user_agent: &'static str,
+) -> Option<DirectStream> {
+    match result {
+        Ok(value) => {
+            if let Some(stream) = pick_direct_audio(&value, user_agent, client) {
+                return Some(stream);
+            }
+            let playability = value
+                .pointer("/playabilityStatus/status")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let reason = value
+                .pointer("/playabilityStatus/reason")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            tracing::debug!(
+                client,
+                playability,
+                reason,
+                "youtube player had no plaintext audio"
+            );
+            None
+        }
+        Err(err) => {
+            tracing::debug!(client, %err, "youtube player failed");
+            None
+        }
+    }
 }
 
 const VISION_UA: &str = "com.google.ios.youtube/";
@@ -817,6 +874,9 @@ const ANDROID_KEY: &str = "AIzaSyA8eiZmM1FaDVjRy-df2KTyQ_vz_yYM39w";
 const ANDROID_MUSIC_UA: &str =
     "com.google.android.apps.youtube.music/7.27.52 (Linux; U; Android 11) gzip";
 const ANDROID_MUSIC_KEY: &str = "AIzaSyAOghZGza2MQSZkY_zfZ370N-PUdXEjOOg";
+const IOS_UA: &str =
+    "com.google.ios.youtube/19.45.4 (iPhone16,2; U; CPU iOS 17_5_1 like Mac OS X;)";
+const IOS_KEY: &str = "AIzaSyB-63vPrdThhKuerbB2N_l5qonNnvWgU2M";
 
 async fn signed_player(
     http: &reqwest::Client,
@@ -878,6 +938,35 @@ async fn player_android_music(http: &reqwest::Client, video: &str) -> Result<Val
         ANDROID_MUSIC_UA,
         "21",
         "7.27.52",
+        body,
+    )
+    .await
+}
+
+async fn player_ios(http: &reqwest::Client, video: &str) -> Result<Value> {
+    let body = json!({
+        "context": {
+            "client": {
+                "clientName": "IOS",
+                "clientVersion": "19.45.4",
+                "deviceMake": "Apple",
+                "deviceModel": "iPhone16,2",
+                "osName": "iPhone",
+                "osVersion": "17.5.1.21F90",
+                "hl": "en",
+                "gl": "US",
+            }
+        },
+        "videoId": video,
+        "contentCheckOk": true,
+        "racyCheckOk": true,
+    });
+    signed_player(
+        http,
+        &format!("https://www.youtube.com/youtubei/v1/player?key={IOS_KEY}"),
+        IOS_UA,
+        "5",
+        "19.45.4",
         body,
     )
     .await
@@ -975,14 +1064,14 @@ fn pick_direct_audio(
         if url.is_empty() {
             continue;
         }
-        // rodio 0.19 panics on some webm/opus during init. Skip them here so
-        // the next player client — or yt-dlp's m4a format — can supply audio
-        // the decoder will actually open.
-        if mime.contains("webm") || mime.contains("opus") {
-            continue;
-        }
         let bitrate = format.get("bitrate").and_then(Value::as_u64).unwrap_or(0);
-        let ext = if mime.contains("mp3") { "mp3" } else { "m4a" };
+        let ext = if mime.contains("webm") || mime.contains("opus") {
+            "webm"
+        } else if mime.contains("mp3") {
+            "mp3"
+        } else {
+            "m4a"
+        };
         let candidate = DirectStream {
             url: url.to_owned(),
             ext,
@@ -1014,7 +1103,7 @@ fn find_cached_audio(dir: &Path, stem: &str) -> Option<PathBuf> {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return None;
     };
-    const NATIVE: &[&str] = &["m4a", "mp3", "aac", "ogg", "flac", "wav"];
+    let mut ranked: Vec<(u8, PathBuf)> = Vec::new();
     for entry in entries.flatten() {
         let path = entry.path();
         let name = path.file_name()?.to_string_lossy();
@@ -1023,17 +1112,26 @@ fn find_cached_audio(dir: &Path, stem: &str) -> Option<PathBuf> {
             .and_then(|e| e.to_str())
             .unwrap_or("")
             .to_ascii_lowercase();
-        if name.starts_with(stem)
-            && !name.ends_with(".part")
-            && !name.ends_with(".json")
-            && NATIVE.iter().any(|want| *want == ext)
-            && path.is_file()
-            && entry.metadata().map(|m| m.len() > 1024).unwrap_or(false)
+        if !name.starts_with(stem)
+            || name.ends_with(".part")
+            || name.ends_with(".json")
+            || !path.is_file()
+            || !entry.metadata().map(|m| m.len() > 1024).unwrap_or(false)
         {
-            return Some(path);
+            continue;
         }
+        // mp3/wav after a forced transcode beat the YouTube dash m4a that
+        // made rodio 0.19 panic on seek-during-init.
+        let rank = match ext.as_str() {
+            "mp3" | "wav" | "ogg" | "flac" => 0,
+            "m4a" | "aac" => 1,
+            "webm" | "opus" => 2,
+            _ => continue,
+        };
+        ranked.push((rank, path));
     }
-    None
+    ranked.sort_by_key(|(rank, _)| *rank);
+    ranked.into_iter().next().map(|(_, path)| path)
 }
 
 fn hit_from_player(video: &str, value: &Value) -> Option<StreamHit> {
@@ -1153,12 +1251,20 @@ fn ensure_liked_playlist(playlists: &mut Vec<Playlist>, songs: &[Track]) {
 }
 
 fn playlists_from_browse(value: &Value) -> Vec<Playlist> {
+    collect_playlists(value, false)
+}
+
+fn mixes_from_browse(value: &Value) -> Vec<Playlist> {
+    collect_playlists(value, true)
+}
+
+fn collect_playlists(value: &Value, mixes: bool) -> Vec<Playlist> {
     let mut lists = Vec::new();
     walk(value, &mut |node| {
         if video_id_from_node(node).is_some() {
             return;
         }
-        let Some(playlist) = playlist_id_from_node(node) else {
+        let Some(playlist) = playlist_id_from_node(node, mixes) else {
             return;
         };
         if playlist == "LM" {
@@ -1179,7 +1285,7 @@ fn playlists_from_browse(value: &Value) -> Vec<Playlist> {
             curator: String::new(),
             description: String::new(),
             artwork: thumbnail(node).map(Artwork::new),
-            library: true,
+            library: !mixes,
         });
     });
     lists
@@ -1266,7 +1372,7 @@ fn video_id_from_node(node: &Value) -> Option<&str> {
         .filter(|s| !s.is_empty())
 }
 
-fn playlist_id_from_node(node: &Value) -> Option<String> {
+fn playlist_id_from_node(node: &Value, mixes: bool) -> Option<String> {
     let raw = node
         .get("playlistId")
         .and_then(Value::as_str)
@@ -1278,7 +1384,11 @@ fn playlist_id_from_node(node: &Value) -> Option<String> {
             node.pointer("/title/runs/0/navigationEndpoint/browseEndpoint/browseId")
                 .and_then(Value::as_str)
         })?;
-    normalize_playlist_id(raw)
+    if mixes {
+        normalize_mix_id(raw)
+    } else {
+        normalize_playlist_id(raw)
+    }
 }
 
 fn album_id_from_node(node: &Value) -> Option<String> {
@@ -1313,18 +1423,22 @@ fn artist_id_from_node(node: &Value) -> Option<String> {
 }
 
 /// InnerTube wraps playlists as `VL` + id. ytmusicapi strips those two
-/// characters; we do the same, then drop feature pages (`FE…`), albums
-/// (`MPRE…` / `OLAK…`) and radios (`RD…`).
+/// characters; we do the same, then drop feature pages (`FE…`) and albums
+/// (`MPRE…`). Radios (`RD…`) are mixes on Listen Now, not library lists.
 fn normalize_playlist_id(raw: &str) -> Option<String> {
+    normalize_playlist_id_kind(raw, false)
+}
+
+fn normalize_mix_id(raw: &str) -> Option<String> {
+    normalize_playlist_id_kind(raw, true)
+}
+
+fn normalize_playlist_id_kind(raw: &str, mixes: bool) -> Option<String> {
     let id = raw.strip_prefix("VL").unwrap_or(raw);
-    if id.is_empty()
-        || id.starts_with("FE")
-        || id.starts_with("MP")
-        || id.starts_with("UC")
-        || id.starts_with("RD")
-        || id.starts_with("OLAK")
-        || id.starts_with("RDEM")
-    {
+    if id.is_empty() || id.starts_with("FE") || id.starts_with("MP") || id.starts_with("UC") {
+        return None;
+    }
+    if !mixes && (id.starts_with("RD") || id.starts_with("OLAK")) {
         return None;
     }
     if id.starts_with("PL")
@@ -1332,6 +1446,7 @@ fn normalize_playlist_id(raw: &str) -> Option<String> {
         || id.starts_with("WL")
         || id.starts_with("LL")
         || id.starts_with("OLA")
+        || id.starts_with("RD")
         || id.len() >= 11
     {
         Some(id.to_owned())
@@ -1544,6 +1659,10 @@ mod tests {
         assert!(normalize_playlist_id("FEmusic_liked_playlists").is_none());
         assert!(normalize_playlist_id("MPREb_G8AiyN7RvFg").is_none());
         assert!(normalize_playlist_id("RDAMVMHLCsfOykA94").is_none());
+        assert_eq!(
+            normalize_mix_id("VLRDAMPL12345678901").as_deref(),
+            Some("RDAMPL12345678901")
+        );
     }
 
     #[test]
@@ -1686,7 +1805,7 @@ mod tests {
                                                         "title": { "runs": [{ "text": "Your mix" }] },
                                                         "navigationEndpoint": {
                                                             "browseEndpoint": {
-                                                                "browseId": "VLPLQwVIlKxHM6aaaaaaaaaaaaaaaaaaa"
+                                                                "browseId": "VLRDAMPL12345678901"
                                                             }
                                                         }
                                                     }
@@ -1705,6 +1824,10 @@ mod tests {
         assert_eq!(page.recently_played.len(), 1);
         assert_eq!(page.recommended_playlists.len(), 1);
         assert_eq!(page.recommended_playlists[0].title(), "Your mix");
+        assert_eq!(
+            page.recommended_playlists[0].id(),
+            "yt:playlist:RDAMPL12345678901"
+        );
     }
 
     #[test]
@@ -1832,7 +1955,7 @@ mod tests {
     }
 
     #[test]
-    fn a_plain_webm_stream_is_refused() {
+    fn a_plain_webm_stream_is_used_when_it_is_the_only_audio() {
         let json = json!({
             "streamingData": {
                 "adaptiveFormats": [{
@@ -1843,7 +1966,8 @@ mod tests {
                 }]
             }
         });
-        assert!(pick_direct_audio(&json, "ua", "test").is_none());
+        let stream = pick_direct_audio(&json, "ua", "test").unwrap();
+        assert_eq!(stream.ext, "webm");
     }
 
     #[test]
