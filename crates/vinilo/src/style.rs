@@ -364,12 +364,11 @@ thread_local! {
 /// Put the sleeve's colour behind the player — the bar and the drawer both —
 /// or take it away.
 ///
-/// Two layers, and the order matters: the wash underneath, a scrim of the
-/// window's own background over it. The scrim is why this is legible — every
-/// label and icon on both surfaces has a colour chosen for contrast against
-/// the theme, and a saturated field behind them would be guessing. Taking the
-/// scrim from `@window_bg_color` rather than from black is what makes the
-/// light theme work too.
+/// Two layers, and the order matters: the wash underneath, a thin scrim of
+/// the window's own background over it. The type on top is not the theme's:
+/// a pale sleeve gets black ink and a dark one gets white, so the words stay
+/// readable in either theme. The scrim is `@window_bg_color` rather than
+/// black so a light desktop does not wear a dark veil.
 ///
 /// The wash is the record's own colour, not a stretched photograph of it.
 /// Apple Music does the same: a white sleeve stays a white field, a red one
@@ -427,6 +426,7 @@ fn backdrop_css(color: Option<&str>, dark: bool) -> String {
             .into();
     };
     let veil = if dark { DARK_VEIL } else { LIGHT_VEIL };
+    let ink = ink_on(color);
     let layers = |(top, bottom): (f32, f32)| {
         format!(
             "background-color: {color};
@@ -439,9 +439,71 @@ fn backdrop_css(color: Option<&str>, dark: bool) -> String {
     };
     format!(
         ".np-bar {{ {} }}
-         .np-sheet {{ {} }}",
+         .np-sheet {{ {} }}
+         {}",
         layers(veil.bar),
-        layers(veil.sheet)
+        layers(veil.sheet),
+        ink_rules(&[".np-bar", ".np-sheet"], ink)
+    )
+}
+
+/// Black on a light wash, white on a dark one.
+///
+/// WCAG relative luminance, cut at 0.179 — the point where black and white
+/// contrast equally against the field. The theme's own foreground is the
+/// wrong answer here: a cream sleeve in a dark window still needs black type.
+fn ink_on(hex: &str) -> &'static str {
+    match rgb_of(hex) {
+        Some((r, g, b)) if relative_luminance(r, g, b) > 0.179 => "#000000",
+        _ => "#ffffff",
+    }
+}
+
+fn rgb_of(hex: &str) -> Option<(u8, u8, u8)> {
+    let h = hex.strip_prefix('#')?;
+    if h.len() != 6 {
+        return None;
+    }
+    let n = u32::from_str_radix(h, 16).ok()?;
+    Some(((n >> 16) as u8, (n >> 8) as u8, n as u8))
+}
+
+fn relative_luminance(r: u8, g: u8, b: u8) -> f32 {
+    fn lin(c: u8) -> f32 {
+        let s = f32::from(c) / 255.0;
+        if s <= 0.04045 {
+            s / 12.92
+        } else {
+            ((s + 0.055) / 1.055).powf(2.4)
+        }
+    }
+    0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
+}
+
+/// Adwaita paints labels and symbolic icons from `@window_fg_color`, not
+/// from inherited `color`, so the ink has to land on the children as well
+/// as on the surface — and on the variables those widgets actually read.
+///
+/// Each surface is its own selector. Passing `.np-bar, .np-sheet` and then
+/// appending ` label` would paint `.np-bar` itself and only `.np-sheet label`.
+fn ink_rules(surfaces: &[&str], ink: &str) -> String {
+    let parent = surfaces.join(", ");
+    let children = ["label", "image", "button", "scale"]
+        .into_iter()
+        .flat_map(|widget| surfaces.iter().map(move |s| format!("{s} {widget}")))
+        .collect::<Vec<_>>()
+        .join(",\n         ");
+    format!(
+        "{parent} {{
+             color: {ink};
+             --window-fg-color: {ink};
+             --headerbar-fg-color: {ink};
+             --view-fg-color: {ink};
+             --sidebar-fg-color: {ink};
+         }}
+         {children} {{
+             color: {ink};
+         }}"
     )
 }
 
@@ -490,6 +552,7 @@ fn page_backdrop_css(class: &str, color: Option<&str>, dark: bool) -> String {
     };
     let veil = if dark { DARK_VEIL } else { LIGHT_VEIL };
     let (top, bottom) = veil.sheet;
+    let ink = ink_on(color);
     format!(
         ".{class} {{
              background-color: {color};
@@ -498,7 +561,9 @@ fn page_backdrop_css(class: &str, color: Option<&str>, dark: bool) -> String {
                  alpha(@window_bg_color, {bottom})
              );
              background-repeat: no-repeat;
-         }}"
+         }}
+         {}",
+        ink_rules(&[&format!(".{class}")], ink)
     )
 }
 
@@ -640,10 +705,9 @@ mod tests {
 
     #[test]
     fn a_veil_never_gets_thin_enough_to_lose_the_words() {
-        // The floor is set by text, not by looks: both surfaces carry labels in
-        // the theme's own foreground colour. A colour wash (not a photograph)
-        // can go thinner than 0.5 without losing the words — below ~0.25 the
-        // type starts fighting the sleeve.
+        // The floor is set by looks, not by type: ink is black or white from
+        // the wash itself. The veil only has to keep the field from going
+        // fluorescent against the rest of the window.
         for (top, bottom) in [
             DARK_VEIL.bar,
             DARK_VEIL.sheet,
@@ -653,6 +717,30 @@ mod tests {
             assert!(bottom >= 0.05, "veil too thin for text: {bottom}");
             assert!(top <= 0.5, "veil so heavy the cover is invisible: {top}");
         }
+    }
+
+    #[test]
+    fn a_pale_wash_gets_black_type_and_a_dark_one_gets_white() {
+        assert_eq!(ink_on("#f5e6c8"), "#000000");
+        assert_eq!(ink_on("#ffffff"), "#000000");
+        assert_eq!(ink_on("#1a1a2e"), "#ffffff");
+        assert_eq!(ink_on("#000000"), "#ffffff");
+        // The red used by the other backdrop tests: dark enough for white.
+        assert_eq!(ink_on("#c42828"), "#ffffff");
+        let pale = backdrop_css(Some("#f5e6c8"), true);
+        assert!(pale.contains("color: #000000"), "{pale}");
+        assert!(
+            pale.contains(".np-bar label") && pale.contains(".np-sheet label"),
+            "comma in the parent selector must not drop one surface's labels: {pale}"
+        );
+        let dark = backdrop_css(Some("#1a1a2e"), false);
+        assert!(dark.contains("color: #ffffff"), "{dark}");
+        let page = page_backdrop_css("page-bg-3", Some("#f5e6c8"), true);
+        assert!(page.contains("color: #000000"), "{page}");
+        assert!(
+            page.contains(".page-bg-3 label"),
+            "page type must reach the heading: {page}"
+        );
     }
 
     #[test]
