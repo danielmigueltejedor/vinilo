@@ -202,7 +202,8 @@ impl AppModel {
             })
             .collect();
         for (id, name) in titles {
-            if self.settings.pin_title(&id) != Some(name.as_str()) {
+            let have = self.settings.pin_title(&id).map(str::to_owned);
+            if have.as_deref() != Some(name.as_str()) {
                 self.settings.remember_pin_title(&id, &name);
                 remembered = true;
             }
@@ -501,8 +502,10 @@ impl AppModel {
         }
         if pinned {
             self.settings.pinned_playlists.push(id.to_owned());
-            if let Some(name) = self.name_for_pin(id) {
-                self.settings.remember_pin_title(id, name);
+            // Owned first: `name_for_pin` borrows the model, including
+            // settings, and cannot live across `remember_pin_title`.
+            if let Some(name) = self.name_for_pin(id).map(str::to_owned) {
+                self.settings.remember_pin_title(id, &name);
             }
         } else {
             self.settings.pinned_playlists.retain(|p| p != id);
