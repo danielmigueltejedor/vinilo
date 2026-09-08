@@ -16,7 +16,7 @@
 use relm4::adw;
 use relm4::adw::prelude::*;
 use relm4::gtk;
-use relm4::gtk::prelude::{BoxExt, Cast, GtkStackExt, WidgetExt};
+use relm4::gtk::prelude::*;
 use relm4::gtk::{gdk, glib};
 use relm4::prelude::*;
 
