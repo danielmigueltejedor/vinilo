@@ -573,9 +573,9 @@ impl AppModel {
         }
         appearance.add(&source_tint);
 
-        // #145: a photograph behind small type is distracting to some people,
-        // and libadwaita's own surfaces are plain. Off, the two surfaces fall
-        // back to the bar and sheet backgrounds they had before the backdrop
+        // #145: a colour field behind small type is still a preference, and
+        // libadwaita's own surfaces are plain. Off, the two surfaces fall
+        // back to the bar and sheet backgrounds they had before the wash
         // existed — there is nothing to draw instead.
         let backdrop = adw::SwitchRow::builder()
             .title(t(Key::AlbumArtBackdrop))

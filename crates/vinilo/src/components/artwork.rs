@@ -114,177 +114,144 @@ pub fn decode(path: &Path, size: i32) -> Option<Decoded> {
     })
 }
 
-/// How wide the drawer's backdrop image is, in pixels.
+/// How wide the colour wash is, in pixels.
 ///
-/// Big enough that the upscale to the sheet is a few times rather than twenty,
-/// because **GTK does not interpolate this smoothly**. See [`backdrop`].
-const BACKDROP_PX: i32 = 256;
+/// Small on purpose: this is a field of one colour, not a photograph, so the
+/// upscale cannot go pixelated. The name is in the filename, so changing it
+/// retires whatever was already on disk.
+const WASH_PX: i32 = 64;
 
-/// Radius of the blur, as a fraction of [`BACKDROP_PX`].
-///
-/// **Small, and paired with [`SATURATION`].** Two earlier attempts got this
-/// wrong in the same direction. `/16` was chosen so that "no feature of the
-/// sleeve survives", which is true and produced a flat grey panel; `/32` was
-/// barely distinguishable from it.
-///
-/// The reason a wide blur fails is not softness, it is *chroma*. Averaging
-/// pulls colour toward neutral, and a sleeve of alternating complementary
-/// colours — concentric red, green and blue rings, in the case that exposed
-/// this — averages to grey once the window spans several of them. No amount of
-/// saturation afterwards recovers that, because there is no chroma left to
-/// multiply.
-///
-/// So: blur just enough to destroy legible detail, and put the colour back
-/// with saturation rather than trying to keep it through a wide average.
-const BLUR_RADIUS: usize = BACKDROP_PX as usize / 64;
+/// How many pixels we sample to find the sleeve's colour. A cover is already
+/// a square; 48px is enough to see whether it is white, red, or mixed.
+const SAMPLE_PX: i32 = 48;
 
-/// How much to lift the colour after blurring, as a percentage.
-///
-/// Blurring desaturates — it is an average, and averages tend to the middle —
-/// so a backdrop that is *only* blurred reads as grey behind a light veil. This
-/// puts back what the average took, which is why every platform's blurred
-/// backdrop is saturated rather than plain.
-///
-/// Applied after the blur, deliberately: saturating first would amplify the
-/// noise the blur is about to smear.
-const SATURATION: u32 = 190;
+/// Cached wash filename. The older `backdrop256.png` files were a blurred
+/// *photograph* of the sleeve — retired by this suffix, not reused.
+const WASH_EXT: &str = "backdrop-tone.png";
 
-/// Write a blurred copy of a cover beside it, and say where.
+/// Write a wash of the sleeve's own colour beside the cover, and say where.
 ///
-/// This is the drawer's backdrop, blown up to fill the whole sheet.
-///
-/// **The upscale is not the blur, which is what this used to claim.** The old
-/// version stored 48px and let CSS stretch it, on the reasoning that GTK
-/// interpolates when it scales a texture and a real Gaussian would be "a CPU
-/// convolution on every track change for a result nobody could tell apart".
-/// Both halves were wrong. GTK stretches this one nearest-neighbour, so 48px
-/// across ~950 arrived as **twenty-pixel squares with hard edges** — reported
-/// unprompted, in both themes, as "pixelated". And a backdrop is written once
-/// per cover and cached, so the convolution is not per track change; it is per
-/// cover, ever, on a worker thread.
-///
-/// So the blur is real now, and the stored image is larger for a second reason:
-/// with nearest-neighbour upscaling the block size is the ratio, so 256px
-/// leaves blocks of about four pixels where 48px left twenty. Blurring alone
-/// would have smoothed their *colour* while leaving their edges.
-///
-/// Cached like everything else here, and keyed by size — changing
-/// [`BACKDROP_PX`] invalidates every stored backdrop by construction, rather
-/// than leaving the old geometry on disk to be found later.
+/// Apple Music tints the player from the record rather than stretching the
+/// photograph: a white sleeve stays white, a red one stays red. The cover is
+/// still the cover in the UI; this is only the atmosphere behind it. The
+/// wash is a soft radial of that colour so the field is not a dead flat fill.
 ///
 /// Off the GTK thread (rule 8).
 pub fn backdrop(path: &Path) -> Option<PathBuf> {
-    let out = path.with_extension(format!("backdrop{BACKDROP_PX}.png"));
+    let out = path.with_extension(WASH_EXT);
     if out.exists() {
         return Some(out);
     }
-    let pixbuf =
-        gdk_pixbuf::Pixbuf::from_file_at_scale(path, BACKDROP_PX, BACKDROP_PX, false).ok()?;
-
-    let (w, h) = (pixbuf.width() as usize, pixbuf.height() as usize);
-    let channels = pixbuf.n_channels() as usize;
-    let stride = pixbuf.rowstride() as usize;
-    let mut pixels = pixbuf.read_pixel_bytes().to_vec();
-    blur(&mut pixels, w, h, channels, stride, BLUR_RADIUS);
-    saturate(&mut pixels, w, h, channels, stride, SATURATION);
-
-    let blurred = gdk_pixbuf::Pixbuf::from_bytes(
-        &glib::Bytes::from_owned(pixels),
-        pixbuf.colorspace(),
-        pixbuf.has_alpha(),
-        pixbuf.bits_per_sample(),
-        pixbuf.width(),
-        pixbuf.height(),
-        pixbuf.rowstride(),
+    let pixbuf = gdk_pixbuf::Pixbuf::from_file_at_scale(path, SAMPLE_PX, SAMPLE_PX, false).ok()?;
+    let pixels = pixbuf.read_pixel_bytes().to_vec();
+    let color = dominant(
+        &pixels,
+        pixbuf.width() as usize,
+        pixbuf.height() as usize,
+        pixbuf.n_channels() as usize,
+        pixbuf.rowstride() as usize,
     );
-    blurred.savev(&out, "png", &[]).ok()?;
+    let wash = tone_wash(color, WASH_PX)?;
+    wash.savev(&out, "png", &[]).ok()?;
     Some(out)
 }
 
-/// Lift every pixel's colour away from its own brightness.
+/// The colour that should tint the player.
 ///
-/// `percent` is 100 for no change. Each channel moves away from the pixel's
-/// luma by that factor, which is the standard saturation adjust: it leaves
-/// greys alone — they have no chroma to lift — and makes coloured pixels more
-/// so, without changing how light or dark they are.
-fn saturate(pixels: &mut [u8], w: usize, h: usize, channels: usize, stride: usize, percent: u32) {
-    if percent == 100 || channels < 3 {
-        return;
+/// Average of the sleeve, unless a quarter or more of it is actually coloured
+/// — then those pixels win, so a red record with a black frame stays red
+/// instead of going maroon. A white sleeve with a small logo stays white:
+/// the logo is not a quarter of the picture, and "if it is white, white" is
+/// the whole point.
+fn dominant(pixels: &[u8], w: usize, h: usize, channels: usize, stride: usize) -> [u8; 3] {
+    if w == 0 || h == 0 || channels < 3 {
+        return [128, 128, 128];
     }
+    let mut all = [0u64; 3];
+    let mut all_n = 0u64;
+    let mut vivid = [0u64; 3];
+    let mut vivid_n = 0u64;
     for y in 0..h {
         for x in 0..w {
             let i = y * stride + x * channels;
-            let [r, g, b] = [pixels[i], pixels[i + 1], pixels[i + 2]];
-            // Rec. 709 luma: green carries most of perceived brightness, which
-            // is why an unweighted mean would shift the picture's lightness.
-            let luma = (2126 * u32::from(r) + 7152 * u32::from(g) + 722 * u32::from(b)) / 10000;
-            for (c, v) in [r, g, b].into_iter().enumerate() {
-                let lifted = i32::from(luma as u8)
-                    + (i32::from(v) - i32::from(luma as u8)) * percent as i32 / 100;
-                pixels[i + c] = lifted.clamp(0, 255) as u8;
+            if channels >= 4 && pixels.get(i + 3).copied().unwrap_or(255) < 16 {
+                continue;
+            }
+            let r = pixels[i];
+            let g = pixels[i + 1];
+            let b = pixels[i + 2];
+            all[0] += u64::from(r);
+            all[1] += u64::from(g);
+            all[2] += u64::from(b);
+            all_n += 1;
+            if chroma(r, g, b) >= 28 {
+                vivid[0] += u64::from(r);
+                vivid[1] += u64::from(g);
+                vivid[2] += u64::from(b);
+                vivid_n += 1;
             }
         }
     }
-}
-
-/// Three box passes, which is a close enough Gaussian and far cheaper.
-///
-/// Separable and running-sum, so the cost is O(pixels) per pass rather than
-/// O(pixels x radius) — at 256px that is under a millisecond, once per cover,
-/// off the GTK thread. Pure, so the tests can check it rather than trusting it.
-fn blur(pixels: &mut [u8], w: usize, h: usize, channels: usize, stride: usize, radius: usize) {
-    if radius == 0 || w == 0 || h == 0 {
-        return;
+    if all_n == 0 {
+        return [128, 128, 128];
     }
-    for _ in 0..3 {
-        box_pass(pixels, w, h, channels, stride, radius, true);
-        box_pass(pixels, w, h, channels, stride, radius, false);
+    if vivid_n * 4 >= all_n {
+        average(vivid, vivid_n)
+    } else {
+        average(all, all_n)
     }
 }
 
-/// One box blur along one axis. `horizontal` picks which.
-fn box_pass(
-    pixels: &mut [u8],
-    w: usize,
-    h: usize,
-    channels: usize,
-    stride: usize,
-    radius: usize,
-    horizontal: bool,
-) {
-    let (lines, len) = if horizontal { (h, w) } else { (w, h) };
-    let at = |line: usize, i: usize, c: usize| {
-        if horizontal {
-            line * stride + i * channels + c
-        } else {
-            i * stride + line * channels + c
+fn average(sum: [u64; 3], n: u64) -> [u8; 3] {
+    [(sum[0] / n) as u8, (sum[1] / n) as u8, (sum[2] / n) as u8]
+}
+
+fn chroma(r: u8, g: u8, b: u8) -> u32 {
+    let r = u32::from(r);
+    let g = u32::from(g);
+    let b = u32::from(b);
+    r.max(g).max(b) - r.min(g).min(b)
+}
+
+/// A soft radial field of `color`. Centre is the colour itself; the edges
+/// fall a little so the wash is not a poster of one hex value.
+fn tone_wash(color: [u8; 3], size: i32) -> Option<gdk_pixbuf::Pixbuf> {
+    let size = size.max(1);
+    let wash = gdk_pixbuf::Pixbuf::new(gdk_pixbuf::Colorspace::Rgb, false, 8, size, size)?;
+    let color = lift_chroma(color);
+    let n = size as f32;
+    let cx = (n - 1.0) / 2.0;
+    for y in 0..size {
+        for x in 0..size {
+            let dx = (x as f32 - cx) / n;
+            let dy = (y as f32 - cx) / n;
+            let t = (dx * dx + dy * dy).sqrt() * 1.35;
+            let t = t.clamp(0.0, 1.0);
+            let t = t * t;
+            let k = 1.0 - 0.22 * t;
+            let r = (f32::from(color[0]) * k).round() as u8;
+            let g = (f32::from(color[1]) * k).round() as u8;
+            let b = (f32::from(color[2]) * k).round() as u8;
+            wash.put_pixel(x, y, r, g, b, 255);
         }
+    }
+    Some(wash)
+}
+
+/// Push a coloured sleeve a little further from grey. Greys and whites are
+/// left alone — lifting those would invent a tint the record does not have.
+fn lift_chroma(color: [u8; 3]) -> [u8; 3] {
+    let [r, g, b] = color;
+    if chroma(r, g, b) < 28 {
+        return color;
+    }
+    let luma = (2126 * u32::from(r) + 7152 * u32::from(g) + 722 * u32::from(b)) / 10000;
+    let luma = luma as i32;
+    let lift = |v: u8| {
+        let lifted = luma + (i32::from(v) - luma) * 135 / 100;
+        lifted.clamp(0, 255) as u8
     };
-    let mut row = vec![0u8; len];
-    for line in 0..lines {
-        for c in 0..channels {
-            for (i, slot) in row.iter_mut().enumerate() {
-                *slot = pixels[at(line, i, c)];
-            }
-            // Running sum over a window clamped to the edges, so the border
-            // does not darken — a black fringe around a backdrop is exactly
-            // the sort of thing that reads as a rendering fault.
-            let primed = radius.min(len - 1) + 1;
-            let mut sum: u32 = row[..primed].iter().map(|v| u32::from(*v)).sum();
-            let mut count = primed as u32;
-            for i in 0..len {
-                pixels[at(line, i, c)] = (sum / count) as u8;
-                if let Some(add) = row.get(i + radius + 1) {
-                    sum += u32::from(*add);
-                    count += 1;
-                }
-                if radius <= i {
-                    sum -= u32::from(row[i - radius]);
-                    count -= 1;
-                }
-            }
-        }
-    }
+    [lift(r), lift(g), lift(b)]
 }
 
 #[cfg(test)]
@@ -292,9 +259,8 @@ mod tests {
     use super::*;
     use vinilo_core::artwork::cache_path;
 
-    /// A one-channel image, so the blur maths is readable in the assertions.
-    fn grey(values: &[u8], w: usize) -> (Vec<u8>, usize, usize) {
-        (values.to_vec(), w, values.len() / w)
+    fn rgb(pixels: &[[u8; 3]]) -> Vec<u8> {
+        pixels.iter().flat_map(|p| *p).collect()
     }
 
     #[test]
@@ -317,90 +283,56 @@ mod tests {
     }
 
     #[test]
-    fn saturating_leaves_grey_alone_and_lifts_colour() {
-        // Grey has no chroma to lift, so it must come back untouched — a
-        // saturation pass that drifts neutrals would tint the whole backdrop.
-        let mut grey = vec![128, 128, 128];
-        saturate(&mut grey, 1, 1, 3, 3, 190);
-        assert_eq!(grey, vec![128, 128, 128], "grey should not move");
-
-        // A muted red should get redder without getting lighter or darker.
-        let mut red = vec![150, 100, 100];
-        saturate(&mut red, 1, 1, 3, 3, 190);
-        assert!(red[0] > 150, "red channel did not lift: {red:?}");
-        assert!(red[1] < 100 && red[2] < 100, "others did not fall: {red:?}");
+    fn a_white_sleeve_stays_white() {
+        let px = rgb(&[[250, 250, 250]; 16]);
+        assert_eq!(dominant(&px, 4, 4, 3, 12), [250, 250, 250]);
     }
 
     #[test]
-    fn saturating_cannot_overflow_a_channel() {
-        // Clamping is the whole risk here: an already-vivid pixel lifted 90%
-        // would wrap without it, turning a bright colour into its opposite.
-        let mut vivid = vec![250, 5, 5, 0, 0, 0];
-        saturate(&mut vivid, 2, 1, 3, 6, 400);
-        // Both directions wrap without the clamp: the bright channel runs past
-        // 255 and the dim ones go negative, which on a u8 comes back as a very
-        // bright value — a vivid red would return as its own opposite.
-        assert_eq!(vivid[0], 255, "bright channel should clamp to full");
-        assert_eq!(&vivid[1..3], &[0, 0], "dim channels wrapped: {vivid:?}");
+    fn a_red_sleeve_stays_red() {
+        let px = rgb(&[[200, 24, 24]; 16]);
+        let [r, g, b] = dominant(&px, 4, 4, 3, 12);
+        assert!(r > 180 && g < 40 && b < 40, "got [{r}, {g}, {b}]");
     }
 
     #[test]
-    fn a_hundred_percent_saturation_is_a_no_op() {
-        let mut px = vec![10, 20, 30, 40, 50, 60];
-        let before = px.clone();
-        saturate(&mut px, 2, 1, 3, 6, 100);
-        assert_eq!(px, before);
+    fn a_red_record_with_a_black_frame_stays_red() {
+        // Twelve black pixels and four red ones: a quarter is coloured, so
+        // the frame must not pull the wash to maroon.
+        let mut tiles = vec![[0, 0, 0]; 12];
+        tiles.extend([[210, 30, 30]; 4]);
+        let [r, g, b] = dominant(&rgb(&tiles), 4, 4, 3, 12);
+        assert!(r > 150 && r > g && r > b, "got [{r}, {g}, {b}]");
     }
 
     #[test]
-    fn a_blur_spreads_a_spike_and_keeps_the_total_brightness() {
-        // One bright pixel in a dark field. After blurring it must be dimmer
-        // and its neighbours brighter — that is the whole job.
-        let (mut px, w, h) = grey(&[0, 0, 0, 0, 0, 0, 0, 255, 0, 0, 0, 0, 0, 0, 0], 15);
-        let before = px[7];
-        blur(&mut px, w, h, 1, w, 2);
+    fn a_white_sleeve_with_a_small_logo_stays_white() {
+        // One red pixel in sixteen is a logo, not the record.
+        let mut tiles = vec![[245, 245, 245]; 15];
+        tiles.push([220, 20, 20]);
+        let [r, g, b] = dominant(&rgb(&tiles), 4, 4, 3, 12);
+        assert!(r > 220 && g > 220 && b > 220, "got [{r}, {g}, {b}]");
+    }
 
-        assert!(px[7] < before, "the spike did not spread");
-        assert!(px[6] > 0 && px[8] > 0, "neighbours got nothing");
+    #[test]
+    fn lifting_chroma_leaves_white_alone() {
+        assert_eq!(lift_chroma([250, 250, 250]), [250, 250, 250]);
+        assert_eq!(lift_chroma([128, 128, 128]), [128, 128, 128]);
+        let [r, g, b] = lift_chroma([160, 80, 80]);
+        assert!(r > 160 && g < 80 && b < 80, "got [{r}, {g}, {b}]");
+    }
+
+    #[test]
+    fn the_wash_filename_is_not_the_old_photograph() {
+        // The previous backdrop was a blurred photo named `backdrop256.png`.
+        // Reusing that name would keep stretching the sleeve behind the player.
+        let name = std::path::Path::new("/tmp/abc-512.jpg").with_extension(WASH_EXT);
+        assert!(name.to_string_lossy().ends_with("backdrop-tone.png"));
         assert!(
-            px.iter().map(|v| u32::from(*v)).sum::<u32>() > 200,
-            "the blur threw the light away instead of spreading it"
+            !name.to_string_lossy().contains("backdrop256"),
+            "{}",
+            name.display()
         );
-    }
-
-    #[test]
-    fn a_flat_image_survives_the_blur_unchanged() {
-        // The edge clamp is the reason this is worth a test: a window that
-        // counted off-image pixels as zero would darken every border, and a
-        // black fringe around a backdrop reads as a rendering fault.
-        let (mut px, w, h) = grey(&[200; 64], 8);
-        blur(&mut px, w, h, 1, w, 3);
-        assert!(
-            px.iter().all(|v| *v == 200),
-            "a flat image should blur to itself, got {px:?}"
-        );
-    }
-
-    #[test]
-    fn a_zero_radius_is_a_no_op() {
-        let (mut px, w, h) = grey(&[1, 2, 3, 4], 2);
-        let before = px.clone();
-        blur(&mut px, w, h, 1, w, 0);
-        assert_eq!(px, before);
-    }
-
-    #[test]
-    fn the_backdrop_filename_carries_its_size() {
-        // Changing BACKDROP_PX must invalidate what is already on disk. The old
-        // scheme wrote plain `.backdrop.png`, so a geometry change would have
-        // left 48px files to be found and reused for ever.
-        let name = std::path::Path::new("/tmp/abc-512.jpg")
-            .with_extension(format!("backdrop{BACKDROP_PX}.png"));
-        assert!(
-            name.to_string_lossy()
-                .ends_with(&format!("backdrop{BACKDROP_PX}.png"))
-        );
-        assert_ne!(name.to_string_lossy(), "/tmp/abc-512.backdrop.png");
     }
 
     #[test]

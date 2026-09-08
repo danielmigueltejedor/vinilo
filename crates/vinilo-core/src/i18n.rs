@@ -411,8 +411,8 @@ fn en(key: Key) -> &'static str {
         Key::AccentPurple => "Purple",
         Key::AccentGreen => "Green",
         Key::AccentOrange => "Orange",
-        Key::AlbumArtBackdrop => "Album Art Backdrop",
-        Key::AlbumArtBackdropSub => "The current cover, blurred, behind the player",
+        Key::AlbumArtBackdrop => "Colour from the cover",
+        Key::AlbumArtBackdropSub => "A wash of the album's main colour behind the player",
         Key::SourceTint => "Tint from music source",
         Key::SourceTintSub => "Apple Music red, Spotify green, YouTube red, Tidal cyan",
         Key::Language => "Language",
@@ -671,8 +671,10 @@ fn es(key: Key) -> &'static str {
         Key::AccentPurple => "Morado",
         Key::AccentGreen => "Verde",
         Key::AccentOrange => "Naranja",
-        Key::AlbumArtBackdrop => "Fondo con la portada",
-        Key::AlbumArtBackdropSub => "La portada actual, desenfocada, detrás del reproductor",
+        Key::AlbumArtBackdrop => "Color de la portada",
+        Key::AlbumArtBackdropSub => {
+            "Un tinte con el color principal del disco, detrás del reproductor"
+        }
         Key::SourceTint => "Teñir según la fuente",
         Key::SourceTintSub => {
             "Rojo de Apple Music, verde de Spotify, rojo de YouTube, cian de Tidal"

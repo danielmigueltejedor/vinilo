@@ -248,11 +248,11 @@ impl AppModel {
             Some(path) => {
                 let path = PathBuf::from(path);
                 sender.oneshot_command(async move {
-                    // Off the GTK thread (rule 8): the blur is a decode and a
-                    // downscale, and it rides in the same message as the cover
+                    // Off the GTK thread (rule 8): sampling the sleeve's colour
+                    // is a decode, and it rides in the same message as the cover
                     // so the two are never applied a frame apart.
-                    let blurred = path.clone();
-                    let backdrop = relm4::spawn_blocking(move || artwork::backdrop(&blurred))
+                    let source = path.clone();
+                    let backdrop = relm4::spawn_blocking(move || artwork::backdrop(&source))
                         .await
                         .ok()
                         .flatten();

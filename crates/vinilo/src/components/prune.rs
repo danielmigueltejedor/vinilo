@@ -77,11 +77,11 @@ pub(super) fn classify(name: &str) -> Entry<'_> {
         return Entry::Unknown;
     }
 
-    // `<key>-512.backdrop256.png` — a blurred copy of the cover beside it, and
-    // it lives or dies with that cover. The numberless `backdrop.png` form
-    // predates the size going into the name and is not written any more.
+    // `<key>-512.backdrop-tone.png` — a wash of the sleeve's colour, and it
+    // lives or dies with that cover. Older `backdrop256.png` files were a
+    // blurred photograph of the same sleeve; they are retired, not reused.
     if let Some((size, tail)) = rest.split_once(".backdrop") {
-        return if LIVE_SIZES.contains(&size) && tail != ".png" {
+        return if LIVE_SIZES.contains(&size) && tail == "-tone.png" {
             Entry::Cover(key)
         } else {
             Entry::Retired
@@ -199,7 +199,7 @@ mod tests {
             Entry::Cover("0061ed5f5d6a433f")
         );
         assert_eq!(
-            classify("127f514fc028ac76-512.backdrop256.png"),
+            classify("127f514fc028ac76-512.backdrop-tone.png"),
             Entry::Cover("127f514fc028ac76")
         );
         let name = format!("{}-mosaic-512.png", keys(4));
@@ -207,11 +207,11 @@ mod tests {
     }
 
     #[test]
-    fn a_backdrop_follows_the_cover_it_was_blurred_from() {
+    fn a_backdrop_follows_the_cover_it_was_tinted_from() {
         // It is derived from that file and useless without it, so it has to
         // carry the same key rather than one of its own.
         assert_eq!(
-            classify("abcdef0123456789-512.backdrop256.png"),
+            classify("abcdef0123456789-512.backdrop-tone.png"),
             classify("abcdef0123456789-512.jpg")
         );
     }
@@ -219,11 +219,15 @@ mod tests {
     #[test]
     fn the_shapes_we_stopped_writing_are_retired() {
         // 256px covers came from the first mosaic build, which fetched at a
-        // size nothing else uses. The numberless backdrop predates the size
-        // going into the name.
+        // size nothing else uses. The numberless backdrop and the blurred
+        // photograph (`backdrop256`) predate the colour wash.
         assert_eq!(classify("abcdef0123456789-256.jpg"), Entry::Retired);
         assert_eq!(
             classify("abcdef0123456789-512.backdrop.png"),
+            Entry::Retired
+        );
+        assert_eq!(
+            classify("abcdef0123456789-512.backdrop256.png"),
             Entry::Retired
         );
     }

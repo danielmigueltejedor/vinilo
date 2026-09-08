@@ -90,8 +90,8 @@ const ART_FLOOR: i32 = 96;
 ///
 /// Measured with the queue open: at 420px the queue gets four rows *with* the
 /// thumbnail, and below that it falls to three and then to one. The thumbnail
-/// is 72px and its whole job is saying which record this is — which the blurred
-/// backdrop, the title and the artist all still do, and the queue's own list
+/// is 72px and its whole job is saying which record this is — which the colour
+/// wash, the title and the artist all still do, and the queue's own list
 /// does as well. So below this it is worth more as another row.
 ///
 /// Only ever asked with the queue open. Stacked, the cover *is* the view.

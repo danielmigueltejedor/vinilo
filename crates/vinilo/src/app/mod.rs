@@ -2749,8 +2749,8 @@ impl AppModel {
                     tracing::debug!("artwork unavailable");
                 }
                 self.art_path = path.clone();
-                // Put the cover behind the player. Scaled off the GTK thread
-                // alongside the fetch, so this is only the CSS swap.
+                // Tint the player from the sleeve's colour. Sampled off the
+                // GTK thread alongside the fetch, so this is only the CSS swap.
                 crate::style::set_backdrop(backdrop.as_deref());
                 self.now_playing
                     .emit(NowPlayingInput::ArtworkReady(path.clone()));

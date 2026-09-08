@@ -264,7 +264,9 @@ impl DetailPage {
 
         let error = adw::StatusPage::builder()
             .icon_name("network-offline-symbolic")
-            .title(vinilo_core::i18n::t(vinilo_core::i18n::Key::CouldNotLoadPage))
+            .title(vinilo_core::i18n::t(
+                vinilo_core::i18n::Key::CouldNotLoadPage,
+            ))
             .build();
 
         // Distinct from `error`: a playlist you have not put anything in yet
@@ -486,7 +488,7 @@ impl DetailPage {
         }
     }
 
-    /// The same blurred sleeve the player uses, on this page only.
+    /// The same colour wash the player uses, on this page only.
     pub fn set_backdrop(&self, path: Option<&std::path::Path>) {
         *self.last_backdrop.borrow_mut() = path.map(std::path::Path::to_path_buf);
         crate::style::set_page_backdrop(

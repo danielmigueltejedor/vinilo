@@ -11,7 +11,7 @@
 //! Two providers, deliberately:
 //!
 //! - a **base** one, replaced only when the accent preference changes;
-//! - a **backdrop** one carrying the cover behind the player, replaced on
+//! - a **backdrop** one carrying the sleeve's colour behind the player, replaced on
 //!   every track.
 //!
 //! Keeping them apart means a new cover does not reparse the accent rules, and
@@ -108,7 +108,7 @@ impl Accent {
 
 thread_local! {
     static BASE: gtk::CssProvider = gtk::CssProvider::new();
-    /// The cover behind the bar and the drawer. Separate from `BASE` for the
+    /// The colour behind the bar and the drawer. Separate from `BASE` for the
     /// reason the module opens with: this one is replaced on every track, and
     /// recolouring the player should not reparse the accent rules.
     static BACKDROP: gtk::CssProvider = gtk::CssProvider::new();
@@ -177,8 +177,7 @@ pub fn init(accent: Accent, backdrop: bool) {
 /// surface above and below it.
 ///
 /// Naming both stretches the square rather than fitting it, which would matter
-/// on a photograph and cannot be seen on a 256px image blurred and then put
-/// behind a veil.
+/// on a photograph and cannot be seen on a colour wash.
 const COVER_LAYOUT: &str = ".np-bar { background-size: cover, cover; }
          .np-sheet, .page-sheet { background-size: cover, 150% 150%; }
          .np-bar, .np-sheet, .page-sheet { background-position: center, center; }";
@@ -369,21 +368,19 @@ thread_local! {
 const FADE_MS: u64 = 340;
 const FRAME_MS: u64 = 16;
 
-/// Put a cover behind the player — the bar and the drawer both — or take it
-/// away.
+/// Put the sleeve's colour behind the player — the bar and the drawer both —
+/// or take it away.
 ///
-/// Two layers, and the order matters: the artwork underneath, a scrim of the
+/// Two layers, and the order matters: the wash underneath, a scrim of the
 /// window's own background over it. The scrim is why this is legible — every
 /// label and icon on both surfaces has a colour chosen for contrast against
-/// the theme, and a photograph behind them would be guessing. Taking the scrim
-/// from `@window_bg_color` rather than from black is what makes the light
-/// theme work too.
+/// the theme, and a saturated field behind them would be guessing. Taking the
+/// scrim from `@window_bg_color` rather than from black is what makes the
+/// light theme work too.
 ///
-/// This replaced a **tonal scrim**: one flat, heavily desaturated wash of the
-/// sleeve's dominant colour. That existed because a bar cannot show a cover
-/// legibly — except it can, once the cover is forty-eight pixels stretched
-/// wide and put behind a scrim, which is the same trick that made the drawer
-/// work. One surface treatment for both is worth more than the colour was.
+/// The wash is the record's own colour, not a stretched photograph of it.
+/// Apple Music does the same: a white sleeve stays a white field, a red one
+/// stays red.
 pub fn set_backdrop(path: Option<&std::path::Path>) {
     // Whatever was in flight is now heading for the wrong cover.
     ART_FADE.with(|f| {
@@ -547,7 +544,7 @@ pub fn backdrop_enabled() -> bool {
     BACKDROP_ON.with(std::cell::Cell::get)
 }
 
-/// Paint a playlist or album page with the same blurred cover the player uses.
+/// Paint a playlist or album page with the same colour wash the player uses.
 pub fn set_page_backdrop(provider: &gtk::CssProvider, class: &str, path: Option<&std::path::Path>) {
     let image = path
         .filter(|_| backdrop_enabled())
@@ -584,7 +581,7 @@ fn painting_dark() -> bool {
     adw::StyleManager::default().is_dark()
 }
 
-/// Show the cover behind the player, or stop showing it (#145). Live, from
+/// Show the sleeve's colour behind the player, or stop showing it (#145). Live, from
 /// Preferences — the same surfaces and the same provider, so turning it back on
 /// picks up the track that is playing now rather than the one that was.
 pub fn set_backdrop_enabled(on: bool) {

@@ -120,7 +120,7 @@ pub struct Settings {
     pub playlist_sort_reversed: bool,
     pub section: Section,
     pub show_sidebar: bool,
-    /// Whether the current cover is painted behind the player, blurred. On by
+    /// Whether the sleeve's colour is painted behind the player. On by
     /// default.
     pub player_backdrop: bool,
     /// Recolour the accent to match the music source (Apple red, Spotify

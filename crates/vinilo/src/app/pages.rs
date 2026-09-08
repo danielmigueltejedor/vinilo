@@ -283,8 +283,8 @@ impl AppModel {
             let path = crate::components::mosaic::mosaic(covers, ART_SIZE, super::TILE_ART).await;
             let backdrop = match &path {
                 Some(path) => {
-                    let blurred = path.clone();
-                    relm4::spawn_blocking(move || artwork::backdrop(&blurred))
+                    let source = path.clone();
+                    relm4::spawn_blocking(move || artwork::backdrop(&source))
                         .await
                         .ok()
                         .flatten()
@@ -334,8 +334,8 @@ impl AppModel {
             };
             let backdrop = match &path {
                 Some(path) => {
-                    let blurred = path.clone();
-                    relm4::spawn_blocking(move || artwork::backdrop(&blurred))
+                    let source = path.clone();
+                    relm4::spawn_blocking(move || artwork::backdrop(&source))
                         .await
                         .ok()
                         .flatten()
