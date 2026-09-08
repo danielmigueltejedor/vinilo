@@ -72,9 +72,14 @@ pub const ADD_TO_LIBRARY: &[&str] = &[
 ];
 pub const REMOVE_FROM_LIBRARY: &[&str] = ADD_TO_LIBRARY;
 pub const ADD_TO_PLAYLIST: &[&str] = &[
-    "a3d63f54397e52b0401a5e5704db1d27a1d3b17c646304137b35d466906d7b7d",
+    // Current web-player hash first. The older one still works for a while
+    // after a rotation, but trying it first burns a 412 on every add.
     "47b2a1234b17748d332dd0431534f22450e9ecbb3d5ddcdacbd83368636a0990",
+    "a3d63f54397e52b0401a5e5704db1d27a1d3b17c646304137b35d466906d7b7d",
 ];
+/// `data.me.profile.username` — needed to pin a new list in the rootlist.
+pub const PROFILE_ATTRIBUTES: &[&str] =
+    &["08ffb4730af3746e04a8301396f20875dbbce10c75243803091a9274eacc8ac0"];
 pub const PLAYLIST_V2: &str = "https://spclient.wg.spotify.com/playlist/v2";
 
 #[derive(Debug, Clone)]

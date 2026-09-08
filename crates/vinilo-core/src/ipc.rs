@@ -264,10 +264,15 @@ pub fn connect_or_spawn(exe: &std::path::Path) -> std::io::Result<std::os::unix:
 
     tracing::info!(daemon = %exe.display(), "no daemon listening — starting one");
     let mut command = std::process::Command::new(exe);
-    command
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null());
+    command.stdin(std::process::Stdio::null());
+    // Default: the daemon is a session of its own, so it must not keep the
+    // client's pipes. When `RUST_LOG` is set we keep stderr, so one terminal
+    // running `vinilo` shows catalogue writes (create playlist, likes).
+    if std::env::var_os("RUST_LOG").is_none() {
+        command
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+    }
 
     // **Its own session, or the terminal takes it with it.** A plain child
     // inherits the client's process group *and* its session, and so does the

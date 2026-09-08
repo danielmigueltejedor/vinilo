@@ -3,9 +3,10 @@
 
 //! Spotify library writes through Pathfinder and the playlist/v2 service.
 //!
-//! The web-player token cannot call `api.spotify.com/v1/me/*`. Likes and
-//! playlist edits go the same way the player does: GraphQL mutations plus a
-//! protobuf-JSON POST to create an empty playlist.
+//! The web-player token cannot call `api.spotify.com/v1/me/*`. Likes go
+//! through Pathfinder. Creating a playlist is the Cosmic `playlist/v2` POST
+//! the web player uses, then a rootlist pin so the new uri actually appears
+//! in the library.
 
 use anyhow::{Context, Result, bail};
 use serde_json::{Value, json};
@@ -38,6 +39,7 @@ pub async fn apply(
                 .filter(|s| !s.is_empty())
                 .unwrap_or("New playlist");
             let created = create_playlist(http, &session, title).await?;
+            pin_in_library(http, &session, &created).await?;
             if let Some(track) = id_if_track(id) {
                 add_to_playlist(http, &session, &created, &track).await?;
             }
@@ -149,17 +151,19 @@ async fn add_to_playlist(
 }
 
 fn add_items_body(track_uri: &str) -> Value {
+    // Match the web player's Cosmic JSON: empty arrays and `info` are omitted
+    // by their protobuf toJSON, and sending them is what 400'd create.
     json!({
         "ops": [{
             "kind": "ADD",
             "add": {
-                "fromIndex": 0,
-                "items": [{ "uri": track_uri }],
-                "addFirst": false,
-                "addLast": true
+                "addLast": true,
+                "items": [{
+                    "uri": track_uri,
+                    "attributes": { "timestamp": unix_ms() }
+                }]
             }
-        }],
-        "info": { "source": { "client": "WEBPLAYER" } }
+        }]
     })
 }
 
@@ -176,36 +180,14 @@ async fn add_to_playlist_v2(
         _ => bail!("not a Spotify playlist id"),
     };
     let url = format!("{}/playlist/{id}", partner::PLAYLIST_V2);
-    let mut req = http
-        .post(&url)
-        .bearer_auth(&session.access)
-        .header("Accept", "application/json")
-        .header("Content-Type", "application/json")
-        .header("Origin", "https://open.spotify.com")
-        .header("Referer", "https://open.spotify.com/")
-        .header("Spotify-App-Version", &session.client_version)
-        .header("App-Platform", "WebPlayer");
-    if let Some(token) = &session.client_token {
-        req = req.header("client-token", token);
-    }
-    if let Some(cookie) = crate::setup::session_cookie(crate::provider::Provider::Spotify) {
-        req = req.header("Cookie", cookie);
-    }
-    let res = req
-        .json(&add_items_body(track_uri))
-        .send()
-        .await
-        .context("spotify playlist add")?;
-    let status = res.status();
-    let text = res.text().await.unwrap_or_default();
-    if !status.is_success() {
-        tracing::warn!(
-            %status,
-            body = %super::clip_body(&text),
-            "spotify playlist add http error"
-        );
-        bail!("Spotify would not add the track ({status})");
-    }
+    playlist_v2_send(
+        http,
+        session,
+        &url,
+        &add_items_body(track_uri),
+        "add the track",
+    )
+    .await?;
     Ok(())
 }
 
@@ -215,26 +197,47 @@ fn create_playlist_body(name: &str) -> Value {
             "kind": "UPDATE_LIST_ATTRIBUTES",
             "updateListAttributes": {
                 "newAttributes": {
-                    "values": {
-                        "name": name,
-                        "formatAttributes": [],
-                        "pictureSize": []
-                    },
-                    "noValue": []
+                    "values": { "name": name }
                 }
             }
-        }],
-        "info": { "source": { "client": "WEBPLAYER" } }
+        }]
     })
 }
 
-async fn create_playlist(http: &reqwest::Client, session: &Session, name: &str) -> Result<String> {
-    let url = format!("{}/playlist", partner::PLAYLIST_V2);
+fn unix_ms() -> String {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis().to_string())
+        .unwrap_or_else(|_| "0".into())
+}
+
+fn rootlist_pin_body(playlist_uri: &str) -> Value {
+    json!({
+        "deltas": [{
+            "ops": [{
+                "kind": "ADD",
+                "add": {
+                    "addFirst": true,
+                    "items": [{
+                        "uri": playlist_uri,
+                        "attributes": { "timestamp": unix_ms() }
+                    }]
+                }
+            }]
+        }]
+    })
+}
+
+fn playlist_v2_post(
+    http: &reqwest::Client,
+    session: &Session,
+    url: &str,
+) -> reqwest::RequestBuilder {
     let mut req = http
-        .post(&url)
+        .post(url)
         .bearer_auth(&session.access)
         .header("Accept", "application/json")
-        .header("Content-Type", "application/json")
+        .header("Content-Type", "application/json;charset=UTF-8")
         .header("Origin", "https://open.spotify.com")
         .header("Referer", "https://open.spotify.com/")
         .header("Spotify-App-Version", &session.client_version)
@@ -245,21 +248,46 @@ async fn create_playlist(http: &reqwest::Client, session: &Session, name: &str) 
     if let Some(cookie) = crate::setup::session_cookie(crate::provider::Provider::Spotify) {
         req = req.header("Cookie", cookie);
     }
-    let res = req
-        .json(&create_playlist_body(name))
+    req
+}
+
+async fn playlist_v2_send(
+    http: &reqwest::Client,
+    session: &Session,
+    url: &str,
+    body: &Value,
+    what: &str,
+) -> Result<String> {
+    let res = playlist_v2_post(http, session, url)
+        .json(body)
         .send()
         .await
-        .context("spotify create playlist")?;
+        .with_context(|| format!("spotify {what}"))?;
     let status = res.status();
     let text = res.text().await.unwrap_or_default();
     if !status.is_success() {
         tracing::warn!(
             %status,
+            url,
+            what,
             body = %super::clip_body(&text),
-            "spotify create playlist http error"
+            "spotify playlist/v2 http error"
         );
-        bail!("Spotify would not create the playlist ({status})");
+        bail!("Spotify would not {what} ({status})");
     }
+    Ok(text)
+}
+
+async fn create_playlist(http: &reqwest::Client, session: &Session, name: &str) -> Result<String> {
+    let url = format!("{}/playlist", partner::PLAYLIST_V2);
+    let text = playlist_v2_send(
+        http,
+        session,
+        &url,
+        &create_playlist_body(name),
+        "create playlist",
+    )
+    .await?;
     let value: Value = serde_json::from_str(&text).context("spotify create playlist json")?;
     let uri = value
         .get("uri")
@@ -271,6 +299,64 @@ async fn create_playlist(http: &reqwest::Client, session: &Session, name: &str) 
         bail!("Spotify create playlist uri was empty");
     }
     Ok(format!("sp:playlist:{id}"))
+}
+
+/// A Cosmic create does not put the list in the library. The web player then
+/// POSTs the new uri onto the user's rootlist. Without that, Spotify has the
+/// list and Vinilo never sees it.
+async fn pin_in_library(
+    http: &reqwest::Client,
+    session: &Session,
+    playlist_id: &str,
+) -> Result<()> {
+    match pin_in_rootlist(http, session, playlist_id).await {
+        Ok(()) => return Ok(()),
+        Err(err) => tracing::warn!(%err, "spotify rootlist pin failed; trying addToLibrary"),
+    }
+    library_mutate(http, session, "addToLibrary", playlist_id)
+        .await
+        .context("spotify pin playlist in library")
+}
+
+async fn pin_in_rootlist(
+    http: &reqwest::Client,
+    session: &Session,
+    playlist_id: &str,
+) -> Result<()> {
+    let user = username(http, session).await?;
+    let uri = playlist_uri(playlist_id)?;
+    let url = format!(
+        "{}/user/{}/rootlist/changes",
+        partner::PLAYLIST_V2,
+        crate::streams::urlencoding(&user)
+    );
+    playlist_v2_send(
+        http,
+        session,
+        &url,
+        &rootlist_pin_body(&uri),
+        "pin playlist",
+    )
+    .await?;
+    Ok(())
+}
+
+async fn username(http: &reqwest::Client, session: &Session) -> Result<String> {
+    let value = partner_query(
+        http,
+        session,
+        "profileAttributes",
+        partner::PROFILE_ATTRIBUTES,
+        json!({}),
+    )
+    .await
+    .context("spotify profileAttributes")?;
+    value
+        .pointer("/data/me/profile/username")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned)
+        .context("Spotify profile had no username")
 }
 
 pub fn created_playlist(id: String, name: &str) -> Playlist {
@@ -315,9 +401,18 @@ mod tests {
                 .and_then(Value::as_str),
             Some("Noche")
         );
-        assert_eq!(
-            body.pointer("/info/source/client").and_then(Value::as_str),
-            Some("WEBPLAYER")
+        // The web player's protobuf toJSON drops empty arrays and `info`.
+        // Sending them is the 400 we kept hitting.
+        assert!(body.get("info").is_none(), "{body}");
+        assert!(
+            body.pointer("/ops/0/updateListAttributes/newAttributes/values/formatAttributes")
+                .is_none(),
+            "{body}"
+        );
+        assert!(
+            body.pointer("/ops/0/updateListAttributes/newAttributes/noValue")
+                .is_none(),
+            "{body}"
         );
     }
 
@@ -336,6 +431,26 @@ mod tests {
         assert_eq!(
             body.pointer("/ops/0/add/addLast").and_then(Value::as_bool),
             Some(true)
+        );
+        assert!(body.get("info").is_none(), "{body}");
+    }
+
+    #[test]
+    fn rootlist_pin_puts_the_list_first() {
+        let body = rootlist_pin_body("spotify:playlist:37i9dQZF1DXcBWIGoYBM5M");
+        assert_eq!(
+            body.pointer("/deltas/0/ops/0/kind").and_then(Value::as_str),
+            Some("ADD")
+        );
+        assert_eq!(
+            body.pointer("/deltas/0/ops/0/add/addFirst")
+                .and_then(Value::as_bool),
+            Some(true)
+        );
+        assert_eq!(
+            body.pointer("/deltas/0/ops/0/add/items/0/uri")
+                .and_then(Value::as_str),
+            Some("spotify:playlist:37i9dQZF1DXcBWIGoYBM5M")
         );
     }
 }
