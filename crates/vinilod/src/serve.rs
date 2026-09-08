@@ -349,7 +349,7 @@ pub async fn run() -> Result<()> {
                         .spotify
                         .borrow_mut()
                         .as_mut()
-                        .and_then(|engine| engine.next().ok())
+                        .and_then(|engine| engine.advance_ended().ok())
                         .unwrap_or(false);
                     if advanced {
                         publish_spotify(&ticking);
@@ -1071,6 +1071,15 @@ fn answer(
         Request::Enqueue { ids, next } => {
             let provider = daemon.source;
             if provider.is_catalog() {
+                if daemon
+                    .spotify
+                    .borrow()
+                    .as_ref()
+                    .is_some_and(|engine| engine.is_active())
+                {
+                    enqueue_spotify(daemon, ids, next);
+                    return None;
+                }
                 if daemon.local.borrow().is_active() {
                     enqueue_streams(daemon, ids);
                     return None;
@@ -1106,6 +1115,28 @@ fn answer(
             None
         }
         Request::RemoveFromQueue { index } => {
+            if daemon
+                .spotify
+                .borrow()
+                .as_ref()
+                .is_some_and(|engine| engine.is_active())
+            {
+                return match daemon
+                    .spotify
+                    .borrow_mut()
+                    .as_mut()
+                    .map(|engine| engine.remove(index))
+                {
+                    Some(Ok(())) => {
+                        publish_spotify(daemon);
+                        None
+                    }
+                    Some(Err(err)) => Some(Event::Error {
+                        detail: format!("{err:#}"),
+                    }),
+                    None => None,
+                };
+            }
             if daemon.local.borrow().is_active() {
                 return match daemon.local.borrow_mut().remove(index) {
                     Ok(()) => {
@@ -1131,6 +1162,28 @@ fn answer(
             None
         }
         Request::MoveInQueue { from, to } => {
+            if daemon
+                .spotify
+                .borrow()
+                .as_ref()
+                .is_some_and(|engine| engine.is_active())
+            {
+                return match daemon
+                    .spotify
+                    .borrow_mut()
+                    .as_mut()
+                    .map(|engine| engine.move_item(from, to))
+                {
+                    Some(Ok(())) => {
+                        publish_spotify(daemon);
+                        None
+                    }
+                    Some(Err(err)) => Some(Event::Error {
+                        detail: format!("{err:#}"),
+                    }),
+                    None => None,
+                };
+            }
             if daemon.local.borrow().is_active() {
                 return match daemon.local.borrow_mut().move_item(from, to) {
                     Ok(()) => {
@@ -1151,6 +1204,20 @@ fn answer(
             None
         }
         Request::ClearQueue => {
+            if daemon
+                .spotify
+                .borrow()
+                .as_ref()
+                .is_some_and(|engine| engine.is_active())
+            {
+                stop_local(daemon);
+                daemon.publish(Event::Queue {
+                    items: Vec::new(),
+                    position: 0,
+                });
+                daemon.publish_snapshot();
+                return None;
+            }
             if daemon.local.borrow().is_active() {
                 stop_local(daemon);
                 daemon.publish(Event::Queue {
@@ -1218,6 +1285,7 @@ fn publish_spotify(daemon: &Rc<Daemon>) {
     };
     let playing = engine.is_playing();
     let position_ms = engine.position_ms();
+    let engine_repeat = engine.repeat();
     let items: Vec<_> = engine
         .queue()
         .iter()
@@ -1254,6 +1322,7 @@ fn publish_spotify(daemon: &Rc<Daemon>) {
                 PlaybackState::Paused
             },
         });
+        model.player.repeat = engine_repeat;
         model.player.apply(&PlayerEvent::Position {
             position_ms,
             duration_ms,
@@ -1383,6 +1452,9 @@ fn route_local_transport(daemon: &Rc<Daemon>, transport: Transport) {
                 daemon.model.borrow_mut().player.shuffle = shuffle;
             }
             Transport::SetRepeat { mode } => {
+                if let Some(engine) = daemon.spotify.borrow_mut().as_mut() {
+                    engine.set_repeat(mode);
+                }
                 daemon.model.borrow_mut().player.repeat = mode;
             }
         }
@@ -2622,7 +2694,8 @@ fn play_streams(daemon: &Rc<Daemon>, ids: Vec<String>, index: usize, start: Star
             stop_spotify(&daemon);
             let volume = daemon.model.borrow().volume;
             match crate::spotify_play::Engine::start(queue, 0, volume).await {
-                Ok(engine) => {
+                Ok(mut engine) => {
+                    engine.set_repeat(daemon.model.borrow().player.repeat);
                     *daemon.spotify.borrow_mut() = Some(engine);
                     *daemon.art_for.borrow_mut() = None;
                     publish_spotify(&daemon);
@@ -2763,6 +2836,29 @@ async fn prefetch_stream_hits(
         }
         publish_local(daemon);
     }
+}
+
+fn enqueue_spotify(daemon: &Rc<Daemon>, ids: Vec<String>, next: bool) {
+    let daemon = daemon.clone();
+    tokio::task::spawn_local(async move {
+        let mut hits = Vec::new();
+        for id in ids {
+            if let Some(hit) = peek_stream_hit(&daemon, &id) {
+                hits.push(hydrate_hit(&daemon, hit).await);
+            }
+        }
+        if hits.is_empty() {
+            return;
+        }
+        if let Some(engine) = daemon.spotify.borrow_mut().as_mut() {
+            if next {
+                engine.insert_next(hits);
+            } else {
+                engine.append(hits);
+            }
+        }
+        publish_spotify(&daemon);
+    });
 }
 
 fn enqueue_streams(daemon: &Rc<Daemon>, ids: Vec<String>) {

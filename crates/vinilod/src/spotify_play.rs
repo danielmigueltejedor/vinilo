@@ -9,7 +9,7 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
@@ -26,6 +26,7 @@ use librespot_playback::player::{Player, PlayerEvent};
 use librespot_playback::{NUM_CHANNELS, SAMPLE_RATE};
 use rodio::{OutputStream, Sink as RodioSink};
 use tokio::sync::mpsc::UnboundedReceiver;
+use vinilo_core::player::protocol::RepeatMode;
 use vinilo_core::streams::StreamHit;
 
 /// Spotify's own desktop client id — the same one Sonora and librespot demos use.
@@ -129,6 +130,27 @@ fn track_id(hit: &StreamHit) -> Result<String> {
     Ok(id.to_owned())
 }
 
+/// Shared gain for the rodio sink, the same idea as Sonora's `Volume`.
+#[derive(Clone)]
+struct Gain(Arc<AtomicU32>);
+
+impl Gain {
+    fn new(volume: f64) -> Self {
+        let gain = Self(Arc::new(AtomicU32::new(0)));
+        gain.set(volume);
+        gain
+    }
+
+    fn set(&self, volume: f64) {
+        let volume = volume.clamp(0.0, 1.0) as f32;
+        self.0.store(volume.to_bits(), Ordering::Relaxed);
+    }
+
+    fn get(&self) -> f32 {
+        f32::from_bits(self.0.load(Ordering::Relaxed))
+    }
+}
+
 /// A librespot session plus a rodio sink that owns the speakers for Spotify.
 pub struct Engine {
     player: Arc<Player>,
@@ -139,11 +161,13 @@ pub struct Engine {
     position_ms: u64,
     ended: Arc<AtomicBool>,
     active: bool,
+    gain: Gain,
+    repeat: RepeatMode,
 }
 
 impl Engine {
     /// Restore or open OAuth, then start the first track.
-    pub async fn start(queue: Vec<StreamHit>, index: usize, _volume: f64) -> Result<Self> {
+    pub async fn start(queue: Vec<StreamHit>, index: usize, volume: f64) -> Result<Self> {
         if queue.is_empty() {
             bail!("empty Spotify queue");
         }
@@ -157,15 +181,16 @@ impl Engine {
             }
         };
         let ended = Arc::new(AtomicBool::new(false));
+        let gain = Gain::new(volume);
         let player_config = PlayerConfig {
             bitrate: Bitrate::Bitrate320,
             gapless: true,
             position_update_interval: Some(Duration::from_millis(500)),
             ..Default::default()
         };
-        let ended_flag = ended.clone();
+        let sink_gain = gain.clone();
         let player = Player::new(player_config, session, Box::new(NoOpVolume), move || {
-            RodioBackend::boxed(ended_flag.clone())
+            RodioBackend::boxed(sink_gain.clone())
         });
         let events = player.get_player_event_channel();
         let index = index.min(queue.len().saturating_sub(1));
@@ -178,6 +203,8 @@ impl Engine {
             position_ms: 0,
             ended,
             active: true,
+            gain,
+            repeat: RepeatMode::None,
         };
         engine.load_current(true)?;
         Ok(engine)
@@ -230,20 +257,104 @@ impl Engine {
         self.position_ms = position_ms;
     }
 
-    pub fn set_volume(&mut self, _volume: f64) {
-        // Gain is on the rodio sink inside the backend; NoOpVolume ignores mixer.
+    pub fn set_volume(&mut self, volume: f64) {
+        self.gain.set(volume);
+    }
+
+    pub fn repeat(&self) -> RepeatMode {
+        self.repeat
+    }
+
+    pub fn set_repeat(&mut self, mode: RepeatMode) {
+        self.repeat = mode;
     }
 
     pub fn next(&mut self) -> Result<bool> {
-        if self.index + 1 >= self.queue.len() {
+        self.advance(false)
+    }
+
+    /// End of track: honour Repeat One / All. User skip always leaves the track.
+    pub fn advance_ended(&mut self) -> Result<bool> {
+        self.advance(true)
+    }
+
+    fn advance(&mut self, from_end: bool) -> Result<bool> {
+        if self.queue.is_empty() {
             self.pause();
             return Ok(false);
         }
-        self.index += 1;
-        self.position_ms = 0;
-        self.playing = true;
-        self.load_current(true)?;
-        Ok(true)
+        if from_end && self.repeat == RepeatMode::One {
+            self.position_ms = 0;
+            self.playing = true;
+            self.load_current(true)?;
+            return Ok(true);
+        }
+        if self.index + 1 < self.queue.len() {
+            self.index += 1;
+            self.position_ms = 0;
+            self.playing = true;
+            self.load_current(true)?;
+            return Ok(true);
+        }
+        if self.repeat == RepeatMode::All {
+            self.index = 0;
+            self.position_ms = 0;
+            self.playing = true;
+            self.load_current(true)?;
+            return Ok(true);
+        }
+        self.pause();
+        Ok(false)
+    }
+
+    pub fn append(&mut self, hits: Vec<StreamHit>) {
+        self.insert_at(self.queue.len(), hits);
+    }
+
+    pub fn insert_next(&mut self, hits: Vec<StreamHit>) {
+        self.insert_at(self.index + 1, hits);
+    }
+
+    fn insert_at(&mut self, at: usize, hits: Vec<StreamHit>) {
+        let mut at = at.min(self.queue.len());
+        for hit in hits {
+            if self.queue.iter().any(|existing| existing.id == hit.id) {
+                continue;
+            }
+            self.queue.insert(at, hit);
+            at += 1;
+        }
+    }
+
+    pub fn remove(&mut self, index: usize) -> Result<()> {
+        if index >= self.queue.len() {
+            bail!("That track is not on the Spotify queue");
+        }
+        if index == self.index {
+            bail!("Can't remove the track that's playing");
+        }
+        self.queue.remove(index);
+        if index < self.index {
+            self.index -= 1;
+        }
+        Ok(())
+    }
+
+    pub fn move_item(&mut self, from: usize, to: usize) -> Result<()> {
+        if from >= self.queue.len() {
+            bail!("That track is not on the Spotify queue");
+        }
+        let item = self.queue.remove(from);
+        let to = to.min(self.queue.len());
+        self.queue.insert(to, item);
+        if self.index == from {
+            self.index = to;
+        } else if from < self.index && to >= self.index {
+            self.index -= 1;
+        } else if from > self.index && to <= self.index {
+            self.index += 1;
+        }
+        Ok(())
     }
 
     pub fn previous(&mut self) -> Result<bool> {
@@ -310,10 +421,11 @@ impl Engine {
 struct RodioBackend {
     _stream: OutputStream,
     sink: RodioSink,
+    gain: Gain,
 }
 
 impl RodioBackend {
-    fn open() -> Result<Self, SinkError> {
+    fn open(gain: Gain) -> Result<Self, SinkError> {
         unsafe {
             std::env::set_var("PULSE_PROP_application.name", "Vinilo");
             std::env::set_var("PULSE_PROP_application.icon_name", vinilo_core::APP_ID);
@@ -323,15 +435,17 @@ impl RodioBackend {
             .map_err(|err| SinkError::ConnectionRefused(err.to_string()))?;
         let sink = RodioSink::try_new(&handle)
             .map_err(|err| SinkError::ConnectionRefused(err.to_string()))?;
+        sink.set_volume(gain.get());
         sink.play();
         Ok(Self {
             _stream: stream,
             sink,
+            gain,
         })
     }
 
-    fn boxed(_ended: Arc<AtomicBool>) -> Box<dyn Sink> {
-        match Self::open() {
+    fn boxed(gain: Gain) -> Box<dyn Sink> {
+        match Self::open(gain) {
             Ok(sink) => Box::new(sink),
             Err(err) => {
                 tracing::error!(%err, "spotify: cannot open audio output");
@@ -343,6 +457,7 @@ impl RodioBackend {
 
 impl Sink for RodioBackend {
     fn start(&mut self) -> SinkResult<()> {
+        self.sink.set_volume(self.gain.get());
         self.sink.play();
         Ok(())
     }
@@ -353,6 +468,7 @@ impl Sink for RodioBackend {
     }
 
     fn write(&mut self, packet: AudioPacket, converter: &mut Converter) -> SinkResult<()> {
+        self.sink.set_volume(self.gain.get());
         let samples = packet
             .samples()
             .map_err(|err| SinkError::OnWrite(err.to_string()))?;
