@@ -145,6 +145,7 @@ impl SpawnLock {
         };
         let Ok(file) = std::fs::OpenOptions::new()
             .create(true)
+            .truncate(true)
             .write(true)
             .open(path)
         else {

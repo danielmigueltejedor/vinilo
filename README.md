@@ -40,7 +40,7 @@ Para **Apple Music** necesitas una suscripción activa, una máquina **x86_64** 
 
 Para **archivos locales** basta con el propio Vinilo: MP3, FLAC, Ogg, WAV y demás que rodio sepa abrir. No hace falta sidecar ni cuenta.
 
-Para **Spotify, YouTube Music y Tidal** Vinilo abre una **ventana de inicio de sesión** (como Apple Music). Con Spotify, después busca en el catálogo de Spotify, muestra tus listas y canciones que te gustan, y Escuchar ahora. **El audio no sale de Spotify**: se descarga con `yt-dlp` (YouTube u otras fuentes públicas), porque Spotify cierra el stream con DRM en Linux. Por eso no hay anuncios ni hace falta Premium: no es el cliente oficial. Hace falta `yt-dlp` y, para convertir a MP3, `ffmpeg`. También `webkitgtk-6.0` para la ventana de login.
+Para **Spotify, YouTube Music y Tidal** Vinilo abre una **ventana de inicio de sesión** (como Apple Music). El catálogo se busca en la app. **Spotify (Alpha)** reproduce con **librespot** si tienes **Premium** (la primera canción puede abrir el navegador para OAuth); sin Premium cae a `yt-dlp`. **YouTube Music (Alpha)** prefiere audio InnerTube y usa `yt-dlp` solo si hace falta. **Tidal (Alpha)** sigue con `yt-dlp`. También `webkitgtk-6.0` para la ventana de login.
 
 ## Compilar e instalar
 
@@ -170,7 +170,7 @@ Apple Music pasa por el reproductor MusicKit de Apple con el CDM oficial de Goog
 - **Sin reproducción sin conexión de Apple Music.** El CDM de Linux no admite licencias persistentes.
 - **~200 MB en disco** para el sidecar de Chromium, solo si usas Apple Music.
 - **Solo x86_64** para Apple Music, mientras Widevine en Linux ARM no esté estable.
-- **Spotify, YouTube Music y Tidal** abren una ventana de inicio de sesión; el audio llega con yt-dlp (no con el DRM oficial de esos servicios).
+- **Spotify (Alpha)** reproduce con librespot si tienes Premium; **YouTube Music (Alpha)** prefiere InnerTube; **Tidal (Alpha)** aún usa yt-dlp. Apple Music es **Beta**.
 - **`aguja` necesita una sesión de escritorio** si usas Apple Music: Chromium pide un servidor de pantalla.
 
 ## Créditos

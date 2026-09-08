@@ -99,6 +99,9 @@ pub struct Daemon {
     pub mixer: Option<crate::mixer::Mixer>,
     /// Files on this computer. Empty until a client asks to play some.
     pub local: RefCell<crate::local::Player>,
+    /// Spotify Premium via librespot. Takes over from [`Self::local`] while a
+    /// Spotify track is playing natively.
+    pub spotify: RefCell<Option<crate::spotify_play::Engine>>,
     /// Rung by [`Request::Quit`], and answered where SIGTERM is — so leaving on
     /// purpose and being stopped by a service manager take the same path.
     pub quitting: tokio::sync::Notify,
@@ -240,6 +243,7 @@ pub async fn run() -> Result<()> {
         model: RefCell::new(Model::new()),
         sidecar: RefCell::new(sidecar_handle),
         local: RefCell::new(crate::local::Player::new()),
+        spotify: RefCell::new(None),
         events,
         restored: std::cell::Cell::new(false),
         restarts: std::cell::Cell::new(0),
@@ -317,10 +321,15 @@ pub async fn run() -> Result<()> {
             // showing the old number is the disagreement this whole thing
             // moved to fix.
             let local_active = ticking.local.borrow().is_active();
+            let spotify_active = ticking
+                .spotify
+                .borrow()
+                .as_ref()
+                .is_some_and(|engine| engine.is_active());
             // The Pulse mixer looks up `application.name = Vinilo`. While a
             // file is playing that name still matches the paused sidecar, so
             // reading it would snap the slider back to Apple Music's gain.
-            let outside = if local_active {
+            let outside = if local_active || spotify_active {
                 None
             } else {
                 ticking.mixer.as_ref().and_then(|m| m.current())
@@ -328,6 +337,30 @@ pub async fn run() -> Result<()> {
             let moved = outside.is_some_and(|v| (v - ticking.model.borrow().volume).abs() > 0.005);
             if moved {
                 ticking.model.borrow_mut().volume = outside.unwrap_or_default();
+            }
+            if spotify_active {
+                let ended = ticking
+                    .spotify
+                    .borrow_mut()
+                    .as_mut()
+                    .is_some_and(|engine| engine.poll_ended());
+                if ended {
+                    let advanced = ticking
+                        .spotify
+                        .borrow_mut()
+                        .as_mut()
+                        .and_then(|engine| engine.next().ok())
+                        .unwrap_or(false);
+                    if advanced {
+                        publish_spotify(&ticking);
+                    } else {
+                        stop_spotify(&ticking);
+                    }
+                } else {
+                    publish_spotify(&ticking);
+                }
+                watchdog::check(&ticking, &mut watch);
+                continue;
             }
             if local_active {
                 if ticking.local.borrow().ended() {
@@ -904,6 +937,28 @@ fn answer(
             Some(Event::Queue { items, position })
         }
         Request::JumpTo { index } => {
+            if daemon
+                .spotify
+                .borrow()
+                .as_ref()
+                .is_some_and(|engine| engine.is_active())
+            {
+                return match daemon
+                    .spotify
+                    .borrow_mut()
+                    .as_mut()
+                    .map(|engine| engine.jump(index))
+                {
+                    Some(Ok(())) => {
+                        publish_spotify(daemon);
+                        None
+                    }
+                    Some(Err(err)) => Some(Event::Error {
+                        detail: format!("{err:#}"),
+                    }),
+                    None => None,
+                };
+            }
             if daemon.local.borrow().is_active() {
                 return match daemon.local.borrow_mut().jump(index) {
                     Ok(()) => {
@@ -1140,12 +1195,74 @@ fn answer(
 }
 
 fn stop_local(daemon: &Daemon) {
+    stop_spotify(daemon);
     if !daemon.local.borrow().is_active() {
         return;
     }
     daemon.local.borrow_mut().stop();
     daemon.model.borrow_mut().player.state = PlaybackState::None;
     daemon.model.borrow_mut().art_path = None;
+}
+
+fn stop_spotify(daemon: &Daemon) {
+    let Some(mut engine) = daemon.spotify.borrow_mut().take() else {
+        return;
+    };
+    engine.stop();
+}
+
+fn publish_spotify(daemon: &Rc<Daemon>) {
+    let spotify = daemon.spotify.borrow();
+    let Some(engine) = spotify.as_ref().filter(|engine| engine.is_active()) else {
+        return;
+    };
+    let playing = engine.is_playing();
+    let position_ms = engine.position_ms();
+    let items: Vec<_> = engine
+        .queue()
+        .iter()
+        .map(|hit| vinilo_core::player::protocol::Item {
+            occurrence_id: hit.id.clone(),
+            id: Some(hit.id.clone()),
+            catalog_id: Some(hit.id.clone()),
+            title: hit.title.clone(),
+            artist: hit.artist.clone(),
+            album: hit.album.clone(),
+            duration_ms: hit.duration_ms,
+            track_number: 0,
+            artwork_template: hit.artwork.clone(),
+        })
+        .collect();
+    let index = engine.index();
+    let current = items.get(index).cloned();
+    let duration_ms = current.as_ref().map(|item| item.duration_ms).unwrap_or(0);
+    drop(spotify);
+    {
+        let mut model = daemon.model.borrow_mut();
+        model.player.apply(&PlayerEvent::NowPlaying {
+            item: current,
+            queue: vinilo_core::player::protocol::Queue {
+                position: index as i64,
+                items,
+                ..Default::default()
+            },
+        });
+        model.player.apply(&PlayerEvent::PlaybackState {
+            state: if playing {
+                PlaybackState::Playing
+            } else {
+                PlaybackState::Paused
+            },
+        });
+        model.player.apply(&PlayerEvent::Position {
+            position_ms,
+            duration_ms,
+        });
+    }
+    let (items, position) = daemon.model.borrow().queue();
+    daemon.publish(Event::Queue { items, position });
+    daemon.publish_snapshot();
+    fetch_artwork(daemon);
 }
 
 fn publish_local(daemon: &Rc<Daemon>) {
@@ -1205,6 +1322,82 @@ fn play_files(daemon: &Rc<Daemon>, paths: Vec<String>, index: usize) -> Option<E
 }
 
 fn route_local_transport(daemon: &Rc<Daemon>, transport: Transport) {
+    if daemon
+        .spotify
+        .borrow()
+        .as_ref()
+        .is_some_and(|engine| engine.is_active())
+    {
+        match transport {
+            Transport::Play => {
+                if let Some(engine) = daemon.spotify.borrow_mut().as_mut() {
+                    engine.play();
+                }
+            }
+            Transport::Pause => {
+                if let Some(engine) = daemon.spotify.borrow_mut().as_mut() {
+                    engine.pause();
+                }
+            }
+            Transport::PlayPause => {
+                if daemon.model.borrow().player.state.is_playing() {
+                    if let Some(engine) = daemon.spotify.borrow_mut().as_mut() {
+                        engine.pause();
+                    }
+                } else if let Some(engine) = daemon.spotify.borrow_mut().as_mut() {
+                    engine.play();
+                }
+            }
+            Transport::Next => {
+                let moved = daemon
+                    .spotify
+                    .borrow_mut()
+                    .as_mut()
+                    .and_then(|engine| engine.next().ok())
+                    .unwrap_or(false);
+                if !moved {
+                    stop_spotify(daemon);
+                }
+            }
+            Transport::Previous => {
+                let _ = daemon
+                    .spotify
+                    .borrow_mut()
+                    .as_mut()
+                    .map(|engine| engine.previous());
+            }
+            Transport::Seek { position_ms } => {
+                if let Some(engine) = daemon.spotify.borrow_mut().as_mut() {
+                    engine.seek(position_ms);
+                }
+                daemon.model.borrow_mut().player.seeked_to(position_ms);
+            }
+            Transport::SetVolume { volume } => {
+                let volume = volume.clamp(0.0, 1.0);
+                if let Some(engine) = daemon.spotify.borrow_mut().as_mut() {
+                    engine.set_volume(volume);
+                }
+                daemon.model.borrow_mut().volume = volume;
+            }
+            Transport::SetShuffle { shuffle } => {
+                daemon.model.borrow_mut().player.shuffle = shuffle;
+            }
+            Transport::SetRepeat { mode } => {
+                daemon.model.borrow_mut().player.repeat = mode;
+            }
+        }
+        if daemon
+            .spotify
+            .borrow()
+            .as_ref()
+            .is_some_and(|engine| engine.is_active())
+        {
+            publish_spotify(daemon);
+        } else {
+            daemon.publish_snapshot();
+        }
+        return;
+    }
     match transport {
         Transport::Play => daemon.local.borrow_mut().play(),
         Transport::Pause => daemon.local.borrow_mut().pause(),
@@ -1246,9 +1439,17 @@ fn route_local_transport(daemon: &Rc<Daemon>, transport: Transport) {
 }
 
 pub(crate) fn route_transport(daemon: &Rc<Daemon>, transport: Transport) {
-    // Spotify / YouTube Music / Tidal play through the local decoder, so
-    // shuffle and repeat have to land here even before the first file exists.
-    if daemon.local.borrow().is_active() || daemon.source.is_catalog() {
+    // Spotify / YouTube Music / Tidal play through the local decoder or
+    // librespot, so shuffle and repeat have to land here even before the
+    // first file exists.
+    if daemon.local.borrow().is_active()
+        || daemon
+            .spotify
+            .borrow()
+            .as_ref()
+            .is_some_and(|engine| engine.is_active())
+        || daemon.source.is_catalog()
+    {
         route_local_transport(daemon, transport);
         return;
     }
@@ -2400,7 +2601,42 @@ fn play_streams(daemon: &Rc<Daemon>, ids: Vec<String>, index: usize, start: Star
         } else {
             index.min(hits.len().saturating_sub(1))
         };
-        let first = hits.remove(start_at);
+        if crate::spotify_play::all_spotify(&hits) {
+            let mut ordered = hits.clone();
+            let first = ordered.remove(start_at);
+            if shuffled {
+                shuffle_hits(&mut ordered);
+            }
+            let mut queue = vec![first];
+            queue.append(&mut ordered);
+            for hit in &mut queue {
+                *hit = hydrate_hit(&daemon, hit.clone()).await;
+            }
+            if daemon.stream_play_gen.get() != play_gen {
+                return;
+            }
+            if daemon.sidecar.borrow().is_some() {
+                daemon.send(Command::Pause);
+            }
+            daemon.local.borrow_mut().stop();
+            stop_spotify(&daemon);
+            let volume = daemon.model.borrow().volume;
+            match crate::spotify_play::Engine::start(queue, 0, volume).await {
+                Ok(engine) => {
+                    *daemon.spotify.borrow_mut() = Some(engine);
+                    *daemon.art_for.borrow_mut() = None;
+                    publish_spotify(&daemon);
+                    return;
+                }
+                Err(err) => {
+                    tracing::warn!(
+                        ?err,
+                        "spotify librespot unavailable; falling back to yt-dlp"
+                    );
+                }
+            }
+        }
+        let first = hits.remove(start_at.min(hits.len().saturating_sub(1)));
         if shuffled {
             shuffle_hits(&mut hits);
         }
@@ -2423,28 +2659,11 @@ fn play_streams(daemon: &Rc<Daemon>, ids: Vec<String>, index: usize, start: Star
             return;
         }
         *daemon.catalog_rest.borrow_mut() = rest.clone();
-        let dir_first = dir.clone();
-        let download_first = first.clone();
-        let first_task = tokio::task::spawn_blocking(move || {
-            crate::ytdlp::download(&download_first, &dir_first)
-        });
-        let next_task = next.clone().map(|hit| {
-            let dir_next = dir.clone();
-            tokio::task::spawn_blocking(move || crate::ytdlp::download(&hit, &dir_next))
-        });
-        let path = match first_task.await {
-            Ok(Ok(path)) => path,
-            Ok(Err(detail)) => {
+        let path = match fetch_stream_audio(&first, &dir).await {
+            Ok(path) => path,
+            Err(detail) => {
                 if daemon.stream_play_gen.get() == play_gen {
                     daemon.publish(Event::Error { detail });
-                }
-                return;
-            }
-            Err(err) => {
-                if daemon.stream_play_gen.get() == play_gen {
-                    daemon.publish(Event::Error {
-                        detail: format!("{err}"),
-                    });
                 }
                 return;
             }
@@ -2455,6 +2674,7 @@ fn play_streams(daemon: &Rc<Daemon>, ids: Vec<String>, index: usize, start: Star
         if daemon.sidecar.borrow().is_some() {
             daemon.send(Command::Pause);
         }
+        stop_spotify(&daemon);
         *daemon.art_for.borrow_mut() = None;
         let volume = daemon.model.borrow().volume;
         let repeat = daemon.model.borrow().player.repeat;
@@ -2473,9 +2693,9 @@ fn play_streams(daemon: &Rc<Daemon>, ids: Vec<String>, index: usize, start: Star
         if daemon.stream_play_gen.get() != play_gen {
             return;
         }
-        if let (Some(task), Some(hit)) = (next_task, next) {
-            match task.await {
-                Ok(Ok(path)) => {
+        if let Some(hit) = next {
+            match fetch_stream_audio(&hit, &dir).await {
+                Ok(path) => {
                     if daemon.stream_play_gen.get() != play_gen {
                         return;
                     }
@@ -2486,8 +2706,7 @@ fn play_streams(daemon: &Rc<Daemon>, ids: Vec<String>, index: usize, start: Star
                     }
                     publish_local(&daemon);
                 }
-                Ok(Err(err)) => tracing::warn!(%err, "skipping a catalogue track"),
-                Err(err) => tracing::warn!(?err, "skipping a catalogue track"),
+                Err(err) => tracing::warn!(%err, "skipping a catalogue track"),
             }
         }
         if daemon.stream_play_gen.get() != play_gen {
@@ -2496,6 +2715,29 @@ fn play_streams(daemon: &Rc<Daemon>, ids: Vec<String>, index: usize, start: Star
         prefetch_stream_hits(&daemon, dir, rest).await;
         publish_local(&daemon);
     });
+}
+
+async fn fetch_stream_audio(
+    hit: &vinilo_core::streams::StreamHit,
+    dir: &std::path::Path,
+) -> Result<std::path::PathBuf, String> {
+    if hit.id.starts_with("yt:") {
+        let http = vinilo_core::streams::http();
+        match vinilo_core::ytmusic::download_audio(&http, &hit.id, dir).await {
+            Ok(path) => {
+                vinilo_core::streams::write_sidecar(&path, hit);
+                return Ok(path);
+            }
+            Err(err) => {
+                tracing::debug!(%err, id = %hit.id, "innertube audio missed; trying yt-dlp")
+            }
+        }
+    }
+    let hit = hit.clone();
+    let dir = dir.to_path_buf();
+    tokio::task::spawn_blocking(move || crate::ytdlp::download(&hit, &dir))
+        .await
+        .map_err(|err| format!("{err}"))?
 }
 
 /// Pull the next couple of tracks in parallel so Next is not waiting on a
@@ -2510,21 +2752,13 @@ async fn prefetch_stream_hits(
         for hit in chunk {
             prepared.push(hydrate_hit(daemon, hit.clone()).await);
         }
-        let mut tasks = Vec::new();
         for hit in prepared {
-            let dir = dir.clone();
-            tasks.push(tokio::task::spawn_blocking(move || {
-                crate::ytdlp::download(&hit, &dir).map(|path| (path, hit))
-            }));
-        }
-        for task in tasks {
-            match task.await {
-                Ok(Ok((path, hit))) => {
+            match fetch_stream_audio(&hit, &dir).await {
+                Ok(path) => {
                     daemon.local.borrow_mut().append_hit(path, hit.clone());
                     take_catalog(daemon, &hit.id);
                 }
-                Ok(Err(err)) => tracing::warn!(%err, "skipping a catalogue track"),
-                Err(err) => tracing::warn!(?err, "skipping a catalogue track"),
+                Err(err) => tracing::warn!(%err, "skipping a catalogue track"),
             }
         }
         publish_local(daemon);
@@ -2561,16 +2795,14 @@ fn pull_next_catalog(daemon: &Rc<Daemon>) {
             return;
         };
         let hit = hydrate_hit(&daemon, hit).await;
-        let download = hit.clone();
-        match tokio::task::spawn_blocking(move || crate::ytdlp::download(&download, &dir)).await {
-            Ok(Ok(path)) => {
+        match fetch_stream_audio(&hit, &dir).await {
+            Ok(path) => {
                 daemon.local.borrow_mut().append_hit(path, hit.clone());
                 take_catalog(&daemon, &hit.id);
                 let _ = daemon.local.borrow_mut().next();
                 publish_local(&daemon);
             }
-            Ok(Err(err)) => tracing::warn!(%err, "next catalogue track is not ready"),
-            Err(err) => tracing::warn!(?err, "next catalogue track is not ready"),
+            Err(err) => tracing::warn!(%err, "next catalogue track is not ready"),
         }
     });
 }
@@ -3046,6 +3278,7 @@ mod tests {
             wake: tokio::sync::Notify::new(),
             mixer: None,
             local: RefCell::new(crate::local::Player::new()),
+            spotify: RefCell::new(None),
             last_listen: RefCell::new(None),
             quitting: tokio::sync::Notify::new(),
             stream_hits: RefCell::new(HashMap::new()),

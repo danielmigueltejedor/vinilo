@@ -17,6 +17,22 @@ rodio = { version = "0.19", features = [
 ] }
 lofty = "0.22"
 
+# Spotify Premium audio — Sonora's librespot fork. crates.io 0.8 currently
+# fails its vergen build script against a newer vergen-lib; the pin below
+# matches Sonora's lockfile so Arch can compile.
+librespot-core = { git = "https://github.com/nolight132/librespot", rev = "e7eb953d5848fd97bacd00e6c0e33500765eaa63", default-features = false, features = [
+    "rustls-tls-native-roots",
+] }
+librespot-oauth = { git = "https://github.com/nolight132/librespot", rev = "e7eb953d5848fd97bacd00e6c0e33500765eaa63", default-features = false, features = [
+    "rustls-tls-native-roots",
+] }
+librespot-playback = { git = "https://github.com/nolight132/librespot", rev = "e7eb953d5848fd97bacd00e6c0e33500765eaa63", default-features = false, features = [
+    "rustls-tls-native-roots",
+] }
+# Keep librespot's build script on the vergen pair Sonora already ships.
+vergen = { version = "=9.0.6", default-features = false }
+vergen-lib = { version = "=0.1.6" }
+
 anyhow.workspace = true
 serde_json.workspace = true
 tokio.workspace = true

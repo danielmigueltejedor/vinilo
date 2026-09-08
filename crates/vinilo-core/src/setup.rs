@@ -124,21 +124,25 @@ pub fn looks_signed_in(provider: Provider, names: &[String]) -> bool {
             "__Secure-3PSID",
             "LOGIN_INFO",
         ]),
-        Provider::Tidal => has(&[
-            "sid",
-            "token",
-            "_token",
-            "refresh_token",
-            "tidal_sid",
-            "access_token",
-            "id_token",
-            "authorization",
-            "refresh",
-            "sessionid",
-            "userid",
-            "user_id",
-            "playback",
-        ]) || names.iter().any(|name| looks_like_tidal_session_cookie(name)),
+        Provider::Tidal => {
+            has(&[
+                "sid",
+                "token",
+                "_token",
+                "refresh_token",
+                "tidal_sid",
+                "access_token",
+                "id_token",
+                "authorization",
+                "refresh",
+                "sessionid",
+                "userid",
+                "user_id",
+                "playback",
+            ]) || names
+                .iter()
+                .any(|name| looks_like_tidal_session_cookie(name))
+        }
         Provider::AppleMusic | Provider::Local => false,
     }
 }
@@ -387,10 +391,11 @@ fn named_cookies(provider: Provider, names: &[&str]) -> Option<String> {
         }
         let name = cols[5].trim();
         let value = cols[6].trim();
-        if names.iter().any(|want| name.eq_ignore_ascii_case(want)) && !value.is_empty() {
-            if !found.iter().any(|(n, _)| n == name) {
-                found.push((name.to_owned(), value.to_owned()));
-            }
+        if names.iter().any(|want| name.eq_ignore_ascii_case(want))
+            && !value.is_empty()
+            && !found.iter().any(|(n, _)| n == name)
+        {
+            found.push((name.to_owned(), value.to_owned()));
         }
     }
     if found.iter().any(|(n, _)| n == "sp_dc") || provider != Provider::Spotify {

@@ -4,10 +4,13 @@
 //! YouTube Music InnerTube reads and writes, the same surface ytmusicapi and
 //! Music Assistant use: signed WEB_REMIX `browse` calls.
 //!
-//! Playback is still `yt-dlp`. This is the signed-in catalogue: likes,
-//! library albums, artists, playlists, and the lists that should show up in
-//! the sidebar after a write.
+//! Playback prefers a direct InnerTube audio URL (the same idea Sonora's
+//! `ytmusic-rs` uses for guest VisionOS streams). Ciphered formats still fall
+//! through to `yt-dlp` in the daemon. This module is also the signed-in
+//! catalogue: likes, library albums, artists, playlists, and the lists that
+//! should show up in the sidebar after a write.
 
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -87,10 +90,10 @@ fn context() -> Value {
         "hl": "en",
         "gl": "US"
     });
-    if let Some(visitor) = cached_visitor() {
-        if let Some(obj) = client.as_object_mut() {
-            obj.insert("visitorData".into(), json!(visitor));
-        }
+    if let Some(visitor) = cached_visitor()
+        && let Some(obj) = client.as_object_mut()
+    {
+        obj.insert("visitorData".into(), json!(visitor));
     }
     json!({
         "client": client,
@@ -525,12 +528,11 @@ pub async fn open(http: &reqwest::Client, kind: PageKind, id: &str) -> Result<(E
             let key = album_key(id)?;
             let value = browse(http, &key).await?;
             let mut songs = tracks_from_browse(&value);
-            if songs.is_empty() {
-                if let Some(audio) = first_playlist_id(&value).filter(|p| p.starts_with("OLAK")) {
-                    if let Ok(extra) = browse(http, &format!("VL{audio}")).await {
-                        songs = tracks_from_browse(&extra);
-                    }
-                }
+            if songs.is_empty()
+                && let Some(audio) = first_playlist_id(&value).filter(|p| p.starts_with("OLAK"))
+                && let Ok(extra) = browse(http, &format!("VL{audio}")).await
+            {
+                songs = tracks_from_browse(&extra);
             }
             let albums = albums_from_browse(&value);
             let mut header = albums.into_iter().next().unwrap_or(Album {
@@ -592,6 +594,191 @@ pub async fn video_hit(http: &reqwest::Client, id: &str) -> Result<StreamHit> {
                 .and_then(|track| StreamHit::from_song(&track))
         })
         .context("YouTube Music player had no title")
+}
+
+/// Fetch audio bytes for a `yt:` id into `dir`, without shelling out to yt-dlp.
+///
+/// Tries the VisionOS player first (Sonora's guest path), which often returns
+/// plain googlevideo URLs. Then the signed WEB_REMIX player. Ciphered formats
+/// are refused here so the daemon can fall back to yt-dlp.
+pub async fn download_audio(http: &reqwest::Client, id: &str, dir: &Path) -> Result<PathBuf> {
+    let video = video_id(id)?;
+    let stem = id
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+        .collect::<String>();
+    let _ = std::fs::create_dir_all(dir);
+    if let Some(existing) = find_cached_audio(dir, &stem) {
+        return Ok(existing);
+    }
+
+    let stream = match direct_stream(http, &video).await {
+        Ok(stream) => stream,
+        Err(err) => {
+            tracing::debug!(%video, ?err, "innertube had no direct audio url");
+            bail!("no direct InnerTube audio for {video}");
+        }
+    };
+
+    let path = dir.join(format!("{stem}.{}", stream.ext));
+    let tmp = dir.join(format!("{stem}.part"));
+    let bytes = http
+        .get(&stream.url)
+        .header("User-Agent", stream.user_agent)
+        .header("Accept-Encoding", "identity")
+        .header("Origin", "https://www.youtube.com")
+        .header("Referer", "https://www.youtube.com/")
+        .send()
+        .await
+        .context("youtube stream")?
+        .error_for_status()
+        .context("youtube stream status")?
+        .bytes()
+        .await
+        .context("youtube stream body")?;
+    if bytes.len() < 1024 {
+        bail!("youtube stream was empty");
+    }
+    std::fs::write(&tmp, &bytes).context("write youtube audio")?;
+    std::fs::rename(&tmp, &path).context("rename youtube audio")?;
+    Ok(path)
+}
+
+struct DirectStream {
+    url: String,
+    ext: &'static str,
+    user_agent: &'static str,
+}
+
+async fn direct_stream(http: &reqwest::Client, video: &str) -> Result<DirectStream> {
+    if let Ok(value) = player_visionos(http, video).await
+        && let Some(stream) = pick_direct_audio(&value, VISION_UA)
+    {
+        return Ok(stream);
+    }
+    let value = innertube(
+        http,
+        "player",
+        json!({
+            "videoId": video,
+            "contentCheckOk": true,
+            "racyCheckOk": true,
+        }),
+    )
+    .await?;
+    pick_direct_audio(&value, USER_AGENT).context("player had only ciphered audio")
+}
+
+const VISION_UA: &str = "com.google.ios.youtube/";
+
+async fn player_visionos(http: &reqwest::Client, video: &str) -> Result<Value> {
+    let body = json!({
+        "context": {
+            "client": {
+                "clientName": "VISIONOS",
+                "clientVersion": "0.1",
+                "deviceModel": "Apple Vision Pro",
+                "osName": "visionOS",
+                "osVersion": "1.0.0",
+                "hl": "en",
+                "gl": "US",
+            },
+            "user": {}
+        },
+        "videoId": video,
+        "contentCheckOk": true,
+        "racyCheckOk": true,
+        "playbackContext": {
+            "contentPlaybackContext": { "html5Preference": "HTML5_PREF_WANTS" }
+        }
+    });
+    let res = http
+        .post(format!("{API}/player?alt=json&key={KEY}"))
+        .header("User-Agent", VISION_UA)
+        .header("Content-Type", "application/json")
+        .header("X-YouTube-Client-Name", "101")
+        .header("X-YouTube-Client-Version", "0.1")
+        .json(&body)
+        .send()
+        .await
+        .context("visionos player")?;
+    let status = res.status();
+    let text = res.text().await.unwrap_or_default();
+    if !status.is_success() {
+        bail!("VISIONOS player {status}");
+    }
+    serde_json::from_str(&text).context("visionos player json")
+}
+
+fn pick_direct_audio(value: &Value, user_agent: &'static str) -> Option<DirectStream> {
+    let formats = value
+        .pointer("/streamingData/adaptiveFormats")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .chain(
+            value
+                .pointer("/streamingData/formats")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten(),
+        );
+    let mut best: Option<(u64, DirectStream)> = None;
+    for format in formats {
+        let Some(mime) = format.get("mimeType").and_then(Value::as_str) else {
+            continue;
+        };
+        if !mime.starts_with("audio/") {
+            continue;
+        }
+        if format.get("signatureCipher").is_some() {
+            continue;
+        }
+        let Some(url) = format.get("url").and_then(Value::as_str) else {
+            continue;
+        };
+        if url.is_empty() {
+            continue;
+        }
+        let bitrate = format.get("bitrate").and_then(Value::as_u64).unwrap_or(0);
+        let ext = if mime.contains("mp4") || mime.contains("mp4a") {
+            "m4a"
+        } else if mime.contains("webm") {
+            "webm"
+        } else if mime.contains("mp3") {
+            "mp3"
+        } else {
+            "m4a"
+        };
+        let candidate = DirectStream {
+            url: url.to_owned(),
+            ext,
+            user_agent,
+        };
+        if best.as_ref().is_none_or(|(b, _)| bitrate > *b) {
+            best = Some((bitrate, candidate));
+        }
+    }
+    best.map(|(_, stream)| stream)
+}
+
+fn find_cached_audio(dir: &Path, stem: &str) -> Option<PathBuf> {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return None;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let name = path.file_name()?.to_string_lossy();
+        if name.starts_with(stem)
+            && !name.ends_with(".part")
+            && !name.ends_with(".json")
+            && path.is_file()
+            && entry.metadata().map(|m| m.len() > 1024).unwrap_or(false)
+        {
+            return Some(path);
+        }
+    }
+    None
 }
 
 fn hit_from_player(video: &str, value: &Value) -> Option<StreamHit> {
@@ -873,10 +1060,10 @@ fn first_playlist_id(value: &Value) -> Option<String> {
         if found.is_some() {
             return;
         }
-        if let Some(id) = node.get("playlistId").and_then(Value::as_str) {
-            if !id.is_empty() {
-                found = Some(id.to_owned());
-            }
+        if let Some(id) = node.get("playlistId").and_then(Value::as_str)
+            && !id.is_empty()
+        {
+            found = Some(id.to_owned());
         }
     });
     found
@@ -891,10 +1078,10 @@ fn page_title(value: &Value) -> Option<String> {
         "/contents/twoColumnBrowseResultsRenderer/tabs/0/tabRenderer/content/sectionListRenderer/contents/0/musicResponsiveHeaderRenderer/title/runs/0/text",
     ];
     for path in PATHS {
-        if let Some(text) = value.pointer(path).and_then(Value::as_str) {
-            if !text.is_empty() {
-                return Some(text.to_owned());
-            }
+        if let Some(text) = value.pointer(path).and_then(Value::as_str)
+            && !text.is_empty()
+        {
+            return Some(text.to_owned());
         }
     }
     None
@@ -1000,10 +1187,10 @@ fn thumbnail(value: &Value) -> Option<String> {
         if found.is_some() {
             return;
         }
-        if let Some(url) = last_thumb(node.get("thumbnails")) {
-            if url.contains("ytimg") || url.contains("googleusercontent") || url.contains("ggpht") {
-                found = Some(url);
-            }
+        if let Some(url) = last_thumb(node.get("thumbnails"))
+            && (url.contains("ytimg") || url.contains("googleusercontent") || url.contains("ggpht"))
+        {
+            found = Some(url);
         }
     });
     found
@@ -1307,5 +1494,45 @@ mod tests {
             "{:?}",
             hit.artwork
         );
+    }
+
+    #[test]
+    fn plain_player_formats_become_a_direct_stream() {
+        let json = json!({
+            "streamingData": {
+                "adaptiveFormats": [
+                    {
+                        "itag": 140,
+                        "mimeType": "audio/mp4; codecs=\"mp4a.40.2\"",
+                        "bitrate": 128000,
+                        "url": "https://googlevideo.com/audio.m4a"
+                    },
+                    {
+                        "itag": 251,
+                        "mimeType": "audio/webm; codecs=\"opus\"",
+                        "bitrate": 160000,
+                        "signatureCipher": "s=abc&sp=sig&url=https%3A%2F%2Fciphered"
+                    }
+                ]
+            }
+        });
+        let stream = pick_direct_audio(&json, "ua").unwrap();
+        assert_eq!(stream.ext, "m4a");
+        assert!(stream.url.contains("googlevideo"));
+    }
+
+    #[test]
+    fn ciphered_only_formats_are_refused() {
+        let json = json!({
+            "streamingData": {
+                "adaptiveFormats": [{
+                    "itag": 251,
+                    "mimeType": "audio/webm",
+                    "bitrate": 160000,
+                    "signatureCipher": "s=abc&url=https%3A%2F%2Fx"
+                }]
+            }
+        });
+        assert!(pick_direct_audio(&json, "ua").is_none());
     }
 }

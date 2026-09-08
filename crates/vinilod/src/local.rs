@@ -564,15 +564,13 @@ fn read_track_labeled(path: &Path, hit: Option<&StreamHit>) -> Track {
         track.catalog_id = Some(hit.id.clone());
         track.artwork_template = hit.artwork.clone();
         streams::write_sidecar(path, hit);
-    } else if track.title == filename
+    } else if (track.title == filename
         || track.title.starts_with("yt_")
-        || track.title.starts_with("sp_")
+        || track.title.starts_with("sp_"))
+        && let Some(meta) = sidecar
+        && !meta.title.is_empty()
     {
-        if let Some(meta) = sidecar {
-            if !meta.title.is_empty() {
-                track.title = meta.title;
-            }
-        }
+        track.title = meta.title;
     }
     track
 }

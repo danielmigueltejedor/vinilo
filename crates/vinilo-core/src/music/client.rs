@@ -1119,11 +1119,11 @@ impl Client {
         let mut out = Vec::new();
         for resource in list {
             let id = resource.id.clone();
-            if let Some(entry) = resource.into_entry() {
-                if !entry.title().is_empty() {
-                    out.push(entry);
-                    continue;
-                }
+            if let Some(entry) = resource.into_entry()
+                && !entry.title().is_empty()
+            {
+                out.push(entry);
+                continue;
             }
             if let Some(entry) = by_id.get(&id).cloned()
                 && !entry.title().is_empty()
@@ -1141,14 +1141,14 @@ impl Client {
         let mut items = super::mixed::contents_resources(group);
         let stubs = items.iter().all(|item| item.attributes.is_none());
         let mut next = super::mixed::next_path(group);
-        if items.is_empty() || stubs {
-            if let Some(href) = super::mixed::contents_href(group) {
-                let (page, following) = self.fetch_typed_list(&href).await;
-                if page.iter().any(|item| item.attributes.is_some()) || items.is_empty() {
-                    items = page;
-                    if next.is_none() {
-                        next = following;
-                    }
+        if (items.is_empty() || stubs)
+            && let Some(href) = super::mixed::contents_href(group)
+        {
+            let (page, following) = self.fetch_typed_list(&href).await;
+            if page.iter().any(|item| item.attributes.is_some()) || items.is_empty() {
+                items = page;
+                if next.is_none() {
+                    next = following;
                 }
             }
         }

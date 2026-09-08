@@ -3,11 +3,10 @@
 
 //! Catalog search for Spotify, YouTube Music and Tidal.
 //!
-//! These services do not expose a Linux-legal full-quality stream the way
-//! MusicKit does. Search talks to each catalogue; playback is a separate
-//! `yt-dlp` fetch in the daemon (YouTube audio of the same recording). The
-//! ids we mint (`yt:`, `sp:`, `td:`) keep that split honest: MusicKit never
-//! sees them.
+//! Search talks to each catalogue. Playback prefers a native path when one
+//! exists (librespot for Spotify Premium, InnerTube audio for YouTube Music)
+//! and falls back to `yt-dlp` in the daemon. The ids we mint (`yt:`, `sp:`,
+//! `td:`) keep that split honest: MusicKit never sees them.
 
 use std::time::Duration;
 

@@ -280,7 +280,7 @@ pub fn homemade(
                 .map(Entry::Playlist),
         )
         .collect();
-    recently_added.sort_by(|a, b| date_of(b).cmp(&date_of(a)));
+    recently_added.sort_by(|a, b| date_of(b).cmp(date_of(a)));
     recently_added.truncate(SHELF);
     // YouTube Music (and some other catalogs) often omit date_added. Still
     // show the user's playlists on Discover so the page is not an empty

@@ -125,9 +125,9 @@ const WASH_PX: i32 = 64;
 /// a square; 48px is enough to see whether it is white, red, or mixed.
 const SAMPLE_PX: i32 = 48;
 
-/// Cached wash filename. The older `backdrop256.png` files were a blurred
-/// *photograph* of the sleeve — retired by this suffix, not reused.
-const WASH_EXT: &str = "backdrop-tone.png";
+/// Cached wash filename. Older `backdrop256.png` (blurred photo) and
+/// `backdrop-tone.png` (too muted under the veil) are retired by this suffix.
+const WASH_EXT: &str = "backdrop-glow.png";
 
 /// Write a wash of the sleeve's own colour beside the cover, and say where.
 ///
@@ -213,8 +213,8 @@ fn chroma(r: u8, g: u8, b: u8) -> u32 {
     r.max(g).max(b) - r.min(g).min(b)
 }
 
-/// A soft radial field of `color`. Centre is the colour itself; the edges
-/// fall a little so the wash is not a poster of one hex value.
+/// A soft radial field of `color`. The centre is a touch brighter than the
+/// sampled sleeve; the edges fall off so the wash is not a flat poster.
 fn tone_wash(color: [u8; 3], size: i32) -> Option<gdk_pixbuf::Pixbuf> {
     let size = size.max(1);
     let wash = gdk_pixbuf::Pixbuf::new(gdk_pixbuf::Colorspace::Rgb, false, 8, size, size)?;
@@ -225,21 +225,24 @@ fn tone_wash(color: [u8; 3], size: i32) -> Option<gdk_pixbuf::Pixbuf> {
         for x in 0..size as u32 {
             let dx = (x as f32 - cx) / n;
             let dy = (y as f32 - cx) / n;
-            let t = (dx * dx + dy * dy).sqrt() * 1.35;
+            let t = (dx * dx + dy * dy).sqrt() * 1.2;
             let t = t.clamp(0.0, 1.0);
             let t = t * t;
-            let k = 1.0 - 0.22 * t;
-            let r = (f32::from(color[0]) * k).round() as u8;
-            let g = (f32::from(color[1]) * k).round() as u8;
-            let b = (f32::from(color[2]) * k).round() as u8;
+            // Centre ~8% brighter, rim ~12% darker — enough depth to read as a
+            // glow without inventing a second colour.
+            let k = 1.08 - 0.20 * t;
+            let r = (f32::from(color[0]) * k).round().clamp(0.0, 255.0) as u8;
+            let g = (f32::from(color[1]) * k).round().clamp(0.0, 255.0) as u8;
+            let b = (f32::from(color[2]) * k).round().clamp(0.0, 255.0) as u8;
             wash.put_pixel(x, y, r, g, b, 255);
         }
     }
     Some(wash)
 }
 
-/// Push a coloured sleeve a little further from grey. Greys and whites are
-/// left alone — lifting those would invent a tint the record does not have.
+/// Push a coloured sleeve further from grey, and lift dark sleeves so the
+/// veil does not crush them into the window colour. Greys and whites stay
+/// put — inventing a tint there would lie about the record.
 fn lift_chroma(color: [u8; 3]) -> [u8; 3] {
     let [r, g, b] = color;
     if chroma(r, g, b) < 28 {
@@ -247,11 +250,23 @@ fn lift_chroma(color: [u8; 3]) -> [u8; 3] {
     }
     let luma = (2126 * u32::from(r) + 7152 * u32::from(g) + 722 * u32::from(b)) / 10000;
     let luma = luma as i32;
+    // 1.7× distance from grey — the previous 1.35× still read pastel once the
+    // CSS veil sat on top.
     let lift = |v: u8| {
-        let lifted = luma + (i32::from(v) - luma) * 135 / 100;
+        let lifted = luma + (i32::from(v) - luma) * 170 / 100;
         lifted.clamp(0, 255) as u8
     };
-    [lift(r), lift(g), lift(b)]
+    let mut out = [lift(r), lift(g), lift(b)];
+    // Dark sleeves vanish under the scrim; bring them up toward a mid glow.
+    let out_luma =
+        (2126 * u32::from(out[0]) + 7152 * u32::from(out[1]) + 722 * u32::from(out[2])) / 10000;
+    if out_luma < 90 {
+        let gain = 90.0 / out_luma.max(1) as f32;
+        for c in &mut out {
+            *c = (f32::from(*c) * gain).round().clamp(0.0, 255.0) as u8;
+        }
+    }
+    out
 }
 
 #[cfg(test)]
@@ -319,17 +334,16 @@ mod tests {
         assert_eq!(lift_chroma([250, 250, 250]), [250, 250, 250]);
         assert_eq!(lift_chroma([128, 128, 128]), [128, 128, 128]);
         let [r, g, b] = lift_chroma([160, 80, 80]);
-        assert!(r > 160 && g < 80 && b < 80, "got [{r}, {g}, {b}]");
+        assert!(r > 180 && g < 80 && b < 80, "got [{r}, {g}, {b}]");
     }
 
     #[test]
-    fn the_wash_filename_is_not_the_old_photograph() {
-        // The previous backdrop was a blurred photo named `backdrop256.png`.
-        // Reusing that name would keep stretching the sleeve behind the player.
+    fn the_wash_filename_retires_the_muted_and_photo_versions() {
         let name = std::path::Path::new("/tmp/abc-512.jpg").with_extension(WASH_EXT);
-        assert!(name.to_string_lossy().ends_with("backdrop-tone.png"));
+        assert!(name.to_string_lossy().ends_with("backdrop-glow.png"));
         assert!(
-            !name.to_string_lossy().contains("backdrop256"),
+            !name.to_string_lossy().contains("backdrop256")
+                && !name.to_string_lossy().contains("backdrop-tone"),
             "{}",
             name.display()
         );

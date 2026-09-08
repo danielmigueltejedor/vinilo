@@ -423,30 +423,36 @@ fn en(key: Key) -> &'static str {
         }
         Key::ProviderTitle => "Where is your music?",
         Key::ProviderBody => {
-            "Pick a catalogue. Apple Music uses your subscription. Spotify, YouTube Music and Tidal each open a sign-in window, then you search here. Files on this computer always play."
+            "Pick a catalogue. Apple Music is Beta: it works, the player sidecar is still heavy. Spotify, YouTube Music and Tidal are Alpha. Files on this computer always play."
         }
-        Key::ProviderApple => "Apple Music",
-        Key::ProviderAppleSub => "Your library and the full catalogue",
+        Key::ProviderApple => "Apple Music (Beta)",
+        Key::ProviderAppleSub => {
+            "Your library and the catalogue. Works well; the hidden player is still a full Chromium."
+        }
         Key::ProviderLocal => "This computer",
         Key::ProviderLocalSub => "Files you open, and folders you drop on Vinilo",
-        Key::ProviderSpotify => "Spotify",
-        Key::ProviderSpotifySub => "Search Spotify after you sign in",
-        Key::ProviderYoutube => "YouTube Music",
-        Key::ProviderYoutubeSub => "Search YouTube Music after you sign in",
-        Key::ProviderTidal => "Tidal",
-        Key::ProviderTidalSub => "Search Tidal after you sign in",
+        Key::ProviderSpotify => "Spotify (Alpha)",
+        Key::ProviderSpotifySub => {
+            "Library and search after sign-in. Native audio needs Spotify Premium."
+        }
+        Key::ProviderYoutube => "YouTube Music (Alpha)",
+        Key::ProviderYoutubeSub => {
+            "Library and search after sign-in. Audio comes from YouTube Music itself."
+        }
+        Key::ProviderTidal => "Tidal (Alpha)",
+        Key::ProviderTidalSub => "Search after you sign in. Playback still goes through yt-dlp.",
         Key::ProviderNote => {
-            "You can change this later in Preferences. Spotify, YouTube Music and Tidal open a sign-in window, then need yt-dlp on PATH (sudo pacman -S yt-dlp ffmpeg)."
+            "You can change this later in Preferences. Alpha sources are usable, not finished. Spotify Premium plays through librespot; without it, yt-dlp is the fallback."
         }
         Key::ProviderRestart => "Could not switch source while another Vinilo window is open.",
         Key::CatalogSetupBody => {
             "Sign in so Vinilo can use your session with this catalogue. A window opens, the same way Apple Music does."
         }
         Key::CatalogSetupYtOk => {
-            "yt-dlp is installed. After you sign in, search a song and click it to play."
+            "After you sign in, search a song and click it. YouTube Music prefers InnerTube audio; Tidal still needs yt-dlp."
         }
         Key::CatalogSetupYtMissing => {
-            "yt-dlp is not on PATH. On Arch: sudo pacman -S yt-dlp ffmpeg. Sign in still works; playback will not until yt-dlp is installed."
+            "yt-dlp is not on PATH. YouTube Music still plays from InnerTube when it can. Tidal needs yt-dlp (sudo pacman -S yt-dlp ffmpeg)."
         }
         Key::CatalogSetupContinue => "Sign In",
         Key::CatalogSetupBack => "Choose another source",
@@ -559,10 +565,12 @@ fn en(key: Key) -> &'static str {
         Key::EmptyPlaylist => "This playlist has no songs.",
         Key::AboutComments => {
             "A native GNOME music player for Linux.\n\n\
-             Apple Music plays through Apple's own MusicKit player using \
+             Apple Music (Beta) plays through Apple's MusicKit player using \
              Google's Widevine CDM, in a hidden helper process. Files on this \
-             computer play natively. Spotify, YouTube Music and Tidal search \
-             their catalogues in the app; audio is fetched with yt-dlp.\n\n\
+             computer play natively. Spotify (Alpha) plays through librespot \
+             when you have Premium; YouTube Music (Alpha) prefers InnerTube \
+             audio; Tidal (Alpha) still uses yt-dlp. Each catalogue keeps a \
+             cookie sign-in for library and search.\n\n\
              Fork of Slipmat by Miguel Rincon."
         }
         Key::RefreshingLibrary => "Refreshing library…",
@@ -687,30 +695,36 @@ fn es(key: Key) -> &'static str {
         }
         Key::ProviderTitle => "¿Dónde está tu música?",
         Key::ProviderBody => {
-            "Elige un catálogo. Apple Music usa tu suscripción. Spotify, YouTube Music y Tidal abren cada uno una ventana de inicio de sesión, y luego buscas aquí. Los archivos de este equipo siempre suenan."
+            "Elige un catálogo. Apple Music es Beta: funciona, el sidecar del reproductor sigue siendo pesado. Spotify, YouTube Music y Tidal son Alpha. Los archivos de este equipo siempre suenan."
         }
-        Key::ProviderApple => "Apple Music",
-        Key::ProviderAppleSub => "Tu biblioteca y todo el catálogo",
+        Key::ProviderApple => "Apple Music (Beta)",
+        Key::ProviderAppleSub => {
+            "Tu biblioteca y el catálogo. Funciona bien; el reproductor oculto sigue siendo Chromium."
+        }
         Key::ProviderLocal => "Este equipo",
         Key::ProviderLocalSub => "Archivos que abras y carpetas que sueltes en Vinilo",
-        Key::ProviderSpotify => "Spotify",
-        Key::ProviderSpotifySub => "Busca en Spotify después de iniciar sesión",
-        Key::ProviderYoutube => "YouTube Music",
-        Key::ProviderYoutubeSub => "Busca en YouTube Music después de iniciar sesión",
-        Key::ProviderTidal => "Tidal",
-        Key::ProviderTidalSub => "Busca en Tidal después de iniciar sesión",
+        Key::ProviderSpotify => "Spotify (Alpha)",
+        Key::ProviderSpotifySub => {
+            "Biblioteca y búsqueda tras iniciar sesión. El audio nativo pide Spotify Premium."
+        }
+        Key::ProviderYoutube => "YouTube Music (Alpha)",
+        Key::ProviderYoutubeSub => {
+            "Biblioteca y búsqueda tras iniciar sesión. El audio sale de YouTube Music."
+        }
+        Key::ProviderTidal => "Tidal (Alpha)",
+        Key::ProviderTidalSub => "Busca tras iniciar sesión. La reproducción aún pasa por yt-dlp.",
         Key::ProviderNote => {
-            "Puedes cambiarlo más tarde en Preferencias. Spotify, YouTube Music y Tidal abren una ventana de inicio de sesión, y hace falta yt-dlp en el PATH (sudo pacman -S yt-dlp ffmpeg)."
+            "Puedes cambiarlo más tarde en Preferencias. Las fuentes Alpha se pueden usar, pero no están listas. Spotify Premium suena con librespot; sin Premium, yt-dlp es el respaldo."
         }
         Key::ProviderRestart => "No se puede cambiar de fuente con otra ventana de Vinilo abierta.",
         Key::CatalogSetupBody => {
             "Inicia sesión para que Vinilo use tu sesión con este catálogo. Se abre una ventana, igual que con Apple Music."
         }
         Key::CatalogSetupYtOk => {
-            "yt-dlp está instalado. Cuando inicies sesión, busca una canción y pulsa para reproducirla."
+            "Cuando inicies sesión, busca una canción y pulsa. YouTube Music prefiere audio InnerTube; Tidal aún necesita yt-dlp."
         }
         Key::CatalogSetupYtMissing => {
-            "yt-dlp no está en el PATH. En Arch: sudo pacman -S yt-dlp ffmpeg. El inicio de sesión funciona; la reproducción no, hasta que instales yt-dlp."
+            "yt-dlp no está en el PATH. YouTube Music sigue sonando por InnerTube cuando puede. Tidal necesita yt-dlp (sudo pacman -S yt-dlp ffmpeg)."
         }
         Key::CatalogSetupContinue => "Iniciar sesión",
         Key::CatalogSetupBack => "Elegir otra fuente",
@@ -830,10 +844,12 @@ fn es(key: Key) -> &'static str {
         Key::EmptyPlaylist => "Esta lista no tiene canciones.",
         Key::AboutComments => {
             "Un reproductor nativo de GNOME para Linux.\n\n\
-             Apple Music pasa por el reproductor MusicKit de Apple con el CDM \
+             Apple Music (Beta) pasa por el reproductor MusicKit de Apple con el CDM \
              Widevine de Google, en un proceso auxiliar oculto. Los archivos \
-             de este equipo se reproducen de forma nativa. Spotify, YouTube \
-             Music y Tidal se buscan en la app; el audio se obtiene con yt-dlp.\n\n\
+             de este equipo se reproducen de forma nativa. Spotify (Alpha) suena \
+             con librespot si tienes Premium; YouTube Music (Alpha) prefiere \
+             audio InnerTube; Tidal (Alpha) aún usa yt-dlp. Cada catálogo \
+             guarda un inicio de sesión con cookies para biblioteca y búsqueda.\n\n\
              Fork de Slipmat, de Miguel Rincon."
         }
         Key::RefreshingLibrary => "Actualizando la biblioteca…",
@@ -918,7 +934,7 @@ pub fn catalog_heading(provider: crate::provider::Provider) -> &'static str {
         crate::provider::Provider::YoutubeMusic => Key::ProviderYoutube,
         crate::provider::Provider::Tidal => Key::ProviderTidal,
         crate::provider::Provider::Local => Key::ProviderLocal,
-        crate::provider::Provider::AppleMusic => Key::AppleMusic,
+        crate::provider::Provider::AppleMusic => Key::ProviderApple,
     })
 }
 

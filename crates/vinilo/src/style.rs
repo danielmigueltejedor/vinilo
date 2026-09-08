@@ -463,31 +463,26 @@ fn image_of(path: &std::path::Path) -> String {
 /// drawer went on working.
 /// How opaque the veil is, top and bottom, for each surface — **per theme**.
 ///
-/// One set of numbers cannot serve both, and that is not a matter of taste.
-/// The veil is `@window_bg_color`, so at 0.86 the cover contributes the
-/// remaining 14% either way; but 14% of a photograph over a *dark* window reads
-/// as a coloured glow, and over a near-white one it is pastel mush. Rendered
-/// side by side at the real 48px-upscaled blur, light needed roughly 0.60–0.70
-/// where dark wants 0.86.
+/// The backdrop is now a *colour wash*, not a photograph: it can afford to
+/// show more of itself than the old 48px-upscaled sleeve could. Numbers were
+/// retuned so a red record still reads red under the scrim, without losing
+/// the labels that sit on top.
 ///
-/// The floor is set by text, not by looks. Both surfaces carry labels in the
-/// theme's own foreground colour — dark text in a light theme — so a veil thin
-/// enough to show a sleeve's dark half is a veil thin enough to lose the words
-/// on top of it. These are the strongest values that keep the type legible on
-/// the covers this was checked against, not the prettiest ones available.
+/// The floor is still set by text. Both surfaces carry labels in the theme's
+/// own foreground colour, so the veil cannot go arbitrarily thin.
 struct Veil {
     bar: (f32, f32),
     sheet: (f32, f32),
 }
 
 const DARK_VEIL: Veil = Veil {
-    bar: (0.78, 0.72),
-    sheet: (0.86, 0.78),
+    bar: (0.58, 0.50),
+    sheet: (0.68, 0.54),
 };
 
 const LIGHT_VEIL: Veil = Veil {
-    bar: (0.70, 0.64),
-    sheet: (0.68, 0.60),
+    bar: (0.52, 0.50),
+    sheet: (0.56, 0.52),
 };
 
 fn backdrop_css(image: Option<&str>, dark: bool) -> String {
@@ -692,19 +687,18 @@ mod tests {
         // this pair of numbers exists to prevent regressing.
         let css = backdrop_css(Some("url(\"a\")"), true);
         let bar = &css[css.find(".np-bar").unwrap()..css.find(".np-sheet").unwrap()];
-        assert!(bar.contains("0.78"), "bar scrim changed: {bar}");
+        assert!(bar.contains("0.58"), "bar scrim changed: {bar}");
         assert!(
-            !bar.contains("0.86"),
+            !bar.contains("0.68"),
             "bar is using the drawer's veil: {bar}"
         );
     }
 
     #[test]
     fn a_light_theme_gets_a_thinner_veil_than_a_dark_one() {
-        // The bug this fixes: one set of numbers for both. The veil is
-        // `@window_bg_color`, so 0.86 leaves the cover 14% either way — and 14%
-        // of a photograph reads as a coloured glow over a dark window and as
-        // pastel mush over a near-white one.
+        // The bug this fixes: one set of numbers for both. A colour wash over
+        // a near-white window still needs less scrim than over a dark one, or
+        // the tint turns pastel.
         let dark = backdrop_css(Some("url(\"a\")"), true);
         let light = backdrop_css(Some("url(\"a\")"), false);
         assert_ne!(dark, light, "both themes got the same veil");

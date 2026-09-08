@@ -11,11 +11,25 @@ use std::path::PathBuf;
 
 use crate::paths;
 
+/// How finished a source is, shown in the picker and Preferences.
+///
+/// Local files are the stable path. Apple Music plays well but still needs a
+/// heavy Chromium sidecar. The other catalogues are in active motion: native
+/// audio is landing, and the UI should not pretend they are done.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Maturity {
+    Ready,
+    Beta,
+    Alpha,
+}
+
 /// Where the music is coming from.
 ///
 /// Apple Music, files on this computer, and the three catalogues Vinilo
-/// searches in-app. Playback of Spotify, YouTube Music and Tidal goes through
-/// `yt-dlp` (the same path Nuclear-style players use for DRM'd services).
+/// searches in-app. Spotify plays through librespot when a Premium session is
+/// available (the same approach Sonora uses). YouTube Music prefers InnerTube
+/// audio. Tidal still goes through `yt-dlp`. Native audio that fails falls
+/// back to `yt-dlp`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Provider {
     #[default]
@@ -84,6 +98,15 @@ impl Provider {
     /// Search-and-play catalogues that are not Apple Music or local files.
     pub fn is_catalog(self) -> bool {
         matches!(self, Self::Spotify | Self::YoutubeMusic | Self::Tidal)
+    }
+
+    /// Badge in the picker: nothing for a finished source, Beta or Alpha otherwise.
+    pub fn maturity(self) -> Maturity {
+        match self {
+            Self::Local => Maturity::Ready,
+            Self::AppleMusic => Maturity::Beta,
+            Self::Spotify | Self::YoutubeMusic | Self::Tidal => Maturity::Alpha,
+        }
     }
 
     /// Stem for caches that must not be shared across sources. Apple Music
@@ -167,5 +190,14 @@ mod tests {
         assert_eq!(Provider::Tidal.index(), 4);
         assert_eq!(Provider::AppleMusic.cache_stem(), None);
         assert_eq!(Provider::Spotify.cache_stem(), Some("spotify"));
+    }
+
+    #[test]
+    fn maturity_matches_how_ready_each_source_is() {
+        assert_eq!(Provider::Local.maturity(), Maturity::Ready);
+        assert_eq!(Provider::AppleMusic.maturity(), Maturity::Beta);
+        assert_eq!(Provider::Spotify.maturity(), Maturity::Alpha);
+        assert_eq!(Provider::YoutubeMusic.maturity(), Maturity::Alpha);
+        assert_eq!(Provider::Tidal.maturity(), Maturity::Alpha);
     }
 }

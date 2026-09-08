@@ -3,9 +3,11 @@
 
 //! Spotify catalogue via the web-player partner API.
 //!
-//! Playback is still `yt-dlp` — Spotify does not offer a legal Linux stream.
-//! This module is the catalogue: search, liked songs, playlists, albums, and
-//! the Listen Now shelves. Tokens never leave this process.
+//! Playback goes through librespot when a Premium OAuth session is available
+//! (same idea as Sonora). The cookie login here is still the catalogue path:
+//! search, liked songs, playlists, albums, and Listen Now. The partner token
+//! from `/api/token` cannot stream; librespot needs its own OAuth with the
+//! `streaming` scope. Without Premium, the daemon falls back to `yt-dlp`.
 //!
 //! The cookie login mints an **api-partner** token (`/api/token` + TOTP). That
 //! token does not work on `api.spotify.com/v1/me/*` (401/403). The web player
@@ -1237,16 +1239,13 @@ async fn home_feed(http: &reqwest::Client, session: &partner::Session) -> Result
                 if let Some(album) = album_from_gql(data, "") {
                     feed.albums.push(album);
                 }
-            } else if typename.contains("Track") {
-                if let Some(song) = song_from_gql(data, String::new(), false, false) {
-                    if title.contains("jump")
-                        || title.contains("recent")
-                        || title.contains("vuelve")
-                    {
-                        feed.recent.push(song);
-                    } else {
-                        feed.songs.push(song);
-                    }
+            } else if typename.contains("Track")
+                && let Some(song) = song_from_gql(data, String::new(), false, false)
+            {
+                if title.contains("jump") || title.contains("recent") || title.contains("vuelve") {
+                    feed.recent.push(song);
+                } else {
+                    feed.songs.push(song);
                 }
             }
         }
@@ -1999,10 +1998,10 @@ fn song_from_track(
 
 fn song_from_track_on_album(item: &Value, album: &Value) -> Option<Track> {
     let mut merged = item.clone();
-    if merged.get("album").is_none() {
-        if let Some(obj) = merged.as_object_mut() {
-            obj.insert("album".into(), album.clone());
-        }
+    if merged.get("album").is_none()
+        && let Some(obj) = merged.as_object_mut()
+    {
+        obj.insert("album".into(), album.clone());
     }
     song_from_track(&merged, String::new(), false, false)
 }

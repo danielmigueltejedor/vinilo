@@ -19,6 +19,7 @@ mod library;
 mod local;
 mod mixer;
 mod serve;
+mod spotify_play;
 mod state;
 mod watchdog;
 mod ytdlp;
