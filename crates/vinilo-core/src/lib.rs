@@ -17,6 +17,7 @@ pub mod ipc;
 pub mod library_cache;
 pub mod listen_history;
 pub mod local_files;
+pub mod lyrics;
 pub mod mpris;
 pub mod music;
 pub mod page_cache;

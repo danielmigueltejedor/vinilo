@@ -297,7 +297,7 @@ pub fn library_v3_vars(filter: &str, offset: usize, limit: usize, flatten: bool)
         "flatten": flatten,
         "expandedFolders": [],
         "folderUri": null,
-        "includeFoldersWhenFlattening": !flatten
+        "includeFoldersWhenFlattening": true
     })
 }
 

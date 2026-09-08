@@ -274,16 +274,30 @@ pub async fn apply(
         }
         WriteAction::AddToPlaylist => {
             let list = playlist_id.context("missing playlist id")?;
-            let video = video_id(id)?;
-            innertube(
-                http,
-                "browse/edit_playlist",
-                json!({
-                    "playlistId": playlist_key(list)?,
-                    "actions": [{ "action": "ACTION_ADD_VIDEO", "addedVideoId": video }]
-                }),
-            )
-            .await?;
+            if let Ok(video) = video_id(id) {
+                innertube(
+                    http,
+                    "browse/edit_playlist",
+                    json!({
+                        "playlistId": playlist_key(list)?,
+                        "actions": [{ "action": "ACTION_ADD_VIDEO", "addedVideoId": video }]
+                    }),
+                )
+                .await?;
+            } else {
+                innertube(
+                    http,
+                    "browse/edit_playlist",
+                    json!({
+                        "playlistId": playlist_key(list)?,
+                        "actions": [{
+                            "action": "ACTION_ADD_PLAYLIST",
+                            "addedFullListId": playlist_key(id)?
+                        }]
+                    }),
+                )
+                .await?;
+            }
             Ok(None)
         }
         WriteAction::RemoveFromPlaylist => {
@@ -596,6 +610,121 @@ pub async fn video_hit(http: &reqwest::Client, id: &str) -> Result<StreamHit> {
         .context("YouTube Music player had no title")
 }
 
+/// Description-shelf lyrics from InnerTube `next` + `browse`. Not timed.
+pub async fn lyrics(http: &reqwest::Client, id: &str) -> Result<crate::ipc::Lyrics> {
+    let video = video_id(id)?;
+    let next = innertube(
+        http,
+        "next",
+        json!({ "videoId": video, "isAudioOnly": true }),
+    )
+    .await?;
+    let browse_id = lyrics_browse_id(&next).context(i18n::t(Key::LyricsMissing))?;
+    let page = browse(http, &browse_id).await?;
+    lyrics_from_browse(&page).ok_or_else(|| anyhow::anyhow!("{}", i18n::t(Key::LyricsMissing)))
+}
+
+fn lyrics_browse_id(value: &Value) -> Option<String> {
+    fn walk(value: &Value, into: &mut Option<String>) {
+        if into.is_some() {
+            return;
+        }
+        match value {
+            Value::Array(items) => {
+                for item in items {
+                    walk(item, into);
+                }
+            }
+            Value::Object(map) => {
+                let title = value
+                    .get("title")
+                    .and_then(Value::as_str)
+                    .or_else(|| value.pointer("/title/runs/0/text").and_then(Value::as_str))
+                    .unwrap_or("");
+                let browse = value
+                    .pointer("/endpoint/browseEndpoint/browseId")
+                    .or_else(|| value.pointer("/browseEndpoint/browseId"))
+                    .or_else(|| value.pointer("/navigationEndpoint/browseEndpoint/browseId"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                if !browse.is_empty()
+                    && (title.eq_ignore_ascii_case("lyrics")
+                        || title.eq_ignore_ascii_case("letra")
+                        || browse.starts_with("MPLYt"))
+                {
+                    *into = Some(browse.to_owned());
+                    return;
+                }
+                for child in map.values() {
+                    walk(child, into);
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut found = None;
+    walk(value, &mut found);
+    found
+}
+
+fn lyrics_from_browse(value: &Value) -> Option<crate::ipc::Lyrics> {
+    fn collect_runs(value: &Value, into: &mut Vec<String>) {
+        match value {
+            Value::Array(items) => {
+                for item in items {
+                    collect_runs(item, into);
+                }
+            }
+            Value::Object(map) => {
+                if let Some(runs) = map.get("runs").and_then(Value::as_array) {
+                    let text: String = runs
+                        .iter()
+                        .filter_map(|run| run.get("text").and_then(Value::as_str))
+                        .collect();
+                    if !text.trim().is_empty()
+                        && map
+                            .get("accessibility")
+                            .is_none_or(|_| text.contains('\n') || text.len() > 40)
+                    {
+                        into.push(text);
+                    }
+                }
+                if let Some(text) = map.get("text").and_then(Value::as_str)
+                    && text.contains('\n')
+                {
+                    into.push(text.to_owned());
+                }
+                for child in map.values() {
+                    collect_runs(child, into);
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut blobs = Vec::new();
+    collect_runs(value, &mut blobs);
+    let text = blobs
+        .into_iter()
+        .max_by_key(|s| s.len())
+        .unwrap_or_default();
+    let lines: Vec<crate::ipc::LyricLine> = text
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(|line| crate::ipc::LyricLine {
+            start_ms: 0,
+            text: line.to_owned(),
+        })
+        .collect();
+    if lines.len() < 2 {
+        return None;
+    }
+    Some(crate::ipc::Lyrics {
+        synced: false,
+        lines,
+    })
+}
+
 /// Fetch audio bytes for a `yt:` id into `dir`, without shelling out to yt-dlp.
 ///
 /// Tries the VisionOS player first (Sonora's guest path), which often returns
@@ -620,9 +749,15 @@ pub async fn download_audio(http: &reqwest::Client, id: &str, dir: &Path) -> Res
         }
     };
 
+    tracing::info!(
+        %video,
+        ext = stream.ext,
+        client = stream.client,
+        "youtube audio url"
+    );
     let path = dir.join(format!("{stem}.{}", stream.ext));
     let tmp = dir.join(format!("{stem}.part"));
-    let bytes = http
+    let mut resp = http
         .get(&stream.url)
         .header("User-Agent", stream.user_agent)
         .header("Accept-Encoding", "identity")
@@ -632,14 +767,26 @@ pub async fn download_audio(http: &reqwest::Client, id: &str, dir: &Path) -> Res
         .await
         .context("youtube stream")?
         .error_for_status()
-        .context("youtube stream status")?
-        .bytes()
-        .await
-        .context("youtube stream body")?;
-    if bytes.len() < 1024 {
+        .context("youtube stream status")?;
+    let mut file = std::fs::File::create(&tmp).context("write youtube audio")?;
+    let mut written = 0usize;
+    loop {
+        match resp.chunk().await {
+            Ok(Some(chunk)) => {
+                std::io::Write::write_all(&mut file, &chunk).context("write youtube audio")?;
+                written += chunk.len();
+            }
+            Ok(None) => break,
+            Err(err) => {
+                let _ = std::fs::remove_file(&tmp);
+                return Err(err).context("youtube stream body");
+            }
+        }
+    }
+    if written < 1024 {
+        let _ = std::fs::remove_file(&tmp);
         bail!("youtube stream was empty");
     }
-    std::fs::write(&tmp, &bytes).context("write youtube audio")?;
     std::fs::rename(&tmp, &path).context("rename youtube audio")?;
     Ok(path)
 }
@@ -648,11 +795,21 @@ struct DirectStream {
     url: String,
     ext: &'static str,
     user_agent: &'static str,
+    client: &'static str,
 }
 
 async fn direct_stream(http: &reqwest::Client, video: &str) -> Result<DirectStream> {
+    // ANDROID_MUSIC is the one that usually hands back a plain googlevideo
+    // URL, often opus, without a cipher. VisionOS and WEB_REMIX are slower
+    // fallbacks — WEB_REMIX in particular tends to cipher, which is the
+    // path that shells out to yt-dlp and stalls the next track.
+    if let Ok(value) = player_android_music(http, video).await
+        && let Some(stream) = pick_direct_audio(&value, ANDROID_MUSIC_UA, "ANDROID_MUSIC")
+    {
+        return Ok(stream);
+    }
     if let Ok(value) = player_visionos(http, video).await
-        && let Some(stream) = pick_direct_audio(&value, VISION_UA)
+        && let Some(stream) = pick_direct_audio(&value, VISION_UA, "VISIONOS")
     {
         return Ok(stream);
     }
@@ -666,10 +823,48 @@ async fn direct_stream(http: &reqwest::Client, video: &str) -> Result<DirectStre
         }),
     )
     .await?;
-    pick_direct_audio(&value, USER_AGENT).context("player had only ciphered audio")
+    pick_direct_audio(&value, USER_AGENT, "WEB_REMIX").context("player had only ciphered audio")
 }
 
 const VISION_UA: &str = "com.google.ios.youtube/";
+const ANDROID_MUSIC_UA: &str =
+    "com.google.android.apps.youtube.music/7.27.52 (Linux; U; Android 11) gzip";
+const ANDROID_MUSIC_KEY: &str = "AIzaSyAOghZGza2MQSZkY_zfZ370N-PUdXEjOOg";
+
+async fn player_android_music(http: &reqwest::Client, video: &str) -> Result<Value> {
+    let body = json!({
+        "context": {
+            "client": {
+                "clientName": "ANDROID_MUSIC",
+                "clientVersion": "7.27.52",
+                "androidSdkVersion": 30,
+                "hl": "en",
+                "gl": "US",
+            }
+        },
+        "videoId": video,
+        "contentCheckOk": true,
+        "racyCheckOk": true,
+    });
+    let res = http
+        .post(format!(
+            "https://youtubei.googleapis.com/youtubei/v1/player?key={ANDROID_MUSIC_KEY}"
+        ))
+        .header("User-Agent", ANDROID_MUSIC_UA)
+        .header("Content-Type", "application/json")
+        .header("X-YouTube-Client-Name", "21")
+        .header("X-YouTube-Client-Version", "7.27.52")
+        .json(&body)
+        .send()
+        .await
+        .context("android music player")?;
+    let status = res.status();
+    let text = res.text().await.unwrap_or_default();
+    if !status.is_success() {
+        bail!("ANDROID_MUSIC player {status}");
+    }
+    serde_json::from_str(&text).context("android music player json")
+}
 
 async fn player_visionos(http: &reqwest::Client, video: &str) -> Result<Value> {
     let body = json!({
@@ -710,7 +905,11 @@ async fn player_visionos(http: &reqwest::Client, video: &str) -> Result<Value> {
     serde_json::from_str(&text).context("visionos player json")
 }
 
-fn pick_direct_audio(value: &Value, user_agent: &'static str) -> Option<DirectStream> {
+fn pick_direct_audio(
+    value: &Value,
+    user_agent: &'static str,
+    client: &'static str,
+) -> Option<DirectStream> {
     let formats = value
         .pointer("/streamingData/adaptiveFormats")
         .and_then(Value::as_array)
@@ -741,9 +940,7 @@ fn pick_direct_audio(value: &Value, user_agent: &'static str) -> Option<DirectSt
             continue;
         }
         let bitrate = format.get("bitrate").and_then(Value::as_u64).unwrap_or(0);
-        let ext = if mime.contains("mp4") || mime.contains("mp4a") {
-            "m4a"
-        } else if mime.contains("webm") {
+        let ext = if mime.contains("webm") || mime.contains("opus") {
             "webm"
         } else if mime.contains("mp3") {
             "mp3"
@@ -754,12 +951,27 @@ fn pick_direct_audio(value: &Value, user_agent: &'static str) -> Option<DirectSt
             url: url.to_owned(),
             ext,
             user_agent,
+            client,
         };
-        if best.as_ref().is_none_or(|(b, _)| bitrate > *b) {
-            best = Some((bitrate, candidate));
+        let rank = audio_rank(mime, bitrate);
+        if best.as_ref().is_none_or(|(b, _)| rank > *b) {
+            best = Some((rank, candidate));
         }
     }
     best.map(|(_, stream)| stream)
+}
+
+/// Prefer a modest opus stream over a fat m4a: the decoder still waits for
+/// the whole file, so the smaller one is the one that starts sooner.
+fn audio_rank(mime: &str, bitrate: u64) -> u64 {
+    let opus = mime.contains("webm") || mime.contains("opus");
+    let kbps = bitrate / 1000;
+    let quality = if kbps == 0 {
+        0
+    } else {
+        200u64.saturating_sub((160i64 - kbps as i64).unsigned_abs())
+    };
+    if opus { 10_000 + quality } else { quality }
 }
 
 fn find_cached_audio(dir: &Path, stem: &str) -> Option<PathBuf> {
@@ -1516,9 +1728,33 @@ mod tests {
                 ]
             }
         });
-        let stream = pick_direct_audio(&json, "ua").unwrap();
+        let stream = pick_direct_audio(&json, "ua", "test").unwrap();
         assert_eq!(stream.ext, "m4a");
         assert!(stream.url.contains("googlevideo"));
+    }
+
+    #[test]
+    fn a_plain_opus_stream_beats_a_fatter_m4a() {
+        let json = json!({
+            "streamingData": {
+                "adaptiveFormats": [
+                    {
+                        "itag": 141,
+                        "mimeType": "audio/mp4; codecs=\"mp4a.40.2\"",
+                        "bitrate": 256000,
+                        "url": "https://googlevideo.com/audio.m4a"
+                    },
+                    {
+                        "itag": 251,
+                        "mimeType": "audio/webm; codecs=\"opus\"",
+                        "bitrate": 160000,
+                        "url": "https://googlevideo.com/audio.webm"
+                    }
+                ]
+            }
+        });
+        let stream = pick_direct_audio(&json, "ua", "test").unwrap();
+        assert_eq!(stream.ext, "webm");
     }
 
     #[test]
@@ -1533,6 +1769,36 @@ mod tests {
                 }]
             }
         });
-        assert!(pick_direct_audio(&json, "ua").is_none());
+        assert!(pick_direct_audio(&json, "ua", "test").is_none());
+    }
+
+    #[test]
+    fn lyrics_tab_browse_id_is_found() {
+        let json = json!({
+            "contents": {
+                "tabs": [{
+                    "tabRenderer": {
+                        "title": "Lyrics",
+                        "endpoint": { "browseEndpoint": { "browseId": "MPLYt_abc" } }
+                    }
+                }]
+            }
+        });
+        assert_eq!(lyrics_browse_id(&json).as_deref(), Some("MPLYt_abc"));
+        let page = json!({
+            "contents": {
+                "sectionListRenderer": {
+                    "contents": [{
+                        "musicDescriptionShelfRenderer": {
+                            "description": { "runs": [{ "text": "Line one\nLine two\nLine three" }] }
+                        }
+                    }]
+                }
+            }
+        });
+        let lyrics = lyrics_from_browse(&page).unwrap();
+        assert!(!lyrics.synced);
+        assert_eq!(lyrics.lines.len(), 3);
+        assert_eq!(lyrics.lines[1].text, "Line two");
     }
 }

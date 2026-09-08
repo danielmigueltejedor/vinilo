@@ -107,6 +107,11 @@ pub(super) fn build_transport(into: &gtk::Box, sender: &ComponentSender<PlayerVi
         .tooltip_text(vinilo_core::i18n::t(vinilo_core::i18n::Key::Queue))
         .css_classes(["flat", "circular"])
         .build();
+    let lyrics = gtk::ToggleButton::builder()
+        .icon_name("text-x-generic-symbolic")
+        .tooltip_text(vinilo_core::i18n::t(vinilo_core::i18n::Key::Lyrics))
+        .css_classes(["flat", "circular"])
+        .build();
 
     // **Volume lives here now.** The bar drops its own below the narrow
     // breakpoint, and shuffle and repeat were already down here to fall back
@@ -137,6 +142,12 @@ pub(super) fn build_transport(into: &gtk::Box, sender: &ComponentSender<PlayerVi
             // `SetQueueShown` drops a value equal to the one held, which is
             // what the `set_active` below arrives as — the #37 guard.
             sender.input(PlayerViewInput::SetQueueShown(b.is_active()));
+        });
+    }
+    {
+        let sender = sender.clone();
+        lyrics.connect_toggled(move |b| {
+            sender.input(PlayerViewInput::SetLyricsShown(b.is_active()));
         });
     }
 
@@ -171,6 +182,7 @@ pub(super) fn build_transport(into: &gtk::Box, sender: &ComponentSender<PlayerVi
         .spacing(6)
         .build();
     queue_row.append(&queue);
+    queue_row.append(&lyrics);
     queue_row.append(&volume);
     into.append(&queue_row);
 
@@ -182,6 +194,7 @@ pub(super) fn build_transport(into: &gtk::Box, sender: &ComponentSender<PlayerVi
         previous,
         next,
         queue,
+        lyrics,
         volume,
         volume_handler,
         shuffle,
@@ -198,6 +211,7 @@ pub(super) struct Bits {
     previous: gtk::Button,
     next: gtk::Button,
     queue: gtk::ToggleButton,
+    lyrics: gtk::ToggleButton,
     volume: gtk::ScaleButton,
     volume_handler: relm4::gtk::glib::SignalHandlerId,
     shuffle: gtk::Button,
@@ -244,7 +258,8 @@ impl PlayerView {
         bits.next.set_sensitive(self.snap.has_next);
         bits.shuffle
             .set_tooltip_text(Some(vinilo_core::i18n::t(vinilo_core::i18n::Key::Shuffle)));
-        bits.repeat.set_tooltip_text(Some(self.snap.repeat.tooltip()));
+        bits.repeat
+            .set_tooltip_text(Some(self.snap.repeat.tooltip()));
         bits.previous
             .set_tooltip_text(Some(vinilo_core::i18n::t(vinilo_core::i18n::Key::Previous)));
         bits.play.set_tooltip_text(Some(if self.snap.playing {
@@ -256,6 +271,8 @@ impl PlayerView {
             .set_tooltip_text(Some(vinilo_core::i18n::t(vinilo_core::i18n::Key::Next)));
         bits.queue
             .set_tooltip_text(Some(vinilo_core::i18n::t(vinilo_core::i18n::Key::Queue)));
+        bits.lyrics
+            .set_tooltip_text(Some(vinilo_core::i18n::t(vinilo_core::i18n::Key::Lyrics)));
         bits.volume
             .set_tooltip_text(Some(vinilo_core::i18n::t(vinilo_core::i18n::Key::Volume)));
         // **Silenced while we write.** GTK cannot tell a programmatic write
@@ -280,18 +297,16 @@ impl Bits {
     /// parent asks for that rather than reaching into three fields it would
     /// then have to keep in step.
     pub(super) fn set_secondary_visible(&self, visible: bool) {
-        // The queue button stays — it is a toggle, and the way out as well as
-        // the way in. It also has a row of its own, so hiding it collapsed that
-        // row and took 34px out of the drawer's height every time the queue
-        // opened: 562px shut against 528px shown, all of it this one button.
-        // The drawer's height is its content's natural height, because
-        // `AdwBottomSheet` has no height setter, so a control that vanishes
-        // *is* a resize.
-        //
-        // Shuffle and repeat still stand down; they sit in the horizontal row
-        // and cost no height, and the queue's own header carries them.
-        self.queue.set_active(!visible);
+        // The queue and lyrics toggles stay — they are the way out as well as
+        // the way in. Shuffle and repeat still stand down; they sit in the
+        // horizontal row and cost no height, and the queue's own header
+        // carries them.
         self.shuffle.set_visible(visible);
         self.repeat.set_visible(visible);
+    }
+
+    pub(super) fn set_pane_toggles(&self, queue: bool, lyrics: bool) {
+        self.queue.set_active(queue);
+        self.lyrics.set_active(lyrics);
     }
 }

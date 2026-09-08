@@ -308,6 +308,9 @@ pub enum Key {
     ToastCreatePlaylist,
     ToastAddToPlaylist,
     WriteWrongSource,
+    Lyrics,
+    LyricsLoading,
+    LyricsMissing,
 }
 
 /// Resolve `key` in the current language.
@@ -607,6 +610,9 @@ fn en(key: Key) -> &'static str {
         Key::ToastCreatePlaylist => "Creating playlist…",
         Key::ToastAddToPlaylist => "Adding to playlist…",
         Key::WriteWrongSource => "That item belongs to another music source.",
+        Key::Lyrics => "Lyrics",
+        Key::LyricsLoading => "Loading lyrics…",
+        Key::LyricsMissing => "No lyrics for this song",
     }
 }
 
@@ -888,6 +894,9 @@ fn es(key: Key) -> &'static str {
         Key::ToastCreatePlaylist => "Creando la lista…",
         Key::ToastAddToPlaylist => "Añadiendo a la lista…",
         Key::WriteWrongSource => "Esa canción pertenece a otra fuente de música.",
+        Key::Lyrics => "Letra",
+        Key::LyricsLoading => "Cargando la letra…",
+        Key::LyricsMissing => "No hay letra para esta canción",
     }
 }
 

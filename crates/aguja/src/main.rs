@@ -26,9 +26,7 @@ use crossterm::event::{
 };
 use crossterm::terminal::{LeaveAlternateScreen, disable_raw_mode};
 use futures::StreamExt;
-use vinilo_core::ipc::{
-    Event, PlayMode, Request, Snapshot, Stage, Transport, View as LibraryView,
-};
+use vinilo_core::ipc::{Event, PlayMode, Request, Snapshot, Stage, Transport, View as LibraryView};
 use vinilo_core::player::protocol::RepeatMode;
 
 use crate::browser::{SECTIONS, Showing};
@@ -237,8 +235,10 @@ async fn run() -> Result<()> {
                             .as_ref()
                             .map(|n| (n.text.as_str(), n.bad))
                             .or_else(|| {
-                                app.refreshing_library
-                                    .then_some((vinilo_core::i18n::t(vinilo_core::i18n::Key::RefreshingLibrary), false))
+                                app.refreshing_library.then_some((
+                                    vinilo_core::i18n::t(vinilo_core::i18n::Key::RefreshingLibrary),
+                                    false,
+                                ))
                             }),
                     },
                 )
@@ -886,6 +886,7 @@ impl App {
             Event::LibraryRefreshing { refreshing } => {
                 self.refreshing_library = refreshing;
             }
+            Event::Lyrics { .. } => {}
             // The daemon refuses things — removing the track it is playing is
             // the one that will be hit most. Saying so is rule 4's job.
             Event::Error { detail } => self.message = Some(Notice::bad(detail)),

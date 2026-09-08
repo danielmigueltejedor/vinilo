@@ -1258,7 +1258,31 @@ fn answer(
             route_transport(daemon, transport);
             None
         }
+        Request::Lyrics { id } => {
+            fetch_lyrics(daemon, id);
+            None
+        }
     }
+}
+
+fn fetch_lyrics(daemon: &Rc<Daemon>, id: String) {
+    let daemon = daemon.clone();
+    tokio::task::spawn_local(async move {
+        let http = vinilo_core::streams::http();
+        let event = match vinilo_core::lyrics::for_id(&http, &id).await {
+            Ok(lyrics) => Event::Lyrics {
+                id,
+                lyrics: Some(lyrics),
+                error: None,
+            },
+            Err(err) => Event::Lyrics {
+                id,
+                lyrics: None,
+                error: Some(err.to_string()),
+            },
+        };
+        daemon.publish(event);
+    });
 }
 
 fn stop_local(daemon: &Daemon) {

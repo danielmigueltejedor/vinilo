@@ -21,7 +21,25 @@ use super::{AppModel, AppMsg, LibraryAction};
 use crate::components::overridden;
 use crate::components::track_row::{Entry, RowMenuRequest};
 use vinilo_core::i18n::{self, Key};
-use vinilo_core::music::types::Track;
+use vinilo_core::music::types::{Playlist, Track};
+
+fn is_writable_playlist(list: &Playlist) -> bool {
+    let id = list.id.as_str();
+    if matches!(id, "sp:liked" | "sp:top" | "yt:liked" | "td:liked") {
+        return false;
+    }
+    if id.contains(":collection:") {
+        return false;
+    }
+    // Spotify's editorial mixes (Discover Weekly, Daily Mix) are not yours.
+    if id.contains("sp:playlist:37i9") {
+        return false;
+    }
+    if id.starts_with("sp:playlist:") || id.starts_with("yt:playlist:") {
+        return true;
+    }
+    list.library
+}
 
 impl AppModel {
     /// Playlists the user can add a song to. Liked-songs shortcuts and
@@ -29,15 +47,9 @@ impl AppModel {
     pub(super) fn writable_playlists(&self) -> Vec<(String, String)> {
         self.playlists
             .iter()
-            .filter(|list| {
-                list.library
-                    && list.id != "sp:liked"
-                    && list.id != "sp:top"
-                    && list.id != "yt:liked"
-                    && list.id != "td:liked"
-                    && !list.id.contains(":collection:")
-            })
+            .filter(|list| is_writable_playlist(list))
             .map(|list| (list.id.clone(), list.name.clone()))
+            .take(48)
             .collect()
     }
 
@@ -58,6 +70,7 @@ impl AppModel {
                     _ => None,
                 })
             })
+            .or_else(|| self.discover.track(catalog_id))
     }
 
     /// Same menu a library row uses, for whatever is in the player.
@@ -221,6 +234,117 @@ impl AppModel {
         }
         popover.insert_action_group("row", Some(&actions));
 
+        popover.connect_closed(|p| {
+            let p = p.clone();
+            gtk::glib::idle_add_local_once(move || p.unparent());
+        });
+        popover.popup();
+    }
+
+    /// Right-click on a Listen Now cover: songs get the row menu, playlists
+    /// can be pinned or added to one of yours.
+    pub(super) fn show_discover_menu(&self, entry: Entry, at: (i32, i32), over: gtk::Widget) {
+        match entry {
+            Entry::Song(track) => {
+                let catalog_id = track
+                    .catalog_id
+                    .clone()
+                    .filter(|id| !id.is_empty())
+                    .unwrap_or_else(|| track.id.0.clone());
+                let (favorite, in_library) = overridden(
+                    &self.row_overrides,
+                    Some(&catalog_id),
+                    track.favorite,
+                    track.in_library,
+                );
+                self.show_row_menu(RowMenuRequest {
+                    catalog_id,
+                    library_id: track.library_id.clone(),
+                    in_library,
+                    favorite,
+                    at,
+                    over,
+                });
+            }
+            Entry::Playlist(list) => self.show_playlist_add_menu(list.id, at, over),
+            Entry::Album(_) | Entry::Artist(_) => {}
+        }
+    }
+
+    fn show_playlist_add_menu(&self, playlist_id: String, at: (i32, i32), over: gtk::Widget) {
+        let pinned = self.settings.pinned_playlists.contains(&playlist_id);
+        let menu = gtk::gio::Menu::new();
+        menu.append(
+            Some(if pinned {
+                i18n::t(Key::RemoveFromSidebar)
+            } else {
+                i18n::t(Key::AddToSidebar)
+            }),
+            Some("tile.toggle-pin"),
+        );
+
+        let lists = gtk::gio::Menu::new();
+        lists.append(Some(i18n::t(Key::NewPlaylist)), Some("tile.new-playlist"));
+        for (id, name) in self.writable_playlists().into_iter().take(48) {
+            if id == playlist_id {
+                continue;
+            }
+            let item = gtk::gio::MenuItem::new(Some(&name), None);
+            item.set_action_and_target_value(Some("tile.add-to-playlist"), Some(&id.to_variant()));
+            lists.append_item(&item);
+        }
+        menu.append_section(None, &{
+            let section = gtk::gio::Menu::new();
+            section.append_submenu(Some(i18n::t(Key::AddToPlaylist)), &lists);
+            section
+        });
+
+        let popover = gtk::PopoverMenu::from_model(Some(&menu));
+        popover.set_has_arrow(false);
+        popover.set_halign(gtk::Align::Start);
+        popover.set_pointing_to(Some(&gtk::gdk::Rectangle::new(at.0, at.1, 1, 1)));
+        popover.set_parent(&over);
+
+        let actions = gtk::gio::SimpleActionGroup::new();
+        {
+            let action = gtk::gio::SimpleAction::new("toggle-pin", None);
+            let id = playlist_id.clone();
+            let sender = self.menu_sender.clone();
+            action.connect_activate(move |_, _| {
+                sender.input(AppMsg::SetPinned {
+                    id: id.clone(),
+                    pinned: !pinned,
+                });
+            });
+            actions.add_action(&action);
+        }
+        {
+            let action = gtk::gio::SimpleAction::new("new-playlist", None);
+            let id = playlist_id.clone();
+            let sender = self.menu_sender.clone();
+            action.connect_activate(move |_, _| {
+                sender.input(AppMsg::PromptNewPlaylist {
+                    track_id: Some(id.clone()),
+                });
+            });
+            actions.add_action(&action);
+
+            let action =
+                gtk::gio::SimpleAction::new("add-to-playlist", Some(gtk::glib::VariantTy::STRING));
+            let source = playlist_id;
+            let sender = self.menu_sender.clone();
+            action.connect_activate(move |_, param| {
+                let Some(dest) = param.and_then(|v| v.str().map(str::to_owned)) else {
+                    return;
+                };
+                sender.input(AppMsg::AddToPlaylist {
+                    playlist_id: dest,
+                    track_id: source.clone(),
+                });
+            });
+            actions.add_action(&action);
+        }
+        popover.insert_action_group("tile", Some(&actions));
         popover.connect_closed(|p| {
             let p = p.clone();
             gtk::glib::idle_add_local_once(move || p.unparent());

@@ -186,6 +186,11 @@ pub struct AppModel {
     library: TypedListView<LibraryItem, gtk::NoSelection>,
     /// Whether the queue sidebar is open.
     show_queue: bool,
+    /// Lyrics pane in the expanded player is open.
+    lyrics_shown: bool,
+    /// Track id the last lyrics request was for, so a snapshot tick does not
+    /// re-fetch the same song.
+    lyrics_for: Option<String>,
     /// Whether the navigation sidebar is open. Persisted, like the section:
     /// someone who closes it wants it closed next time too.
     show_sidebar: bool,
@@ -506,7 +511,10 @@ pub enum AppMsg {
     /// A row was right-clicked; show its menu there.
     ShowRowMenu(RowMenuRequest),
     /// The expanded player's ⋮, for the track that is playing now.
-    ShowNowPlayingMenu { at: (i32, i32), over: gtk::Widget },
+    ShowNowPlayingMenu {
+        at: (i32, i32),
+        over: gtk::Widget,
+    },
     /// Empty the queue and stop.
     ClearQueue,
     /// Reorder the queue. `to` is where the item lands.
@@ -628,6 +636,7 @@ pub enum AppMsg {
     PlayFiles(Vec<PathBuf>),
     SetNotifyTrackChange(bool),
     ToggleQueue,
+    SetLyricsShown(bool),
     /// A library row was activated; the position is resolved immediately.
     LibraryActivated(u32),
     /// A row on a pushed page was clicked. Carries the page's id so it can be
@@ -719,6 +728,7 @@ fn map_player_output(out: NowPlayingOutput) -> AppMsg {
         NowPlayingOutput::SetRepeat(r) => AppMsg::SetRepeat(r),
         NowPlayingOutput::ToggleQueue => AppMsg::ToggleQueue,
         NowPlayingOutput::ShowTrackMenu { at, over } => AppMsg::ShowNowPlayingMenu { at, over },
+        NowPlayingOutput::SetLyricsShown(on) => AppMsg::SetLyricsShown(on),
     }
 }
 
@@ -1413,6 +1423,7 @@ impl Component for AppModel {
                 NowPlayingOutput::ShowTrackMenu { at, over } => {
                     AppMsg::ShowNowPlayingMenu { at, over }
                 }
+                NowPlayingOutput::SetLyricsShown(on) => AppMsg::SetLyricsShown(on),
             });
 
         let library: TypedListView<LibraryItem, gtk::NoSelection> = TypedListView::new();
@@ -1520,6 +1531,8 @@ impl Component for AppModel {
             player_view,
             library,
             show_queue: false,
+            lyrics_shown: false,
+            lyrics_for: None,
             show_sidebar: settings.show_sidebar,
             sidebar_collapsed: false,
             narrow_header: false,
@@ -2175,6 +2188,9 @@ impl AppModel {
                     let entries: Vec<Entry> = songs.into_iter().map(Entry::Song).collect();
                     self.play_entries(&entries, index, PlayMode::Clicked);
                 }
+                DiscoverAction::Context { entry, at, over } => {
+                    self.show_discover_menu(entry, at, over);
+                }
             },
             AppMsg::NeedTileArt(key, art) => {
                 // Scrolling rebinds the same tile repeatedly; one request each.
@@ -2360,6 +2376,12 @@ impl AppModel {
                     // for.
                     self.player_view.emit(PlayerViewInput::SetQueueShown(true));
                     self.queue_view.emit(QueueViewInput::ScrollToPlaying);
+                }
+            }
+            AppMsg::SetLyricsShown(on) => {
+                self.lyrics_shown = on;
+                if on {
+                    self.ask_lyrics();
                 }
             }
             AppMsg::LibraryActivated(position) => {

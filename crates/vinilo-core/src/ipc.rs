@@ -494,6 +494,13 @@ pub enum Request {
         index: usize,
     },
 
+    /// Lyrics for the track currently in the expanded player.
+    ///
+    /// Fetched here rather than in a client because it needs the same partner
+    /// token / InnerTube cookie the catalogue already holds (rule 8).
+    #[serde(rename = "lyrics")]
+    Lyrics { id: String },
+
     /// Stop the daemon: stop playing, save the session, exit.
     ///
     /// **Refused while another client is attached.** Quitting takes the player
@@ -722,9 +729,32 @@ pub enum Event {
     #[serde(rename = "libraryRefreshing")]
     LibraryRefreshing { refreshing: bool },
 
+    /// Lyrics for a track, answering a [`Request::Lyrics`].
+    #[serde(rename = "lyrics")]
+    Lyrics {
+        id: String,
+        lyrics: Option<Lyrics>,
+        #[serde(default)]
+        error: Option<String>,
+    },
+
     /// Something went wrong that a person should see.
     #[serde(rename = "error")]
     Error { detail: String },
+}
+
+/// Timed or plain lyrics for one track.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct Lyrics {
+    /// True when `lines` carry `start_ms` that tracks playback.
+    pub synced: bool,
+    pub lines: Vec<LyricLine>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct LyricLine {
+    pub start_ms: u64,
+    pub text: String,
 }
 
 /// One row of the queue.

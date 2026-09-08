@@ -341,6 +341,97 @@ async fn pin_in_rootlist(
     Ok(())
 }
 
+/// The lists pinned in the web player's sidebar, including ones libraryV3
+/// skips when they live in a folder.
+pub(super) async fn playlists_in_rootlist(
+    http: &reqwest::Client,
+    session: &Session,
+    max: usize,
+) -> Result<Vec<Playlist>> {
+    let user = username(http, session).await?;
+    let url = format!(
+        "{}/user/{}/rootlist?decorate=revision,attributes,length,owner",
+        partner::PLAYLIST_V2,
+        crate::streams::urlencoding(&user)
+    );
+    let mut req = http
+        .get(&url)
+        .bearer_auth(&session.access)
+        .header("Accept", "application/json")
+        .header("Origin", "https://open.spotify.com")
+        .header("Referer", "https://open.spotify.com/")
+        .header("Spotify-App-Version", &session.client_version)
+        .header("App-Platform", "WebPlayer");
+    if let Some(token) = &session.client_token {
+        req = req.header("client-token", token);
+    }
+    if let Some(cookie) = crate::setup::session_cookie(crate::provider::Provider::Spotify) {
+        req = req.header("Cookie", cookie);
+    }
+    let res = req.send().await.context("spotify rootlist")?;
+    let status = res.status();
+    let text = res.text().await.unwrap_or_default();
+    if !status.is_success() {
+        anyhow::bail!("Spotify rootlist {status}");
+    }
+    let value: Value = serde_json::from_str(&text).context("spotify rootlist json")?;
+    Ok(playlists_from_rootlist(&value, max))
+}
+
+fn playlists_from_rootlist(value: &Value, max: usize) -> Vec<Playlist> {
+    let mut lists = Vec::new();
+    collect_rootlist_playlists(value, &mut lists);
+    lists.truncate(max);
+    lists
+}
+
+fn collect_rootlist_playlists(value: &Value, into: &mut Vec<Playlist>) {
+    match value {
+        Value::Array(items) => {
+            for item in items {
+                collect_rootlist_playlists(item, into);
+            }
+        }
+        Value::Object(map) => {
+            if let Some(uri) = map.get("uri").and_then(Value::as_str)
+                && uri.contains(":playlist:")
+                && !uri.contains(":collection:")
+                && !uri.contains(":folder:")
+            {
+                let name = map
+                    .get("attributes")
+                    .and_then(|a| a.get("name"))
+                    .and_then(Value::as_str)
+                    .or_else(|| map.get("name").and_then(Value::as_str))
+                    .unwrap_or("")
+                    .trim();
+                let id = uri_tail(uri);
+                if !id.is_empty()
+                    && !name.is_empty()
+                    && into
+                        .iter()
+                        .all(|have| have.id != format!("sp:playlist:{id}"))
+                {
+                    into.push(Playlist {
+                        id: format!("sp:playlist:{id}"),
+                        date_added: String::new(),
+                        last_modified: String::new(),
+                        name: name.to_owned(),
+                        curator: String::new(),
+                        description: String::new(),
+                        artwork: None,
+                        library: true,
+                    });
+                }
+            }
+            for child in map.values() {
+                collect_rootlist_playlists(child, into);
+            }
+        }
+        _ => {}
+    }
+}
+
 async fn username(http: &reqwest::Client, session: &Session) -> Result<String> {
     let value = partner_query(
         http,
@@ -452,5 +543,33 @@ mod tests {
                 .and_then(Value::as_str),
             Some("spotify:playlist:37i9dQZF1DXcBWIGoYBM5M")
         );
+    }
+
+    #[test]
+    fn rootlist_contents_become_library_playlists() {
+        let json = json!({
+            "contents": {
+                "items": [
+                    {
+                        "uri": "spotify:playlist:mine1",
+                        "attributes": { "name": "Gym" }
+                    },
+                    {
+                        "uri": "spotify:user:me:collection:tracks",
+                        "attributes": { "name": "Liked Songs" }
+                    },
+                    {
+                        "uri": "spotify:playlist:mine2",
+                        "name": "Noche"
+                    }
+                ]
+            }
+        });
+        let lists = playlists_from_rootlist(&json, 10);
+        assert_eq!(lists.len(), 2);
+        assert_eq!(lists[0].id, "sp:playlist:mine1");
+        assert_eq!(lists[0].name, "Gym");
+        assert!(lists[0].library);
+        assert_eq!(lists[1].name, "Noche");
     }
 }

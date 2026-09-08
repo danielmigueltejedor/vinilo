@@ -134,6 +134,70 @@ pub async fn warm_session(http: &reqwest::Client) -> Result<()> {
     session(http).await.map(|_| ())
 }
 
+/// Line-synced lyrics from `color-lyrics`, the same endpoint the web player
+/// uses. 404 means this track has none, not that the session is dead.
+pub async fn lyrics(http: &reqwest::Client, id: &str) -> Result<crate::ipc::Lyrics> {
+    let track = match Ref::parse(id) {
+        Some(Ref::Track(t)) => t,
+        _ => anyhow::bail!("{}", i18n::t(Key::LyricsMissing)),
+    };
+    let session = session(http).await?;
+    let url = format!(
+        "https://spclient.wg.spotify.com/color-lyrics/v2/track/{track}?format=json&vocalRemoval=false"
+    );
+    let mut req = http
+        .get(&url)
+        .bearer_auth(&session.access)
+        .header("Accept", "application/json")
+        .header("App-Platform", "WebPlayer")
+        .header("Spotify-App-Version", &session.client_version);
+    if let Some(token) = &session.client_token {
+        req = req.header("client-token", token);
+    }
+    let res = req.send().await.context("spotify lyrics")?;
+    let status = res.status();
+    let text = res.text().await.unwrap_or_default();
+    if status.as_u16() == 404 {
+        anyhow::bail!("{}", i18n::t(Key::LyricsMissing));
+    }
+    if !status.is_success() {
+        anyhow::bail!("Spotify lyrics {status}");
+    }
+    let value: Value = serde_json::from_str(&text).context("spotify lyrics json")?;
+    lyrics_from_color(&value).ok_or_else(|| anyhow::anyhow!("{}", i18n::t(Key::LyricsMissing)))
+}
+
+fn lyrics_from_color(value: &Value) -> Option<crate::ipc::Lyrics> {
+    let lyrics = value.get("lyrics")?;
+    let sync = lyrics.get("syncType").and_then(Value::as_str).unwrap_or("");
+    let lines = lyrics.get("lines").and_then(Value::as_array)?;
+    let lines: Vec<crate::ipc::LyricLine> = lines
+        .iter()
+        .filter_map(|line| {
+            let text = line
+                .get("words")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|s| !s.is_empty() && *s != "♪")?;
+            let start_ms = line
+                .get("startTimeMs")
+                .and_then(|v| v.as_u64().or_else(|| v.as_str()?.parse().ok()))
+                .unwrap_or(0);
+            Some(crate::ipc::LyricLine {
+                start_ms,
+                text: text.to_owned(),
+            })
+        })
+        .collect();
+    if lines.is_empty() {
+        return None;
+    }
+    Some(crate::ipc::Lyrics {
+        synced: sync.eq_ignore_ascii_case("LINE_SYNCED"),
+        lines,
+    })
+}
+
 pub async fn library(http: &reqwest::Client) -> Result<Library> {
     library_progress(http, |_, _, _, _| {}).await
 }
@@ -717,21 +781,38 @@ async fn library_playlists(
     session: &partner::Session,
     max: usize,
 ) -> Result<Vec<Playlist>> {
-    match library_v3_playlists(http, session, max).await {
-        Ok(lists) if !lists.is_empty() => Ok(lists),
-        Ok(empty) => {
-            if let Ok(rest) = user_playlists(http, &session.access, max).await
-                && !rest.is_empty()
-            {
-                return Ok(rest);
-            }
-            Ok(empty)
-        }
+    let mut lists = match library_v3_playlists(http, session, max).await {
+        Ok(lists) => lists,
         Err(err) => {
             tracing::warn!(%err, "spotify libraryV3 playlists");
-            user_playlists(http, &session.access, max).await
+            Vec::new()
+        }
+    };
+    // libraryV3 often returns only Liked Songs / editorial mixes. The
+    // rootlist is what the web player actually pins — the user's own lists.
+    match write::playlists_in_rootlist(http, session, max).await {
+        Ok(root) => merge_playlists(&mut lists, root),
+        Err(err) => tracing::debug!(%err, "spotify rootlist playlists"),
+    }
+    if lists.iter().all(|list| !is_user_playlist(list))
+        && let Ok(rest) = user_playlists(http, &session.access, max).await
+    {
+        merge_playlists(&mut lists, rest);
+    }
+    lists.truncate(max);
+    Ok(lists)
+}
+
+fn merge_playlists(into: &mut Vec<Playlist>, extra: Vec<Playlist>) {
+    for list in extra {
+        if into.iter().all(|have| have.id != list.id) {
+            into.push(list);
         }
     }
+}
+
+fn is_user_playlist(list: &Playlist) -> bool {
+    list.id.starts_with("sp:playlist:") && !list.id.contains("sp:playlist:37i9")
 }
 
 async fn library_v3_playlists(
@@ -1322,7 +1403,18 @@ fn song_from_playlist_item(item: &Value) -> Option<Track> {
 }
 
 fn playlist_from_library_item(item: &Value) -> Option<Playlist> {
-    let wrapper = item.get("item").unwrap_or(item);
+    let mut cursor = item;
+    for _ in 0..5 {
+        if let Some(list) = playlist_from_library_node(cursor) {
+            return Some(list);
+        }
+        cursor = cursor.get("item")?;
+    }
+    None
+}
+
+fn playlist_from_library_node(node: &Value) -> Option<Playlist> {
+    let wrapper = node.get("item").unwrap_or(node);
     let data = wrapper.get("data").unwrap_or(wrapper);
     if data.get("__typename").and_then(Value::as_str) == Some("NotFound") {
         return None;
@@ -1333,7 +1425,7 @@ fn playlist_from_library_item(item: &Value) -> Option<Playlist> {
         .or_else(|| data.get("uri"))
         .and_then(Value::as_str)
         .unwrap_or("");
-    if uri.contains(":collection:") {
+    if uri.contains(":collection:") || uri.contains(":folder:") {
         return None;
     }
     let typename = format!(
@@ -2341,6 +2433,42 @@ mod tests {
         let list = playlist_from_library_item(&flat).unwrap();
         assert_eq!(list.id, "sp:playlist:pl2");
         assert!(list.library);
+        let nested = serde_json::json!({
+            "item": {
+                "__typename": "LibraryPaginatableItem",
+                "item": {
+                    "__typename": "PlaylistResponseWrapper",
+                    "_uri": "spotify:playlist:pl3",
+                    "data": {
+                        "__typename": "Playlist",
+                        "uri": "spotify:playlist:pl3",
+                        "name": "Noche"
+                    }
+                }
+            }
+        });
+        let list = playlist_from_library_item(&nested).unwrap();
+        assert_eq!(list.id, "sp:playlist:pl3");
+        assert!(list.library);
+    }
+
+    #[test]
+    fn color_lyrics_map_synced_lines() {
+        let json = serde_json::json!({
+            "lyrics": {
+                "syncType": "LINE_SYNCED",
+                "lines": [
+                    { "startTimeMs": "1200", "words": "Hola" },
+                    { "startTimeMs": "2400", "words": "♪" },
+                    { "startTimeMs": "3600", "words": "Noche" }
+                ]
+            }
+        });
+        let lyrics = lyrics_from_color(&json).unwrap();
+        assert!(lyrics.synced);
+        assert_eq!(lyrics.lines.len(), 2);
+        assert_eq!(lyrics.lines[0].text, "Hola");
+        assert_eq!(lyrics.lines[0].start_ms, 1200);
     }
 
     #[test]

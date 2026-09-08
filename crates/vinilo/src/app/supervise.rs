@@ -11,6 +11,7 @@
 use relm4::ComponentSender;
 
 use super::{AppModel, CommandMsg, Stage};
+use crate::components::player_view::PlayerViewInput;
 use crate::daemon;
 use vinilo_core::ipc::{Event, Request, Stage as DaemonStage, Transport};
 
@@ -166,6 +167,9 @@ impl AppModel {
                 self.mirror.snap = snap;
                 self.sync_tick(sender);
                 self.push_snapshot();
+                if self.lyrics_shown {
+                    self.ask_lyrics();
+                }
                 // **Here, not on the queue event.** The cover belongs to the
                 // snapshot that carries its path, and the two events arrive
                 // separately — syncing on the queue read whichever snapshot
@@ -244,6 +248,13 @@ impl AppModel {
                 self.searching_catalog = false;
                 self.set_library_refreshing(false);
                 self.toast(&detail);
+            }
+            Event::Lyrics { id, lyrics, error } => {
+                if self.lyrics_for.as_deref() != Some(id.as_str()) {
+                    return;
+                }
+                self.player_view
+                    .emit(PlayerViewInput::Lyrics { lyrics, error });
             }
         }
     }

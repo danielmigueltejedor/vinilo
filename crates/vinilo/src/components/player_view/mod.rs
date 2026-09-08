@@ -16,7 +16,7 @@
 use relm4::adw;
 use relm4::adw::prelude::*;
 use relm4::gtk;
-use relm4::gtk::prelude::{Cast, WidgetExt};
+use relm4::gtk::prelude::{BoxExt, Cast, StackExt, WidgetExt};
 use relm4::gtk::{gdk, glib};
 use relm4::prelude::*;
 
@@ -42,6 +42,10 @@ pub struct PlayerView {
     room_for: i32,
     /// Whether the queue is showing inside the drawer.
     queue_shown: bool,
+    /// Whether the lyrics pane is showing instead of the queue.
+    lyrics_shown: bool,
+    /// Start times of the lines currently in `lyrics_lines`, for highlighting.
+    lyric_times: Vec<u64>,
     /// The transport, built once and moved between two slots.
     transport: gtk::Box,
     /// The hand-built transport's refreshable pieces. See [`Bits`].
@@ -62,9 +66,12 @@ pub struct PlayerView {
     menu_button: Option<gtk::Button>,
 }
 
-/// The four places something can live, plus the queue itself.
+/// The four places something can live, plus the queue/lyrics pane.
 struct Slots {
-    queue: adw::ToolbarView,
+    pane: gtk::Stack,
+    lyrics_root: gtk::Stack,
+    lyrics_status: adw::StatusPage,
+    lyrics_lines: gtk::Box,
     queue_wide_rev: gtk::Revealer,
     queue_compact_rev: gtk::Revealer,
     queue_wide: gtk::Box,
@@ -240,6 +247,12 @@ pub enum PlayerViewInput {
     /// The width breakpoint crossed.
     Wide(bool),
     SetQueueShown(bool),
+    SetLyricsShown(bool),
+    /// Lines from the daemon, or an error string if this track has none.
+    Lyrics {
+        lyrics: Option<vinilo_core::ipc::Lyrics>,
+        error: Option<String>,
+    },
     /// Flip shuffle. No payload: the value is derived from the mirrored one,
     /// so this view never invents one (rule 3).
     ShuffleClicked,
@@ -565,7 +578,7 @@ impl SimpleComponent for PlayerView {
                     // centred inside its half, sat in the upper part of the
                     // drawer with the rest of it empty below.
                     #[watch]
-                    set_vexpand: model.queue_shown && !model.wide,
+                    set_vexpand: model.pane_open() && !model.wide,
 
                     #[wrap(Some)]
                     #[name = "queue_compact"]
@@ -599,6 +612,8 @@ impl SimpleComponent for PlayerView {
             wide: true,
             room_for: SHEET_MIN_H,
             queue_shown: false,
+            lyrics_shown: false,
+            lyric_times: Vec::new(),
             transport: gtk::Box::new(gtk::Orientation::Vertical, 12),
             slots: None,
             bits: None,
@@ -616,6 +631,33 @@ impl SimpleComponent for PlayerView {
             tracing::error!("no queue widget was handed over; the drawer's queue will be empty");
             adw::ToolbarView::new()
         });
+        let lyrics_status = adw::StatusPage::builder()
+            .icon_name("text-x-generic-symbolic")
+            .title(vinilo_core::i18n::t(vinilo_core::i18n::Key::LyricsLoading))
+            .build();
+        let lyrics_lines = gtk::Box::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .spacing(8)
+            .margin_start(18)
+            .margin_end(18)
+            .margin_top(12)
+            .margin_bottom(12)
+            .build();
+        let lyrics_scroll = gtk::ScrolledWindow::builder()
+            .hscrollbar_policy(gtk::PolicyType::Never)
+            .vscrollbar_policy(gtk::PolicyType::Automatic)
+            .child(&lyrics_lines)
+            .vexpand(true)
+            .build();
+        let lyrics_root = gtk::Stack::new();
+        lyrics_root.set_vexpand(true);
+        lyrics_root.add_named(&lyrics_status, Some("status"));
+        lyrics_root.add_named(&lyrics_scroll, Some("lines"));
+        lyrics_root.set_visible_child_name("status");
+        let pane = gtk::Stack::new();
+        pane.set_vexpand(true);
+        pane.add_named(&queue, Some("queue"));
+        pane.add_named(&lyrics_root, Some("lyrics"));
         let widgets = view_output!();
         model.cover.attach_first(&widgets.art_slot);
         model.cover.empty_sleeve(ART_LARGE);
@@ -645,7 +687,10 @@ impl SimpleComponent for PlayerView {
         anim.set_easing(adw::Easing::EaseOutCubic);
         model.art_anim = Some(anim);
         model.slots = Some(Slots {
-            queue,
+            pane,
+            lyrics_root,
+            lyrics_status,
+            lyrics_lines,
             queue_wide_rev: widgets.queue_wide_rev.clone(),
             queue_compact_rev: widgets.queue_compact_rev.clone(),
             queue_wide: widgets.queue_wide.clone(),
@@ -697,6 +742,7 @@ impl SimpleComponent for PlayerView {
                 };
                 self.snap = *snap;
                 self.snap.position_ms = position;
+                self.refresh_lyric_highlight();
                 self.refresh_transport();
             }
             PlayerViewInput::Artwork(path) => match path {
@@ -744,11 +790,49 @@ impl SimpleComponent for PlayerView {
                 }
             }
             PlayerViewInput::SetQueueShown(shown) => {
-                if self.queue_shown == shown {
-                    return; // our own echo
+                if shown {
+                    if self.queue_shown && !self.lyrics_shown {
+                        return;
+                    }
+                    let lyrics_were = self.lyrics_shown;
+                    self.queue_shown = true;
+                    self.lyrics_shown = false;
+                    if lyrics_were {
+                        let _ = sender.output(NowPlayingOutput::SetLyricsShown(false));
+                    }
+                } else {
+                    if !self.queue_shown {
+                        return;
+                    }
+                    self.queue_shown = false;
                 }
-                self.queue_shown = shown;
                 self.relayout();
+            }
+            PlayerViewInput::SetLyricsShown(shown) => {
+                if shown {
+                    if self.lyrics_shown {
+                        return;
+                    }
+                    self.lyrics_shown = true;
+                    self.queue_shown = false;
+                    if let Some(slots) = self.slots.as_ref() {
+                        slots
+                            .lyrics_status
+                            .set_title(vinilo_core::i18n::t(vinilo_core::i18n::Key::LyricsLoading));
+                        slots.lyrics_root.set_visible_child_name("status");
+                    }
+                    let _ = sender.output(NowPlayingOutput::SetLyricsShown(true));
+                } else {
+                    if !self.lyrics_shown {
+                        return;
+                    }
+                    self.lyrics_shown = false;
+                    let _ = sender.output(NowPlayingOutput::SetLyricsShown(false));
+                }
+                self.relayout();
+            }
+            PlayerViewInput::Lyrics { lyrics, error } => {
+                self.show_lyrics(lyrics, error);
             }
             PlayerViewInput::ShuffleClicked => {
                 let _ = sender.output(NowPlayingOutput::SetShuffle(!self.snap.shuffle));
@@ -826,7 +910,11 @@ impl PlayerView {
     /// spare, compact with the queue open, where the artwork becomes a
     /// thumbnail beside the title and the queue takes the height.
     fn stacked(&self) -> bool {
-        self.wide || !self.queue_shown
+        self.wide || !self.pane_open()
+    }
+
+    fn pane_open(&self) -> bool {
+        self.queue_shown || self.lyrics_shown
     }
 
     /// Text is centred only when the artwork is above it — a column reads as a
@@ -866,7 +954,10 @@ impl PlayerView {
             &slots.queue_compact
         };
         reparent(&self.transport, transport_home);
-        reparent(&slots.queue, queue_home);
+        reparent(&slots.pane, queue_home);
+        slots
+            .pane
+            .set_visible_child_name(if self.lyrics_shown { "lyrics" } else { "queue" });
 
         // The artwork is the elastic element: large when it is the subject,
         // a thumbnail once the queue needs the room — and it travels between
@@ -893,19 +984,87 @@ impl PlayerView {
         // queue's own header closes it. Two buttons, but never both on screen,
         // which is what keeps it from reading as a duplicate.
         if let Some(bits) = self.bits.as_ref() {
-            bits.set_secondary_visible(!self.queue_shown);
+            bits.set_secondary_visible(!self.pane_open());
+            bits.set_pane_toggles(self.queue_shown, self.lyrics_shown);
         }
 
-        // The revealers decide what is on screen now, so the queue itself
+        // The revealers decide what is on screen now, so the pane itself
         // stays visible: hiding it would pre-empt the very transition the
         // revealer is there to play, and the close would be a cut.
-        slots.queue.set_visible(true);
+        slots.pane.set_visible(true);
         slots
             .queue_wide_rev
-            .set_reveal_child(self.queue_shown && self.wide);
+            .set_reveal_child(self.pane_open() && self.wide);
         slots
             .queue_compact_rev
-            .set_reveal_child(self.queue_shown && !self.wide);
+            .set_reveal_child(self.pane_open() && !self.wide);
+    }
+
+    fn show_lyrics(&mut self, lyrics: Option<vinilo_core::ipc::Lyrics>, error: Option<String>) {
+        let Some(slots) = self.slots.as_ref() else {
+            return;
+        };
+        while let Some(child) = slots.lyrics_lines.first_child() {
+            slots.lyrics_lines.remove(&child);
+        }
+        self.lyric_times.clear();
+        match lyrics.filter(|l| !l.lines.is_empty()) {
+            Some(lyrics) => {
+                for line in &lyrics.lines {
+                    let label = gtk::Label::builder()
+                        .label(&line.text)
+                        .wrap(true)
+                        .xalign(0.0)
+                        .css_classes(["dim-label"])
+                        .build();
+                    slots.lyrics_lines.append(&label);
+                    self.lyric_times.push(line.start_ms);
+                }
+                slots.lyrics_root.set_visible_child_name("lines");
+                self.refresh_lyric_highlight();
+            }
+            None => {
+                let title = error.filter(|s| !s.is_empty()).unwrap_or_else(|| {
+                    vinilo_core::i18n::t(vinilo_core::i18n::Key::LyricsMissing).to_owned()
+                });
+                slots.lyrics_status.set_title(&title);
+                slots.lyrics_status.set_description(None);
+                slots.lyrics_root.set_visible_child_name("status");
+            }
+        }
+    }
+
+    fn refresh_lyric_highlight(&self) {
+        let Some(slots) = self.slots.as_ref() else {
+            return;
+        };
+        if self.lyric_times.is_empty() {
+            return;
+        }
+        let pos = self.snap.position_ms;
+        let mut current = 0usize;
+        for (i, start) in self.lyric_times.iter().enumerate() {
+            if *start <= pos {
+                current = i;
+            } else {
+                break;
+            }
+        }
+        let mut i = 0usize;
+        let mut child = slots.lyrics_lines.first_child();
+        while let Some(widget) = child {
+            if let Ok(label) = widget.clone().downcast::<gtk::Label>() {
+                if i == current {
+                    label.remove_css_class("dim-label");
+                    label.add_css_class("heading");
+                } else {
+                    label.remove_css_class("heading");
+                    label.add_css_class("dim-label");
+                }
+            }
+            child = widget.next_sibling();
+            i += 1;
+        }
     }
 
     /// Send the artwork to `target`, animating unless there is nothing to

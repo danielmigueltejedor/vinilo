@@ -21,10 +21,17 @@ use vinilo_core::i18n::{self, Key};
 use vinilo_core::music::types::{Artwork, Track};
 
 /// What a click on a Discover tile is asking for.
-#[derive(Debug)]
 pub enum DiscoverAction {
     Open(Entry),
-    PlaySongs { songs: Vec<Track>, index: usize },
+    PlaySongs {
+        songs: Vec<Track>,
+        index: usize,
+    },
+    Context {
+        entry: Entry,
+        at: (i32, i32),
+        over: gtk::Widget,
+    },
 }
 
 pub type DiscoverHandler = Rc<dyn Fn(DiscoverAction)>;
@@ -87,6 +94,25 @@ impl DiscoverView {
 
     pub fn snapshot(&self) -> Discover {
         self.data.clone()
+    }
+
+    pub fn track(&self, catalog_id: &str) -> Option<&Track> {
+        self.data
+            .recommended_songs
+            .iter()
+            .find(|track| track_is(track, catalog_id))
+            .or_else(|| {
+                self.data
+                    .recently_played
+                    .iter()
+                    .chain(self.data.recommended_playlists.iter())
+                    .chain(self.data.recently_added.iter())
+                    .chain(self.data.charts.iter())
+                    .find_map(|entry| match entry {
+                        Entry::Song(track) if track_is(track, catalog_id) => Some(track),
+                        _ => None,
+                    })
+            })
     }
 
     pub fn relocalize(&self) {
@@ -227,13 +253,28 @@ impl DiscoverView {
             .child(&inner)
             .build();
         let activate = self.on_activate.clone();
+        let opened = entry.clone();
         button.connect_clicked(move |_| match &play {
             Some((songs, index)) => activate(DiscoverAction::PlaySongs {
                 songs: songs.clone(),
                 index: *index,
             }),
-            None => activate(DiscoverAction::Open(entry.clone())),
+            None => activate(DiscoverAction::Open(opened.clone())),
         });
+        let menu = gtk::GestureClick::new();
+        menu.set_button(gtk::gdk::BUTTON_SECONDARY);
+        let activate = self.on_activate.clone();
+        let over = button.clone();
+        let for_menu = entry;
+        menu.connect_pressed(move |gesture, _, x, y| {
+            gesture.set_state(gtk::EventSequenceState::Claimed);
+            activate(DiscoverAction::Context {
+                entry: for_menu.clone(),
+                at: (x as i32, y as i32),
+                over: over.clone().upcast(),
+            });
+        });
+        button.add_controller(menu);
         button
     }
 }
@@ -260,4 +301,8 @@ fn artwork_of(entry: &Entry) -> Option<&Artwork> {
         Entry::Artist(a) => a.artwork.as_ref(),
         Entry::Playlist(p) => p.artwork.as_ref(),
     }
+}
+
+fn track_is(track: &Track, catalog_id: &str) -> bool {
+    track.catalog_id.as_deref() == Some(catalog_id) || track.id.0 == catalog_id
 }

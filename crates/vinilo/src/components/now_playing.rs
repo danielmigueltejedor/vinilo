@@ -207,6 +207,7 @@ pub enum NowPlayingOutput {
         at: (i32, i32),
         over: gtk::Widget,
     },
+    SetLyricsShown(bool),
 }
 
 #[relm4::component(pub)]

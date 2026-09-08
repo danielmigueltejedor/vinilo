@@ -20,7 +20,7 @@ use crate::components::player_view::PlayerViewInput;
 use crate::components::queue_view::{QueueEntry, QueueViewInput};
 use std::path::PathBuf;
 
-use vinilo_core::ipc::Transport;
+use vinilo_core::ipc::{Request, Transport};
 
 impl AppModel {
     /// Tell the rows which one is playing, so the list shows a play marker.
@@ -270,6 +270,26 @@ impl AppModel {
                 false
             }
         }
+    }
+
+    pub(super) fn ask_lyrics(&mut self) {
+        let Some(id) = self.playing_catalog_id() else {
+            self.lyrics_for = None;
+            self.player_view.emit(PlayerViewInput::Lyrics {
+                lyrics: None,
+                error: Some(vinilo_core::i18n::t(vinilo_core::i18n::Key::LyricsMissing).into()),
+            });
+            return;
+        };
+        if self.lyrics_for.as_deref() == Some(id.as_str()) {
+            return;
+        }
+        self.lyrics_for = Some(id.clone());
+        self.player_view.emit(PlayerViewInput::Lyrics {
+            lyrics: None,
+            error: Some(vinilo_core::i18n::t(vinilo_core::i18n::Key::LyricsLoading).into()),
+        });
+        self.ask(Request::Lyrics { id });
     }
 }
 

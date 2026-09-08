@@ -503,6 +503,40 @@ fn ink_rules(surfaces: &[&str], ink: &str) -> String {
          }}
          {children} {{
              color: {ink};
+         }}
+         {}",
+        popover_reset(surfaces)
+    )
+}
+
+/// Popovers are parented to the row, tile or bar that opened them. The ink
+/// rules above would otherwise paint their labels with the wash colour — black
+/// type on Adwaita's dark menu, which is how a right-click in dark mode went
+/// unreadable. Higher specificity than `{surface} label` so the menu keeps
+/// the theme's own foreground.
+fn popover_reset(surfaces: &[&str]) -> String {
+    let popovers = surfaces
+        .iter()
+        .map(|s| format!("{s} popover"))
+        .collect::<Vec<_>>()
+        .join(",\n         ");
+    let children = ["label", "image", "button"]
+        .into_iter()
+        .flat_map(|widget| {
+            surfaces
+                .iter()
+                .map(move |s| format!("{s} popover {widget}"))
+        })
+        .collect::<Vec<_>>()
+        .join(",\n         ");
+    format!(
+        "{popovers},
+         {children} {{
+             color: @window_fg_color;
+             --window-fg-color: @window_fg_color;
+             --headerbar-fg-color: @headerbar_fg_color;
+             --view-fg-color: @view_fg_color;
+             --sidebar-fg-color: @sidebar_fg_color;
          }}"
     )
 }
@@ -732,6 +766,10 @@ mod tests {
         assert!(
             pale.contains(".np-bar label") && pale.contains(".np-sheet label"),
             "comma in the parent selector must not drop one surface's labels: {pale}"
+        );
+        assert!(
+            pale.contains(".np-bar popover") && pale.contains("@window_fg_color"),
+            "a popover parented to the bar must not inherit wash ink: {pale}"
         );
         let dark = backdrop_css(Some("#1a1a2e"), false);
         assert!(dark.contains("color: #ffffff"), "{dark}");
