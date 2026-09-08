@@ -426,7 +426,7 @@ fn en(key: Key) -> &'static str {
         }
         Key::ProviderTitle => "Where is your music?",
         Key::ProviderBody => {
-            "Pick a catalogue. Apple Music is Beta: it works, the player sidecar is still heavy. Spotify, YouTube Music and Tidal are Alpha. Files on this computer always play."
+            "Pick a catalogue. Apple Music, Spotify and YouTube Music are Beta: they work, the Apple sidecar is still heavy. Tidal is Alpha. Files on this computer always play."
         }
         Key::ProviderApple => "Apple Music (Beta)",
         Key::ProviderAppleSub => {
@@ -434,18 +434,18 @@ fn en(key: Key) -> &'static str {
         }
         Key::ProviderLocal => "This computer",
         Key::ProviderLocalSub => "Files you open, and folders you drop on Vinilo",
-        Key::ProviderSpotify => "Spotify (Alpha)",
+        Key::ProviderSpotify => "Spotify (Beta)",
         Key::ProviderSpotifySub => {
             "Library and search after sign-in. Native audio needs Spotify Premium."
         }
-        Key::ProviderYoutube => "YouTube Music (Alpha)",
+        Key::ProviderYoutube => "YouTube Music (Beta)",
         Key::ProviderYoutubeSub => {
             "Library and search after sign-in. Audio comes from YouTube Music itself."
         }
         Key::ProviderTidal => "Tidal (Alpha)",
         Key::ProviderTidalSub => "Search after you sign in. Playback still goes through yt-dlp.",
         Key::ProviderNote => {
-            "You can change this later in Preferences. Alpha sources are usable, not finished. Spotify Premium plays through librespot; without it, yt-dlp is the fallback."
+            "You can change this later in Preferences. Beta sources work; Alpha is usable, not finished. Spotify Premium plays through librespot; without it, yt-dlp is the fallback."
         }
         Key::ProviderRestart => "Could not switch source while another Vinilo window is open.",
         Key::CatalogSetupBody => {
@@ -570,8 +570,8 @@ fn en(key: Key) -> &'static str {
             "A native GNOME music player for Linux.\n\n\
              Apple Music (Beta) plays through Apple's MusicKit player using \
              Google's Widevine CDM, in a hidden helper process. Files on this \
-             computer play natively. Spotify (Alpha) plays through librespot \
-             when you have Premium; YouTube Music (Alpha) prefers InnerTube \
+             computer play natively. Spotify (Beta) plays through librespot \
+             when you have Premium; YouTube Music (Beta) prefers InnerTube \
              audio; Tidal (Alpha) still uses yt-dlp. Each catalogue keeps a \
              cookie sign-in for library and search.\n\n\
              Fork of Slipmat by Miguel Rincon."
@@ -701,7 +701,7 @@ fn es(key: Key) -> &'static str {
         }
         Key::ProviderTitle => "¿Dónde está tu música?",
         Key::ProviderBody => {
-            "Elige un catálogo. Apple Music es Beta: funciona, el sidecar del reproductor sigue siendo pesado. Spotify, YouTube Music y Tidal son Alpha. Los archivos de este equipo siempre suenan."
+            "Elige un catálogo. Apple Music, Spotify y YouTube Music son Beta: funcionan, el sidecar de Apple sigue siendo pesado. Tidal es Alpha. Los archivos de este equipo siempre suenan."
         }
         Key::ProviderApple => "Apple Music (Beta)",
         Key::ProviderAppleSub => {
@@ -709,18 +709,18 @@ fn es(key: Key) -> &'static str {
         }
         Key::ProviderLocal => "Este equipo",
         Key::ProviderLocalSub => "Archivos que abras y carpetas que sueltes en Vinilo",
-        Key::ProviderSpotify => "Spotify (Alpha)",
+        Key::ProviderSpotify => "Spotify (Beta)",
         Key::ProviderSpotifySub => {
             "Biblioteca y búsqueda tras iniciar sesión. El audio nativo pide Spotify Premium."
         }
-        Key::ProviderYoutube => "YouTube Music (Alpha)",
+        Key::ProviderYoutube => "YouTube Music (Beta)",
         Key::ProviderYoutubeSub => {
             "Biblioteca y búsqueda tras iniciar sesión. El audio sale de YouTube Music."
         }
         Key::ProviderTidal => "Tidal (Alpha)",
         Key::ProviderTidalSub => "Busca tras iniciar sesión. La reproducción aún pasa por yt-dlp.",
         Key::ProviderNote => {
-            "Puedes cambiarlo más tarde en Preferencias. Las fuentes Alpha se pueden usar, pero no están listas. Spotify Premium suena con librespot; sin Premium, yt-dlp es el respaldo."
+            "Puedes cambiarlo más tarde en Preferencias. Las fuentes Beta funcionan; Alpha se puede usar, pero no está lista. Spotify Premium suena con librespot; sin Premium, yt-dlp es el respaldo."
         }
         Key::ProviderRestart => "No se puede cambiar de fuente con otra ventana de Vinilo abierta.",
         Key::CatalogSetupBody => {
@@ -852,8 +852,8 @@ fn es(key: Key) -> &'static str {
             "Un reproductor nativo de GNOME para Linux.\n\n\
              Apple Music (Beta) pasa por el reproductor MusicKit de Apple con el CDM \
              Widevine de Google, en un proceso auxiliar oculto. Los archivos \
-             de este equipo se reproducen de forma nativa. Spotify (Alpha) suena \
-             con librespot si tienes Premium; YouTube Music (Alpha) prefiere \
+             de este equipo se reproducen de forma nativa. Spotify (Beta) suena \
+             con librespot si tienes Premium; YouTube Music (Beta) prefiere \
              audio InnerTube; Tidal (Alpha) aún usa yt-dlp. Cada catálogo \
              guarda un inicio de sesión con cookies para biblioteca y búsqueda.\n\n\
              Fork de Slipmat, de Miguel Rincon."

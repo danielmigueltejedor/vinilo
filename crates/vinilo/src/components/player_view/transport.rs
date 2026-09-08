@@ -108,7 +108,7 @@ pub(super) fn build_transport(into: &gtk::Box, sender: &ComponentSender<PlayerVi
         .css_classes(["flat", "circular"])
         .build();
     let lyrics = gtk::ToggleButton::builder()
-        .icon_name("text-x-generic-symbolic")
+        .icon_name(super::lyrics_icon())
         .tooltip_text(vinilo_core::i18n::t(vinilo_core::i18n::Key::Lyrics))
         .css_classes(["flat", "circular"])
         .build();

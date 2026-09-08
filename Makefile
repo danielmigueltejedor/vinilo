@@ -198,6 +198,8 @@ dev-install:
 		$(DATADIR)/icons/hicolor/scalable/apps/$(AGUJA).svg
 	install -Dm644 data/icons/hicolor/symbolic/apps/$(APPID)-symbolic.svg \
 		$(DATADIR)/icons/hicolor/symbolic/apps/$(APPID)-symbolic.svg
+	install -Dm644 data/icons/hicolor/symbolic/actions/vinilo-lyrics-symbolic.svg \
+		$(DATADIR)/icons/hicolor/symbolic/actions/vinilo-lyrics-symbolic.svg
 	@# Raster sizes, rendered from the same SVG the app installs so the two
 	@# can never drift. GTK resolves the SVG on its own, but the shell, the
 	@# notification daemon and anything reading the icon theme without an SVG
@@ -253,6 +255,7 @@ uninstall:
 	rm -f $(DATADIR)/icons/hicolor/scalable/apps/$(APPID).svg
 	rm -f $(DATADIR)/icons/hicolor/scalable/apps/$(AGUJA).svg
 	rm -f $(DATADIR)/icons/hicolor/symbolic/apps/$(APPID)-symbolic.svg
+	rm -f $(DATADIR)/icons/hicolor/symbolic/actions/vinilo-lyrics-symbolic.svg
 	@for sz in $(ICON_SIZES); do \
 		rm -f $(DATADIR)/icons/hicolor/$${sz}x$${sz}/apps/$(APPID).png; \
 		rm -f $(DATADIR)/icons/hicolor/$${sz}x$${sz}/apps/$(AGUJA).png; \

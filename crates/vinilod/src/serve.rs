@@ -1745,7 +1745,9 @@ fn write_apple_playlist(
                 if let Some(list_id) = created {
                     insert_created_playlist(&daemon, list_id, name.clone());
                 }
-                request_library_refresh(&daemon);
+                if playlist_write_needs_reread(action) {
+                    request_library_refresh(&daemon);
+                }
             }
             Err(err) => {
                 tracing::warn!(?err, ?action, "playlist write failed");
@@ -1786,13 +1788,10 @@ fn write_catalog(
                 // A like does not change the library list. Refreshing after
                 // every star is what emptied Spotify: Pathfinder 429s the
                 // follow-up fetch and an empty answer used to replace the
-                // cache. Playlists still need a re-read so the new list lands.
-                if matches!(
-                    action,
-                    WriteAction::CreatePlaylist
-                        | WriteAction::AddToPlaylist
-                        | WriteAction::RemoveFromPlaylist
-                ) {
+                // cache. Creating a list already inserts it locally — another
+                // full fetch is what left the sidebar spinner running for the
+                // whole library re-read, with the new row already on screen.
+                if playlist_write_needs_reread(action) {
                     request_library_refresh(&daemon);
                 }
             }
@@ -1824,6 +1823,17 @@ fn hydrate_library_from_cache(daemon: &Daemon) {
     model.library.albums = cached.albums;
     model.library.artists = cached.artists;
     model.library.playlists = cached.playlists;
+}
+
+/// Whether this write still needs Apple/Spotify to be asked for the library.
+///
+/// Create already lands the row via [`insert_created_playlist`]. Add and
+/// remove change tracks *inside* a list, which that insert does not know.
+fn playlist_write_needs_reread(action: WriteAction) -> bool {
+    matches!(
+        action,
+        WriteAction::AddToPlaylist | WriteAction::RemoveFromPlaylist
+    )
 }
 
 fn insert_created_playlist(daemon: &Daemon, list_id: String, name: Option<String>) {
@@ -3551,6 +3561,14 @@ mod tests {
         finish_and_maybe_chain(&daemon, 0, false);
         assert!(!daemon.refresh_again.get());
         assert_eq!(daemon.refreshing.get(), None);
+    }
+
+    #[test]
+    fn creating_a_playlist_does_not_reread_the_library() {
+        assert!(!playlist_write_needs_reread(WriteAction::CreatePlaylist));
+        assert!(playlist_write_needs_reread(WriteAction::AddToPlaylist));
+        assert!(playlist_write_needs_reread(WriteAction::RemoveFromPlaylist));
+        assert!(!playlist_write_needs_reread(WriteAction::Favorite));
     }
 
     #[test]

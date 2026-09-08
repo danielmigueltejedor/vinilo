@@ -127,7 +127,7 @@ fn setup_icon() {
     #[cfg(debug_assertions)]
     if let Some(display) = relm4::gtk::gdk::Display::default() {
         let theme = gtk::IconTheme::for_display(&display);
-        theme.add_search_path(concat!(env!("CARGO_MANIFEST_DIR"), "/data/icons"));
+        theme.add_search_path(concat!(env!("CARGO_MANIFEST_DIR"), "/../../data/icons"));
     }
     gtk::Window::set_default_icon_name(APP_ID);
 }

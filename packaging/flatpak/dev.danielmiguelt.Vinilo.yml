@@ -130,3 +130,5 @@ modules:
           /app/share/icons/hicolor/scalable/apps/dev.danielmiguelt.Vinilo.svg
       - install -Dm644 data/icons/hicolor/symbolic/apps/dev.danielmiguelt.Vinilo-symbolic.svg
           /app/share/icons/hicolor/symbolic/apps/dev.danielmiguelt.Vinilo-symbolic.svg
+      - install -Dm644 data/icons/hicolor/symbolic/actions/vinilo-lyrics-symbolic.svg
+          /app/share/icons/hicolor/symbolic/actions/vinilo-lyrics-symbolic.svg

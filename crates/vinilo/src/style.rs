@@ -345,6 +345,20 @@ fn set_colors(colors: Option<(&'static str, &'static str)>) {
          .np-skeleton {{
              border-radius: 4px;
              background-color: alpha(currentColor, 0.13);
+         }}
+
+         /* Timed lyrics in the expanded player. Opacity only, and finite:
+            an infinite animation here would pin the frame clock (#126). */
+         .lyrics-lines .lyric-line {{
+             padding: 6px 2px;
+             opacity: 0.88;
+             transition: 220ms ease;
+         }}
+         .lyrics-synced .lyric-line {{
+             opacity: 0.38;
+         }}
+         .lyrics-synced .lyric-line.lyric-current {{
+             opacity: 1;
          }}"
     );
 

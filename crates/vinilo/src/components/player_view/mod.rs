@@ -46,6 +46,12 @@ pub struct PlayerView {
     lyrics_shown: bool,
     /// Start times of the lines currently in `lyrics_lines`, for highlighting.
     lyric_times: Vec<u64>,
+    /// False for plain (YouTube) lyrics: times are all zero, so they must not
+    /// drive a highlight or a seek.
+    lyric_synced: bool,
+    /// Last highlighted line, so a position tick that has not crossed one
+    /// does not restyle or scroll.
+    lyric_current: Option<usize>,
     /// The transport, built once and moved between two slots.
     transport: gtk::Box,
     /// The hand-built transport's refreshable pieces. See [`Bits`].
@@ -62,6 +68,10 @@ pub struct PlayerView {
     /// widget to hang it on: an animation needs a frame clock, and a frame
     /// clock comes from a widget.
     art_anim: Option<adw::TimedAnimation>,
+    /// Scrolls the current lyric into the middle of the pane. Finite, and
+    /// only played when the line changes — an infinite CSS animation is
+    /// what pins the frame clock (#126).
+    lyric_scroll_anim: Option<adw::TimedAnimation>,
     /// The ⋮ beside the title, so a click can parent the popover to it.
     menu_button: Option<gtk::Button>,
 }
@@ -71,6 +81,7 @@ struct Slots {
     pane: gtk::Stack,
     lyrics_root: gtk::Stack,
     lyrics_status: adw::StatusPage,
+    lyrics_scroll: gtk::ScrolledWindow,
     lyrics_lines: gtk::Box,
     queue_wide_rev: gtk::Revealer,
     queue_compact_rev: gtk::Revealer,
@@ -228,6 +239,8 @@ const ART_THUMB: i32 = 72;
 /// How long the queue takes to slide in or out, and the artwork to follow it.
 /// One number for both: they are one movement and must not finish apart.
 const QUEUE_ANIM_MS: u32 = 250;
+/// How long the current lyric takes to settle in the middle of the pane.
+const LYRIC_SCROLL_MS: u32 = 280;
 
 /// How long the scrubber waits after the last movement before seeking.
 const SCRUB_COMMIT_MS: u64 = 250;
@@ -253,6 +266,11 @@ pub enum PlayerViewInput {
         lyrics: Option<vinilo_core::ipc::Lyrics>,
         error: Option<String>,
     },
+    /// Jump playback to this line's start. Only emitted for synced lyrics.
+    SeekLine(u64),
+    /// Retry scrolling after the pane has a size. `show_lyrics` runs before
+    /// the scroller is allocated, so the first pass would clamp to zero.
+    ScrollCurrentLyric,
     /// Flip shuffle. No payload: the value is derived from the mirrored one,
     /// so this view never invents one (rule 3).
     ShuffleClicked,
@@ -614,11 +632,14 @@ impl SimpleComponent for PlayerView {
             queue_shown: false,
             lyrics_shown: false,
             lyric_times: Vec::new(),
+            lyric_synced: false,
+            lyric_current: None,
             transport: gtk::Box::new(gtk::Orientation::Vertical, 12),
             slots: None,
             bits: None,
             art_px: std::rc::Rc::new(std::cell::Cell::new(ART_LARGE)),
             art_anim: None,
+            lyric_scroll_anim: None,
             menu_button: None,
         };
         // Rule 5: no `.expect()` here. A missing handover is a construction
@@ -632,16 +653,17 @@ impl SimpleComponent for PlayerView {
             adw::ToolbarView::new()
         });
         let lyrics_status = adw::StatusPage::builder()
-            .icon_name("text-x-generic-symbolic")
+            .icon_name(lyrics_icon())
             .title(vinilo_core::i18n::t(vinilo_core::i18n::Key::LyricsLoading))
             .build();
         let lyrics_lines = gtk::Box::builder()
             .orientation(gtk::Orientation::Vertical)
-            .spacing(8)
+            .spacing(2)
             .margin_start(18)
             .margin_end(18)
             .margin_top(12)
             .margin_bottom(12)
+            .css_classes(["lyrics-lines"])
             .build();
         let lyrics_scroll = gtk::ScrolledWindow::builder()
             .hscrollbar_policy(gtk::PolicyType::Never)
@@ -651,11 +673,15 @@ impl SimpleComponent for PlayerView {
             .build();
         let lyrics_root = gtk::Stack::new();
         lyrics_root.set_vexpand(true);
+        lyrics_root.set_transition_type(gtk::StackTransitionType::Crossfade);
+        lyrics_root.set_transition_duration(180);
         lyrics_root.add_named(&lyrics_status, Some("status"));
         lyrics_root.add_named(&lyrics_scroll, Some("lines"));
         lyrics_root.set_visible_child_name("status");
         let pane = gtk::Stack::new();
         pane.set_vexpand(true);
+        pane.set_transition_type(gtk::StackTransitionType::Crossfade);
+        pane.set_transition_duration(220);
         pane.add_named(&queue, Some("queue"));
         pane.add_named(&lyrics_root, Some("lyrics"));
         let widgets = view_output!();
@@ -686,10 +712,24 @@ impl SimpleComponent for PlayerView {
         );
         anim.set_easing(adw::Easing::EaseOutCubic);
         model.art_anim = Some(anim);
+
+        let lyric_adj = lyrics_scroll.vadjustment();
+        let lyric_anim = adw::TimedAnimation::new(
+            &lyrics_scroll,
+            0.0,
+            0.0,
+            LYRIC_SCROLL_MS,
+            adw::CallbackAnimationTarget::new(move |value| {
+                lyric_adj.set_value(value);
+            }),
+        );
+        lyric_anim.set_easing(adw::Easing::EaseOutCubic);
+        model.lyric_scroll_anim = Some(lyric_anim);
         model.slots = Some(Slots {
             pane,
             lyrics_root,
             lyrics_status,
+            lyrics_scroll,
             lyrics_lines,
             queue_wide_rev: widgets.queue_wide_rev.clone(),
             queue_compact_rev: widgets.queue_compact_rev.clone(),
@@ -815,11 +855,13 @@ impl SimpleComponent for PlayerView {
                     }
                     self.lyrics_shown = true;
                     self.queue_shown = false;
-                    if let Some(slots) = self.slots.as_ref() {
-                        slots
-                            .lyrics_status
-                            .set_title(vinilo_core::i18n::t(vinilo_core::i18n::Key::LyricsLoading));
-                        slots.lyrics_root.set_visible_child_name("status");
+                    if self.lyric_times.is_empty() {
+                        if let Some(slots) = self.slots.as_ref() {
+                            slots.lyrics_status.set_title(vinilo_core::i18n::t(
+                                vinilo_core::i18n::Key::LyricsLoading,
+                            ));
+                            slots.lyrics_root.set_visible_child_name("status");
+                        }
                     }
                     let _ = sender.output(NowPlayingOutput::SetLyricsShown(true));
                 } else {
@@ -830,9 +872,20 @@ impl SimpleComponent for PlayerView {
                     let _ = sender.output(NowPlayingOutput::SetLyricsShown(false));
                 }
                 self.relayout();
+                if shown {
+                    self.scroll_current_lyric();
+                }
             }
             PlayerViewInput::Lyrics { lyrics, error } => {
-                self.show_lyrics(lyrics, error);
+                self.show_lyrics(lyrics, error, &sender);
+            }
+            PlayerViewInput::SeekLine(ms) => {
+                self.snap.position_ms = ms;
+                self.refresh_lyric_highlight();
+                let _ = sender.output(NowPlayingOutput::Seek(ms));
+            }
+            PlayerViewInput::ScrollCurrentLyric => {
+                self.scroll_current_lyric();
             }
             PlayerViewInput::ShuffleClicked => {
                 let _ = sender.output(NowPlayingOutput::SetShuffle(!self.snap.shuffle));
@@ -955,9 +1008,10 @@ impl PlayerView {
         };
         reparent(&self.transport, transport_home);
         reparent(&slots.pane, queue_home);
-        slots
-            .pane
-            .set_visible_child_name(if self.lyrics_shown { "lyrics" } else { "queue" });
+        let pane_page = if self.lyrics_shown { "lyrics" } else { "queue" };
+        if slots.pane.visible_child_name().as_deref() != Some(pane_page) {
+            slots.pane.set_visible_child_name(pane_page);
+        }
 
         // The artwork is the elastic element: large when it is the subject,
         // a thumbnail once the queue needs the room — and it travels between
@@ -1000,45 +1054,81 @@ impl PlayerView {
             .set_reveal_child(self.pane_open() && !self.wide);
     }
 
-    fn show_lyrics(&mut self, lyrics: Option<vinilo_core::ipc::Lyrics>, error: Option<String>) {
-        let Some(slots) = self.slots.as_ref() else {
-            return;
-        };
-        while let Some(child) = slots.lyrics_lines.first_child() {
-            slots.lyrics_lines.remove(&child);
-        }
-        self.lyric_times.clear();
-        match lyrics.filter(|l| !l.lines.is_empty()) {
-            Some(lyrics) => {
-                for line in &lyrics.lines {
-                    let label = gtk::Label::builder()
-                        .label(&line.text)
-                        .wrap(true)
-                        .xalign(0.0)
-                        .css_classes(["dim-label"])
-                        .build();
-                    slots.lyrics_lines.append(&label);
-                    self.lyric_times.push(line.start_ms);
+    fn show_lyrics(
+        &mut self,
+        lyrics: Option<vinilo_core::ipc::Lyrics>,
+        error: Option<String>,
+        sender: &ComponentSender<Self>,
+    ) {
+        let loaded = {
+            let Some(slots) = self.slots.as_ref() else {
+                return;
+            };
+            while let Some(child) = slots.lyrics_lines.first_child() {
+                slots.lyrics_lines.remove(&child);
+            }
+            self.lyric_times.clear();
+            self.lyric_current = None;
+            self.lyric_synced = false;
+            match lyrics.filter(|l| !l.lines.is_empty()) {
+                Some(lyrics) => {
+                    let synced = lyrics.synced;
+                    self.lyric_synced = synced;
+                    if synced {
+                        slots.lyrics_lines.add_css_class("lyrics-synced");
+                    } else {
+                        slots.lyrics_lines.remove_css_class("lyrics-synced");
+                    }
+                    for line in &lyrics.lines {
+                        let label = gtk::Label::builder()
+                            .label(&line.text)
+                            .wrap(true)
+                            .xalign(0.0)
+                            .hexpand(true)
+                            .css_classes(["lyric-line"])
+                            .build();
+                        let seekable = synced && !line.text.is_empty();
+                        if seekable {
+                            label.add_css_class("lyric-seekable");
+                            label.set_cursor_from_name(Some("pointer"));
+                            let click = gtk::GestureClick::new();
+                            click.set_button(gdk::BUTTON_PRIMARY);
+                            let start_ms = line.start_ms;
+                            let sender = sender.clone();
+                            click.connect_released(move |_, _, _, _| {
+                                sender.input(PlayerViewInput::SeekLine(start_ms));
+                            });
+                            label.add_controller(click);
+                        }
+                        slots.lyrics_lines.append(&label);
+                        self.lyric_times.push(line.start_ms);
+                    }
+                    slots.lyrics_root.set_visible_child_name("lines");
+                    true
                 }
-                slots.lyrics_root.set_visible_child_name("lines");
-                self.refresh_lyric_highlight();
+                None => {
+                    let title = error.filter(|s| !s.is_empty()).unwrap_or_else(|| {
+                        vinilo_core::i18n::t(vinilo_core::i18n::Key::LyricsMissing).to_owned()
+                    });
+                    slots.lyrics_status.set_icon_name(Some(lyrics_icon()));
+                    slots.lyrics_status.set_title(&title);
+                    slots.lyrics_status.set_description(None);
+                    slots.lyrics_root.set_visible_child_name("status");
+                    false
+                }
             }
-            None => {
-                let title = error.filter(|s| !s.is_empty()).unwrap_or_else(|| {
-                    vinilo_core::i18n::t(vinilo_core::i18n::Key::LyricsMissing).to_owned()
-                });
-                slots.lyrics_status.set_title(&title);
-                slots.lyrics_status.set_description(None);
-                slots.lyrics_root.set_visible_child_name("status");
-            }
+        };
+        if loaded {
+            self.refresh_lyric_highlight();
+            let sender = sender.clone();
+            gtk::glib::timeout_add_local_once(std::time::Duration::from_millis(50), move || {
+                sender.input(PlayerViewInput::ScrollCurrentLyric)
+            });
         }
     }
 
-    fn refresh_lyric_highlight(&self) {
-        let Some(slots) = self.slots.as_ref() else {
-            return;
-        };
-        if self.lyric_times.is_empty() {
+    fn refresh_lyric_highlight(&mut self) {
+        if !self.lyric_synced || self.lyric_times.is_empty() {
             return;
         }
         let pos = self.snap.position_ms;
@@ -1050,21 +1140,60 @@ impl PlayerView {
                 break;
             }
         }
-        let mut i = 0usize;
-        let mut child = slots.lyrics_lines.first_child();
-        while let Some(widget) = child {
-            if let Ok(label) = widget.clone().downcast::<gtk::Label>() {
-                if i == current {
-                    label.remove_css_class("dim-label");
-                    label.add_css_class("heading");
-                } else {
-                    label.remove_css_class("heading");
-                    label.add_css_class("dim-label");
-                }
-            }
-            child = widget.next_sibling();
-            i += 1;
+        if self.lyric_current == Some(current) {
+            return;
         }
+        self.lyric_current = Some(current);
+        if let Some(slots) = self.slots.as_ref() {
+            let mut i = 0usize;
+            let mut child = slots.lyrics_lines.first_child();
+            while let Some(widget) = child {
+                if i == current {
+                    widget.add_css_class("lyric-current");
+                } else {
+                    widget.remove_css_class("lyric-current");
+                }
+                child = widget.next_sibling();
+                i += 1;
+            }
+        }
+        self.scroll_current_lyric();
+    }
+
+    fn scroll_current_lyric(&self) {
+        if !self.lyrics_shown {
+            return;
+        }
+        let Some(current) = self.lyric_current else {
+            return;
+        };
+        let Some(slots) = self.slots.as_ref() else {
+            return;
+        };
+        let Some(widget) = child_at(&slots.lyrics_lines, current) else {
+            return;
+        };
+        let adj = slots.lyrics_scroll.vadjustment();
+        let page = adj.page_size();
+        if page <= 1.0 {
+            return;
+        }
+        let Some(bounds) = widget.compute_bounds(&slots.lyrics_lines) else {
+            return;
+        };
+        let mid = f64::from(bounds.y()) + f64::from(bounds.height()) / 2.0;
+        let target = (mid - page / 2.0).clamp(adj.lower(), (adj.upper() - page).max(adj.lower()));
+        if (adj.value() - target).abs() < 4.0 {
+            return;
+        }
+        let Some(anim) = self.lyric_scroll_anim.as_ref() else {
+            adj.set_value(target);
+            return;
+        };
+        anim.pause();
+        anim.set_value_from(adj.value());
+        anim.set_value_to(target);
+        anim.play();
     }
 
     /// Send the artwork to `target`, animating unless there is nothing to
@@ -1095,5 +1224,31 @@ impl PlayerView {
             (true, false) => self.snap.album.clone(),
             (true, true) => String::new(),
         }
+    }
+}
+
+fn child_at(parent: &gtk::Box, index: usize) -> Option<gtk::Widget> {
+    let mut i = 0usize;
+    let mut child = parent.first_child();
+    while let Some(widget) = child {
+        if i == index {
+            return Some(widget);
+        }
+        child = widget.next_sibling();
+        i += 1;
+    }
+    None
+}
+
+/// Verse plus a note. A missing name draws as nothing, so fall back to the
+/// three-line glyph Adwaita always has.
+pub(super) fn lyrics_icon() -> &'static str {
+    let present = gdk::Display::default()
+        .map(gtk::IconTheme::for_display)
+        .is_some_and(|theme| theme.has_icon("vinilo-lyrics-symbolic"));
+    if present {
+        "vinilo-lyrics-symbolic"
+    } else {
+        "format-justify-left-symbolic"
     }
 }

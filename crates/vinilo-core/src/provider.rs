@@ -13,9 +13,8 @@ use crate::paths;
 
 /// How finished a source is, shown in the picker and Preferences.
 ///
-/// Local files are the stable path. Apple Music plays well but still needs a
-/// heavy Chromium sidecar. The other catalogues are in active motion: native
-/// audio is landing, and the UI should not pretend they are done.
+/// Local files are the stable path. Apple Music, Spotify and YouTube Music
+/// are Beta; Tidal is still Alpha. Apple still needs a heavy Chromium sidecar.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Maturity {
     Ready,
@@ -104,8 +103,8 @@ impl Provider {
     pub fn maturity(self) -> Maturity {
         match self {
             Self::Local => Maturity::Ready,
-            Self::AppleMusic => Maturity::Beta,
-            Self::Spotify | Self::YoutubeMusic | Self::Tidal => Maturity::Alpha,
+            Self::AppleMusic | Self::Spotify | Self::YoutubeMusic => Maturity::Beta,
+            Self::Tidal => Maturity::Alpha,
         }
     }
 
@@ -196,8 +195,8 @@ mod tests {
     fn maturity_matches_how_ready_each_source_is() {
         assert_eq!(Provider::Local.maturity(), Maturity::Ready);
         assert_eq!(Provider::AppleMusic.maturity(), Maturity::Beta);
-        assert_eq!(Provider::Spotify.maturity(), Maturity::Alpha);
-        assert_eq!(Provider::YoutubeMusic.maturity(), Maturity::Alpha);
+        assert_eq!(Provider::Spotify.maturity(), Maturity::Beta);
+        assert_eq!(Provider::YoutubeMusic.maturity(), Maturity::Beta);
         assert_eq!(Provider::Tidal.maturity(), Maturity::Alpha);
     }
 }
