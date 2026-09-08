@@ -1244,7 +1244,7 @@ fn child_at(parent: &gtk::Box, index: usize) -> Option<gtk::Widget> {
 /// three-line glyph Adwaita always has.
 pub(super) fn lyrics_icon() -> &'static str {
     let present = gdk::Display::default()
-        .map(gtk::IconTheme::for_display)
+        .map(|display| gtk::IconTheme::for_display(&display))
         .is_some_and(|theme| theme.has_icon("vinilo-lyrics-symbolic"));
     if present {
         "vinilo-lyrics-symbolic"

@@ -425,13 +425,16 @@ impl AppModel {
         // Already showing exactly this? Then the widgets are correct and
         // rebuilding them would only re-decode every cover — see `built_playlists`.
         // The sort is part of the fingerprint: the widgets already on screen
-        // may be the right ones in the wrong order.
+        // may be the right ones in the wrong order. Length is too: Liked Songs
+        // arriving after the first paint used to skip the rebuild and stay
+        // invisible.
         let sort = self.sorts.get(View::Playlists);
         let fingerprint = format!(
-            "{}\u{1}{}\u{1}{}",
+            "{}\u{1}{}\u{1}{}\u{1}{}",
             self.library_query.trim().to_lowercase(),
             sort.by.id(),
-            sort.reversed
+            sort.reversed,
+            self.playlists.len()
         );
         if self.built_playlists.as_deref() == Some(fingerprint.as_str()) {
             return;

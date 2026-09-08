@@ -168,7 +168,7 @@ fn run_download(target: &str, template: &Path, extract_mp3: bool) -> Result<(), 
     Ok(())
 }
 
-fn ensure_native(path: PathBuf) -> PathBuf {
+pub(crate) fn ensure_native(path: PathBuf) -> PathBuf {
     let ext = path
         .extension()
         .and_then(|e| e.to_str())

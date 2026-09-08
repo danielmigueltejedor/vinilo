@@ -131,10 +131,13 @@ pub struct Settings {
     pub notify_track_change: bool,
     /// Playlists pinned to the sidebar, in the order they were put there.
     ///
-    /// **Library ids only** (`p.…`, as `/me/library/playlists` returns them).
-    /// A pinned row is a playlist you own, and the two id spaces are not
-    /// interchangeable — a catalog id 404s against `/me/library`.
+    /// Library ids (`p.…`, `sp:playlist:…`) and catalogue ones (Spotify
+    /// radios start with `37i9`) both belong here. A pin is not required to
+    /// live in `/me/library`.
     pub pinned_playlists: Vec<String>,
+    /// Names remembered when a pin was added, so a catalogue radio still
+    /// has a title after Listen Now has scrolled it off the screen.
+    pub pinned_names: Vec<(String, String)>,
     /// Interface language. Chosen on the first-run picker, then again from
     /// Preferences. Missing from disk means the picker still has to run.
     pub language: Language,
@@ -184,6 +187,39 @@ fn join_pins(pins: &[String]) -> String {
         .join(&PIN_SEP.to_string())
 }
 
+/// `id=name` pairs. The equals is ours; a name that contained one is stored
+/// with it replaced, because the alternative is a pin that cannot round-trip.
+fn parse_pin_names(stored: &str) -> Vec<(String, String)> {
+    let mut names = Vec::new();
+    for part in stored.split(PIN_SEP) {
+        let part = part.trim();
+        let Some((id, name)) = part.split_once('=') else {
+            continue;
+        };
+        let id = id.trim();
+        let name = name.trim();
+        if id.is_empty() || name.is_empty() {
+            continue;
+        }
+        if names.iter().any(|(seen, _)| seen == id) {
+            continue;
+        }
+        names.push((id.to_owned(), name.to_owned()));
+    }
+    names
+}
+
+fn join_pin_names(names: &[(String, String)]) -> String {
+    names
+        .iter()
+        .filter(|(id, name)| {
+            !id.is_empty() && !name.is_empty() && !id.contains(PIN_SEP) && !id.contains('=')
+        })
+        .map(|(id, name)| format!("{id}={}", name.replace(PIN_SEP, ",").replace('=', " ")))
+        .collect::<Vec<_>>()
+        .join(&PIN_SEP.to_string())
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Self {
@@ -211,6 +247,7 @@ impl Default for Settings {
             // Nothing pinned until somebody pins something. An app that
             // guesses which playlists matter to you gets it wrong.
             pinned_playlists: Vec::new(),
+            pinned_names: Vec::new(),
             language: Language::English,
             language_chosen: false,
             provider: Provider::AppleMusic,
@@ -290,6 +327,9 @@ impl Settings {
         if let Ok(pinned) = file.string(GROUP, "pinned-playlists") {
             settings.pinned_playlists = parse_pins(&pinned);
         }
+        if let Ok(names) = file.string(GROUP, "pinned-names") {
+            settings.pinned_names = parse_pin_names(&names);
+        }
         // The locale file is the source of truth so Aguja can read it without
         // glib. A value in the ini is only a fallback for older installs.
         if let Some(language) = i18n::load() {
@@ -354,6 +394,7 @@ impl Settings {
             "pinned-playlists",
             &join_pins(&self.pinned_playlists),
         );
+        file.set_string(GROUP, "pinned-names", &join_pin_names(&self.pinned_names));
         if self.language_chosen {
             file.set_string(GROUP, "language", self.language.as_str());
             i18n::save(self.language);
@@ -371,6 +412,28 @@ impl Settings {
         if let Err(err) = file.save_to_file(&path) {
             tracing::warn!(?err, "could not save settings");
         }
+    }
+
+    pub fn pin_title(&self, id: &str) -> Option<&str> {
+        self.pinned_names
+            .iter()
+            .find(|(have, _)| have == id)
+            .map(|(_, name)| name.as_str())
+    }
+
+    pub fn remember_pin_title(&mut self, id: &str, name: &str) {
+        if id.is_empty() || name.is_empty() {
+            return;
+        }
+        if let Some((_, have)) = self.pinned_names.iter_mut().find(|(have, _)| have == id) {
+            *have = name.to_owned();
+            return;
+        }
+        self.pinned_names.push((id.to_owned(), name.to_owned()));
+    }
+
+    pub fn forget_pin_title(&mut self, id: &str) {
+        self.pinned_names.retain(|(have, _)| have != id);
     }
 
     /// Apply the colour scheme. Called at startup before the window is shown,
@@ -509,5 +572,14 @@ mod tests {
     #[test]
     fn surrounding_space_from_a_hand_edited_file_is_forgiven() {
         assert_eq!(parse_pins(" p.one ; p.two "), vec!["p.one", "p.two"]);
+    }
+
+    #[test]
+    fn pin_names_round_trip() {
+        let names = vec![
+            ("sp:playlist:37i9abc".into(), "Beele Radio".into()),
+            ("sp:liked".into(), "Liked Songs".into()),
+        ];
+        assert_eq!(parse_pin_names(&join_pin_names(&names)), names);
     }
 }

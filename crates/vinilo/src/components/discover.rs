@@ -118,6 +118,10 @@ impl DiscoverView {
         self.data.clone()
     }
 
+    pub fn playlist_name(&self, id: &str) -> Option<&str> {
+        self.data.playlist_name(id)
+    }
+
     pub fn track(&self, catalog_id: &str) -> Option<&Track> {
         self.data
             .recommended_songs

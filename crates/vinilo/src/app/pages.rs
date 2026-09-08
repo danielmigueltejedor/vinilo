@@ -85,30 +85,48 @@ impl AppModel {
         let Some(&page) = self.page_for.get(id) else {
             return; // navigated back while this was in flight
         };
-        let Some(target) = self.pages.iter_mut().find(|p| p.id == page) else {
-            return;
+        let pin = match &header {
+            Entry::Playlist(list) => Some((list.id.clone(), list.name.clone())),
+            _ => None,
         };
-        match header {
-            Entry::Album(album) => {
-                let art = album.artwork.clone();
-                target.show_album(&album, entries);
-                self.fetch_page_art(page, art, sender);
+        {
+            let Some(target) = self.pages.iter_mut().find(|p| p.id == page) else {
+                return;
+            };
+            match header {
+                Entry::Album(album) => {
+                    let art = album.artwork.clone();
+                    target.show_album(&album, entries);
+                    self.fetch_page_art(page, art, sender);
+                }
+                Entry::Playlist(list) => {
+                    let art = list.artwork.clone();
+                    // Read before the entries are moved: a playlist Apple sends no
+                    // picture for gets one composed from its tracks.
+                    let covers = playlist_covers_from(&entries);
+                    target.show_playlist(&list, entries);
+                    self.fetch_page_art_or_mosaic(page, art, covers, sender);
+                }
+                Entry::Artist(artist) => {
+                    let art = artist.artwork.clone();
+                    target.show_artist(&artist, entries);
+                    self.fetch_page_art(page, art, sender);
+                }
+                // A page is never headed by a song.
+                Entry::Song(_) => target.fail("That page could not be opened"),
             }
-            Entry::Playlist(list) => {
-                let art = list.artwork.clone();
-                // Read before the entries are moved: a playlist Apple sends no
-                // picture for gets one composed from its tracks.
-                let covers = playlist_covers_from(&entries);
-                target.show_playlist(&list, entries);
-                self.fetch_page_art_or_mosaic(page, art, covers, sender);
-            }
-            Entry::Artist(artist) => {
-                let art = artist.artwork.clone();
-                target.show_artist(&artist, entries);
-                self.fetch_page_art(page, art, sender);
-            }
-            // A page is never headed by a song.
-            Entry::Song(_) => target.fail("That page could not be opened"),
+        }
+        if let Some((pin_id, pin_name)) = pin
+            && self
+                .settings
+                .pinned_playlists
+                .iter()
+                .any(|id| *id == pin_id)
+            && !pin_name.is_empty()
+        {
+            self.settings.remember_pin_title(&pin_id, &pin_name);
+            self.settings.save();
+            self.refresh_pin_names();
         }
     }
 

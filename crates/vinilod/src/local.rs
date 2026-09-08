@@ -10,6 +10,7 @@
 
 use std::fs::File;
 use std::io::BufReader;
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -476,14 +477,33 @@ impl Player {
         let Some(track) = self.queue.get(self.index) else {
             return Err("the local queue is empty".into());
         };
-        let path = track.path.clone();
+        let mut path = track.path.clone();
         let handle = self
             .handle
             .as_ref()
             .ok_or_else(|| "no audio output".to_string())?;
-        let file = File::open(&path).map_err(|err| format!("{}: {err}", path.display()))?;
-        let decoder = Decoder::new(BufReader::new(file))
-            .map_err(|err| format!("{}: {err}", path.display()))?;
+        let decoder = match open_decoder(&path) {
+            Ok(decoder) => decoder,
+            Err(first) => {
+                // rodio 0.19 panics on some webm/opus instead of returning Err.
+                tracing::warn!(
+                    path = %path.display(),
+                    err = %first,
+                    "native decode failed; transcoding"
+                );
+                let converted = crate::ytdlp::ensure_native(path.clone());
+                if converted == path {
+                    return Err(first);
+                }
+                let decoder = open_decoder(&converted)
+                    .map_err(|err| format!("{first}; after transcode: {err}"))?;
+                path = converted;
+                decoder
+            }
+        };
+        if let Some(track) = self.queue.get_mut(self.index) {
+            track.path = path;
+        }
         let sink = Sink::try_new(handle).map_err(|err| format!("audio sink: {err}"))?;
         sink.set_volume(self.volume as f32);
         sink.append(decoder);
@@ -491,6 +511,18 @@ impl Player {
         self.sink = Some(sink);
         Ok(())
     }
+}
+
+fn open_decoder(path: &Path) -> Result<Decoder<BufReader<File>>, String> {
+    let file = File::open(path).map_err(|err| format!("{}: {err}", path.display()))?;
+    catch_unwind(AssertUnwindSafe(|| Decoder::new(BufReader::new(file))))
+        .map_err(|_| {
+            format!(
+                "{}: decoder panicked (unsupported or truncated audio)",
+                path.display()
+            )
+        })?
+        .map_err(|err| format!("{}: {err}", path.display()))
 }
 
 fn read_track(path: &Path) -> Track {

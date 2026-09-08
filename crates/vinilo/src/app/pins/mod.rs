@@ -68,6 +68,25 @@ pub(super) fn stale<'a>(pins: &'a [String], have: &[String]) -> Vec<&'a str> {
         .collect()
 }
 
+/// Whether this pin should vanish when the library no longer lists it.
+///
+/// Catalogue radios (Spotify `37i9…`, YouTube mixes) were never in the
+/// library list. Pruning them is what left a sidebar row saying Unavailable
+/// for a list the user had just pinned from Listen Now.
+pub(super) fn pin_lives_in_library(id: &str) -> bool {
+    if matches!(id, "sp:liked" | "sp:top" | "yt:liked" | "td:liked") {
+        return false;
+    }
+    if id.contains("sp:playlist:37i9") || id.contains("sp:station:") {
+        return false;
+    }
+    let yt = id.strip_prefix("yt:playlist:").unwrap_or("");
+    if yt.starts_with("RD") || yt.starts_with("OLAK") {
+        return false;
+    }
+    true
+}
+
 /// Where a drop on `row` lands, in the list's *original* coordinates.
 ///
 /// Dropping on the lower half of a row means "after this one", which is the
@@ -165,7 +184,32 @@ impl AppModel {
     /// and again whenever the library reloads, so renaming a playlist elsewhere
     /// renames the row. Rebuilding the rows would do it too, and would clear the
     /// sidebar's selection on every library load: the failure 285b542 removed.
-    pub(super) fn refresh_pin_names(&self) {
+    pub(super) fn refresh_pin_names(&mut self) {
+        let mut remembered = false;
+        let titles: Vec<(String, String)> = self
+            .settings
+            .pinned_playlists
+            .iter()
+            .filter_map(|id| {
+                let name = self
+                    .playlists
+                    .iter()
+                    .find(|playlist| playlist.id == *id)
+                    .map(|playlist| playlist.name.as_str())
+                    .filter(|name| !name.is_empty())
+                    .or_else(|| self.discover.playlist_name(id))?;
+                Some((id.clone(), name.to_owned()))
+            })
+            .collect();
+        for (id, name) in titles {
+            if self.settings.pin_title(&id) != Some(name.as_str()) {
+                self.settings.remember_pin_title(&id, &name);
+                remembered = true;
+            }
+        }
+        if remembered {
+            self.settings.save();
+        }
         for (id, label) in &self.pin_labels {
             label.set_label(self.pinned_name(id).unwrap_or(unavailable()));
         }
@@ -349,7 +393,7 @@ impl AppModel {
         let current = self.settings.provider;
         let gone: Vec<String> = stale(&self.settings.pinned_playlists, &have)
             .into_iter()
-            .filter(|id| pin_belongs_to(id, current))
+            .filter(|id| pin_belongs_to(id, current) && pin_lives_in_library(id))
             .map(str::to_owned)
             .collect();
         if gone.is_empty() {
@@ -423,6 +467,8 @@ impl AppModel {
             for playlist in &self.playlists {
                 if !self.settings.pinned_playlists.contains(&playlist.id) {
                     self.settings.pinned_playlists.push(playlist.id.clone());
+                    self.settings
+                        .remember_pin_title(&playlist.id, &playlist.name);
                 }
             }
         } else {
@@ -455,8 +501,12 @@ impl AppModel {
         }
         if pinned {
             self.settings.pinned_playlists.push(id.to_owned());
+            if let Some(name) = self.name_for_pin(id) {
+                self.settings.remember_pin_title(id, name);
+            }
         } else {
             self.settings.pinned_playlists.retain(|p| p != id);
+            self.settings.forget_pin_title(id);
         }
         self.settings.save();
 
@@ -490,10 +540,18 @@ impl AppModel {
     /// not finished loading. Only the first is a stale pin, and only a *loaded*
     /// library can tell them apart — which is why nothing is pruned from here.
     pub(super) fn pinned_name(&self, id: &str) -> Option<&str> {
+        self.name_for_pin(id)
+    }
+
+    fn name_for_pin(&self, id: &str) -> Option<&str> {
         self.playlists
             .iter()
             .find(|playlist| playlist.id == id)
             .map(|playlist| playlist.name.as_str())
+            .filter(|name| !name.is_empty())
+            .or_else(|| self.discover.playlist_name(id))
+            .or_else(|| self.settings.pin_title(id))
+            .filter(|name| !name.is_empty())
     }
 }
 
@@ -576,6 +634,15 @@ mod tests {
     }
 
     #[test]
+    fn a_spotify_radio_is_not_a_library_playlist() {
+        assert!(!pin_lives_in_library("sp:playlist:37i9dQZF1DX0XUs1WfzixN"));
+        assert!(!pin_lives_in_library("sp:liked"));
+        assert!(!pin_lives_in_library("sp:station:beele"));
+        assert!(pin_lives_in_library("sp:playlist:userMadeAbc"));
+        assert!(pin_lives_in_library("p.EYWrg13SzrKxYBb"));
+    }
+
+    #[test]
     fn a_position_that_no_longer_exists_is_ignored() {
         // The list can change under a drag — the picker is one dialog away.
         let mut p = pins();
@@ -590,13 +657,11 @@ mod tests {
         assert!(pin_belongs_to("sp:playlist:1", Provider::Spotify));
         assert!(!pin_belongs_to("sp:playlist:1", Provider::AppleMusic));
         let mixed = vec!["p.abc".into(), "sp:playlist:1".into()];
-        assert_eq!(
-            pins_for(&mixed, Provider::AppleMusic),
-            vec!["p.abc".to_owned()]
-        );
-        assert_eq!(
-            pins_for(&mixed, Provider::Spotify),
-            vec!["sp:playlist:1".to_owned()]
-        );
+        assert_eq!(pins_for(&mixed, Provider::AppleMusic), vec![
+            "p.abc".to_owned()
+        ]);
+        assert_eq!(pins_for(&mixed, Provider::Spotify), vec![
+            "sp:playlist:1".to_owned()
+        ]);
     }
 }

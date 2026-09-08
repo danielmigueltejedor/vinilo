@@ -354,25 +354,7 @@ pub async fn library(http: &reqwest::Client) -> Result<Library> {
     let albums = albums_from_browse(&albums_json);
     let artists = artists_from_browse(&artists_json);
     let mut playlists = playlists_from_browse(&lists);
-    if !songs.is_empty()
-        && !playlists
-            .iter()
-            .any(|p| p.id == "yt:liked" || p.id == "yt:playlist:LM")
-    {
-        playlists.insert(
-            0,
-            Playlist {
-                id: "yt:liked".into(),
-                date_added: String::new(),
-                last_modified: String::new(),
-                name: i18n::t(Key::LikedSongs).to_owned(),
-                curator: String::new(),
-                description: String::new(),
-                artwork: songs.first().and_then(|s| s.artwork.clone()),
-                library: true,
-            },
-        );
-    }
+    ensure_liked_playlist(&mut playlists, &songs);
     tracing::info!(
         songs = songs.len(),
         albums = albums.len(),
@@ -727,9 +709,8 @@ fn lyrics_from_browse(value: &Value) -> Option<crate::ipc::Lyrics> {
 
 /// Fetch audio bytes for a `yt:` id into `dir`, without shelling out to yt-dlp.
 ///
-/// Tries the VisionOS player first (Sonora's guest path), which often returns
-/// plain googlevideo URLs. Then the signed WEB_REMIX player. Ciphered formats
-/// are refused here so the daemon can fall back to yt-dlp.
+/// Tries signed ANDROID_MUSIC, ANDROID, then VisionOS. Ciphered and webm
+/// formats are refused here so the daemon can fall back to yt-dlp's m4a.
 pub async fn download_audio(http: &reqwest::Client, id: &str, dir: &Path) -> Result<PathBuf> {
     let video = video_id(id)?;
     let stem = id
@@ -800,11 +781,15 @@ struct DirectStream {
 
 async fn direct_stream(http: &reqwest::Client, video: &str) -> Result<DirectStream> {
     // ANDROID_MUSIC is the one that usually hands back a plain googlevideo
-    // URL, often opus, without a cipher. VisionOS and WEB_REMIX are slower
-    // fallbacks — WEB_REMIX in particular tends to cipher, which is the
-    // path that shells out to yt-dlp and stalls the next track.
+    // URL. The guest call without cookies often comes back ciphered, so these
+    // all go out signed. WEB_REMIX last: it is the one that ciphers.
     if let Ok(value) = player_android_music(http, video).await
         && let Some(stream) = pick_direct_audio(&value, ANDROID_MUSIC_UA, "ANDROID_MUSIC")
+    {
+        return Ok(stream);
+    }
+    if let Ok(value) = player_android(http, video).await
+        && let Some(stream) = pick_direct_audio(&value, ANDROID_UA, "ANDROID")
     {
         return Ok(stream);
     }
@@ -827,9 +812,50 @@ async fn direct_stream(http: &reqwest::Client, video: &str) -> Result<DirectStre
 }
 
 const VISION_UA: &str = "com.google.ios.youtube/";
+const ANDROID_UA: &str = "com.google.android.youtube/19.28.35 (Linux; U; Android 11) gzip";
+const ANDROID_KEY: &str = "AIzaSyA8eiZmM1FaDVjRy-df2KTyQ_vz_yYM39w";
 const ANDROID_MUSIC_UA: &str =
     "com.google.android.apps.youtube.music/7.27.52 (Linux; U; Android 11) gzip";
 const ANDROID_MUSIC_KEY: &str = "AIzaSyAOghZGza2MQSZkY_zfZ370N-PUdXEjOOg";
+
+async fn signed_player(
+    http: &reqwest::Client,
+    url: &str,
+    user_agent: &str,
+    client_name: &str,
+    client_version: &str,
+    body: Value,
+) -> Result<Value> {
+    let cookie = cookie_header().unwrap_or_default();
+    if !cookie.is_empty() {
+        ensure_visitor(http, &cookie).await;
+    }
+    let mut req = http
+        .post(url)
+        .header("User-Agent", user_agent)
+        .header("Content-Type", "application/json")
+        .header("X-YouTube-Client-Name", client_name)
+        .header("X-YouTube-Client-Version", client_version);
+    if !cookie.is_empty() {
+        req = req.header("Cookie", &cookie);
+        if let Some(visitor) = cached_visitor() {
+            req = req.header("X-Goog-Visitor-Id", visitor);
+        }
+        if let Some(sapisid) = sapisid_from_cookie(&cookie) {
+            req = req.header(
+                "Authorization",
+                format!("SAPISIDHASH {}", sapisidhash(&sapisid)),
+            );
+        }
+    }
+    let res = req.json(&body).send().await.context("youtube player")?;
+    let status = res.status();
+    let text = res.text().await.unwrap_or_default();
+    if !status.is_success() {
+        bail!("youtube player {status}");
+    }
+    serde_json::from_str(&text).context("youtube player json")
+}
 
 async fn player_android_music(http: &reqwest::Client, video: &str) -> Result<Value> {
     let body = json!({
@@ -846,24 +872,41 @@ async fn player_android_music(http: &reqwest::Client, video: &str) -> Result<Val
         "contentCheckOk": true,
         "racyCheckOk": true,
     });
-    let res = http
-        .post(format!(
-            "https://youtubei.googleapis.com/youtubei/v1/player?key={ANDROID_MUSIC_KEY}"
-        ))
-        .header("User-Agent", ANDROID_MUSIC_UA)
-        .header("Content-Type", "application/json")
-        .header("X-YouTube-Client-Name", "21")
-        .header("X-YouTube-Client-Version", "7.27.52")
-        .json(&body)
-        .send()
-        .await
-        .context("android music player")?;
-    let status = res.status();
-    let text = res.text().await.unwrap_or_default();
-    if !status.is_success() {
-        bail!("ANDROID_MUSIC player {status}");
-    }
-    serde_json::from_str(&text).context("android music player json")
+    signed_player(
+        http,
+        &format!("https://youtubei.googleapis.com/youtubei/v1/player?key={ANDROID_MUSIC_KEY}"),
+        ANDROID_MUSIC_UA,
+        "21",
+        "7.27.52",
+        body,
+    )
+    .await
+}
+
+async fn player_android(http: &reqwest::Client, video: &str) -> Result<Value> {
+    let body = json!({
+        "context": {
+            "client": {
+                "clientName": "ANDROID",
+                "clientVersion": "19.28.35",
+                "androidSdkVersion": 30,
+                "hl": "en",
+                "gl": "US",
+            }
+        },
+        "videoId": video,
+        "contentCheckOk": true,
+        "racyCheckOk": true,
+    });
+    signed_player(
+        http,
+        &format!("https://www.youtube.com/youtubei/v1/player?key={ANDROID_KEY}"),
+        ANDROID_UA,
+        "3",
+        "19.28.35",
+        body,
+    )
+    .await
 }
 
 async fn player_visionos(http: &reqwest::Client, video: &str) -> Result<Value> {
@@ -887,22 +930,15 @@ async fn player_visionos(http: &reqwest::Client, video: &str) -> Result<Value> {
             "contentPlaybackContext": { "html5Preference": "HTML5_PREF_WANTS" }
         }
     });
-    let res = http
-        .post(format!("{API}/player?alt=json&key={KEY}"))
-        .header("User-Agent", VISION_UA)
-        .header("Content-Type", "application/json")
-        .header("X-YouTube-Client-Name", "101")
-        .header("X-YouTube-Client-Version", "0.1")
-        .json(&body)
-        .send()
-        .await
-        .context("visionos player")?;
-    let status = res.status();
-    let text = res.text().await.unwrap_or_default();
-    if !status.is_success() {
-        bail!("VISIONOS player {status}");
-    }
-    serde_json::from_str(&text).context("visionos player json")
+    signed_player(
+        http,
+        &format!("{API}/player?alt=json&key={KEY}"),
+        VISION_UA,
+        "101",
+        "0.1",
+        body,
+    )
+    .await
 }
 
 fn pick_direct_audio(
@@ -939,14 +975,14 @@ fn pick_direct_audio(
         if url.is_empty() {
             continue;
         }
+        // rodio 0.19 panics on some webm/opus during init. Skip them here so
+        // the next player client — or yt-dlp's m4a format — can supply audio
+        // the decoder will actually open.
+        if mime.contains("webm") || mime.contains("opus") {
+            continue;
+        }
         let bitrate = format.get("bitrate").and_then(Value::as_u64).unwrap_or(0);
-        let ext = if mime.contains("webm") || mime.contains("opus") {
-            "webm"
-        } else if mime.contains("mp3") {
-            "mp3"
-        } else {
-            "m4a"
-        };
+        let ext = if mime.contains("mp3") { "mp3" } else { "m4a" };
         let candidate = DirectStream {
             url: url.to_owned(),
             ext,
@@ -961,29 +997,36 @@ fn pick_direct_audio(
     best.map(|(_, stream)| stream)
 }
 
-/// Prefer a modest opus stream over a fat m4a: the decoder still waits for
-/// the whole file, so the smaller one is the one that starts sooner.
+/// Prefer m4a: rodio 0.19 panics on some webm/opus files during init
+/// (`Seek errors should not occur during initialization`).
 fn audio_rank(mime: &str, bitrate: u64) -> u64 {
-    let opus = mime.contains("webm") || mime.contains("opus");
+    let m4a = mime.contains("mp4") || mime.contains("mp4a") || mime.contains("aac");
     let kbps = bitrate / 1000;
     let quality = if kbps == 0 {
         0
     } else {
         200u64.saturating_sub((160i64 - kbps as i64).unsigned_abs())
     };
-    if opus { 10_000 + quality } else { quality }
+    if m4a { 10_000 + quality } else { quality }
 }
 
 fn find_cached_audio(dir: &Path, stem: &str) -> Option<PathBuf> {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return None;
     };
+    const NATIVE: &[&str] = &["m4a", "mp3", "aac", "ogg", "flac", "wav"];
     for entry in entries.flatten() {
         let path = entry.path();
         let name = path.file_name()?.to_string_lossy();
+        let ext = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_ascii_lowercase();
         if name.starts_with(stem)
             && !name.ends_with(".part")
             && !name.ends_with(".json")
+            && NATIVE.iter().any(|want| *want == ext)
             && path.is_file()
             && entry.metadata().map(|m| m.len() > 1024).unwrap_or(false)
         {
@@ -1076,6 +1119,37 @@ fn tracks_from_browse(value: &Value) -> Vec<Track> {
         }
     });
     songs
+}
+
+fn ensure_liked_playlist(playlists: &mut Vec<Playlist>, songs: &[Track]) {
+    if let Some(pos) = playlists
+        .iter()
+        .position(|p| p.id == "yt:liked" || p.id == "yt:playlist:LM")
+    {
+        playlists[pos].id = "yt:liked".into();
+        if playlists[pos].name.is_empty() || playlists[pos].name == "LM" {
+            playlists[pos].name = i18n::t(Key::LikedSongs).to_owned();
+        }
+        if playlists[pos].artwork.is_none() {
+            playlists[pos].artwork = songs.first().and_then(|s| s.artwork.clone());
+        }
+        playlists[pos].library = true;
+        if pos != 0 {
+            let liked = playlists.remove(pos);
+            playlists.insert(0, liked);
+        }
+        return;
+    }
+    playlists.insert(0, Playlist {
+        id: "yt:liked".into(),
+        date_added: String::new(),
+        last_modified: String::new(),
+        name: i18n::t(Key::LikedSongs).to_owned(),
+        curator: String::new(),
+        description: String::new(),
+        artwork: songs.first().and_then(|s| s.artwork.clone()),
+        library: true,
+    });
 }
 
 fn playlists_from_browse(value: &Value) -> Vec<Playlist> {
@@ -1734,7 +1808,7 @@ mod tests {
     }
 
     #[test]
-    fn a_plain_opus_stream_beats_a_fatter_m4a() {
+    fn a_plain_m4a_stream_beats_webm() {
         let json = json!({
             "streamingData": {
                 "adaptiveFormats": [
@@ -1754,7 +1828,22 @@ mod tests {
             }
         });
         let stream = pick_direct_audio(&json, "ua", "test").unwrap();
-        assert_eq!(stream.ext, "webm");
+        assert_eq!(stream.ext, "m4a");
+    }
+
+    #[test]
+    fn a_plain_webm_stream_is_refused() {
+        let json = json!({
+            "streamingData": {
+                "adaptiveFormats": [{
+                    "itag": 251,
+                    "mimeType": "audio/webm; codecs=\"opus\"",
+                    "bitrate": 160000,
+                    "url": "https://googlevideo.com/audio.webm"
+                }]
+            }
+        });
+        assert!(pick_direct_audio(&json, "ua", "test").is_none());
     }
 
     #[test]

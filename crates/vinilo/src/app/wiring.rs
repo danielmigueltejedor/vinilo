@@ -244,9 +244,7 @@ fn sidebar_headers(widgets: &Widgets, library_row: i32, playlists_row: i32) {
             0 => vinilo_core::i18n::catalog_heading(
                 vinilo_core::provider::load().unwrap_or_default(),
             ),
-            index if index == library_row => {
-                vinilo_core::i18n::t(vinilo_core::i18n::Key::Library)
-            }
+            index if index == library_row => vinilo_core::i18n::t(vinilo_core::i18n::Key::Library),
             index if index == playlists_row => {
                 vinilo_core::i18n::t(vinilo_core::i18n::Key::Playlists)
             }

@@ -79,6 +79,20 @@ impl Discover {
             && self.charts.is_empty()
     }
 
+    pub fn playlist_name(&self, id: &str) -> Option<&str> {
+        self.recently_played
+            .iter()
+            .chain(self.recommended_playlists.iter())
+            .chain(self.recently_added.iter())
+            .chain(self.charts.iter())
+            .find_map(|entry| match entry {
+                Entry::Playlist(list) if list.id == id && !list.name.is_empty() => {
+                    Some(list.name.as_str())
+                }
+                _ => None,
+            })
+    }
+
     /// Whether two pages would paint the same tiles. Artwork URLs can churn
     /// between a cache hit and a refresh; rebuilding for that is the flicker
     /// when you reopen Listen Now.

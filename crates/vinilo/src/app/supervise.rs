@@ -222,6 +222,7 @@ impl AppModel {
                 let mut page = page;
                 page.fill_gaps(self.discover.snapshot());
                 self.discover.fill(page);
+                self.refresh_pin_names();
             }
             Event::LibraryRefreshing { refreshing } => {
                 self.set_library_refreshing(refreshing);

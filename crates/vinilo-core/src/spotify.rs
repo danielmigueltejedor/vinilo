@@ -217,6 +217,7 @@ pub async fn library_progress(
     let mut artists = Vec::new();
 
     if !playlists.is_empty() {
+        ensure_liked_playlist(&mut playlists, &songs);
         progress(&songs, &albums, &artists, &playlists);
     }
     if cooling_down() {
@@ -225,9 +226,7 @@ pub async fn library_progress(
 
     songs = library_section("spotify liked songs", library_tracks(http, &session, 200)).await;
     if !songs.is_empty() {
-        if playlists.iter().all(|list| list.id != "sp:liked") {
-            playlists.insert(0, liked_playlist(&songs));
-        }
+        ensure_liked_playlist(&mut playlists, &songs);
         progress(&songs, &albums, &artists, &playlists);
     }
     if cooling_down() {
@@ -272,9 +271,7 @@ fn library_from_parts(
     if songs.is_empty() && albums.is_empty() && artists.is_empty() && playlists.is_empty() {
         anyhow::bail!("Spotify would not return a library for this session");
     }
-    if !songs.is_empty() && playlists.iter().all(|list| list.id != "sp:liked") {
-        playlists.insert(0, liked_playlist(&songs));
-    }
+    ensure_liked_playlist(&mut playlists, &songs);
     Ok(Library {
         songs,
         albums,
@@ -1312,7 +1309,11 @@ async fn home_feed(http: &reqwest::Client, session: &partner::Session) -> Result
                 .and_then(Value::as_str)
                 .unwrap_or("");
             let data = content.get("data").unwrap_or(content);
-            if typename.contains("Playlist") {
+            if typename.contains("Playlist")
+                || typename.contains("Radio")
+                || typename.contains("Station")
+                || typename.contains("Blend")
+            {
                 if let Some(list) = playlist_from_gql(data, "") {
                     feed.playlists.push(list);
                 }
@@ -1425,7 +1426,13 @@ fn playlist_from_library_node(node: &Value) -> Option<Playlist> {
         .or_else(|| data.get("uri"))
         .and_then(Value::as_str)
         .unwrap_or("");
-    if uri.contains(":collection:") || uri.contains(":folder:") {
+    if uri.contains(":folder:") {
+        return None;
+    }
+    if uri.contains(":collection:tracks") {
+        return Some(liked_playlist(&[]));
+    }
+    if uri.contains(":collection:") {
         return None;
     }
     let typename = format!(
@@ -1622,7 +1629,12 @@ fn playlist_from_gql(data: &Value, fallback_id: &str) -> Option<Playlist> {
     if id.is_empty() {
         return None;
     }
-    let name = text(data, "name");
+    let name = gql_label(data, "name");
+    let name = if name.is_empty() {
+        gql_label(data, "title")
+    } else {
+        name
+    };
     if name.is_empty() {
         return None;
     }
@@ -2210,6 +2222,24 @@ fn liked_playlist(songs: &[Track]) -> Playlist {
     }
 }
 
+fn ensure_liked_playlist(playlists: &mut Vec<Playlist>, songs: &[Track]) {
+    if let Some(pos) = playlists.iter().position(|p| p.id == "sp:liked") {
+        if playlists[pos].name.is_empty() {
+            playlists[pos].name = i18n::t(Key::LikedSongs).to_owned();
+        }
+        if playlists[pos].artwork.is_none() {
+            playlists[pos].artwork = songs.first().and_then(|s| s.artwork.clone());
+        }
+        playlists[pos].library = true;
+        if pos != 0 {
+            let liked = playlists.remove(pos);
+            playlists.insert(0, liked);
+        }
+        return;
+    }
+    playlists.insert(0, liked_playlist(songs));
+}
+
 fn top_playlist(songs: &[Track]) -> Playlist {
     Playlist {
         id: "sp:top".into(),
@@ -2238,6 +2268,22 @@ fn looks_made_for_you(name: &str) -> bool {
 fn text(value: &Value, key: &str) -> String {
     value
         .get(key)
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_owned()
+}
+
+fn gql_label(value: &Value, key: &str) -> String {
+    let Some(field) = value.get(key) else {
+        return String::new();
+    };
+    if let Some(s) = field.as_str() {
+        return s.to_owned();
+    }
+    field
+        .get("transformedLabel")
+        .or_else(|| field.get("text"))
+        .or_else(|| field.get("transformedName"))
         .and_then(Value::as_str)
         .unwrap_or("")
         .to_owned()
@@ -2399,7 +2445,9 @@ mod tests {
                 "data": { "__typename": "Playlist", "name": "Liked Songs", "uri": "spotify:user:me:collection:tracks" }
             }
         });
-        assert!(playlist_from_library_item(&liked).is_none());
+        let liked = playlist_from_library_item(&liked).unwrap();
+        assert_eq!(liked.id, "sp:liked");
+        assert!(liked.library);
         let item = serde_json::json!({
             "item": {
                 "__typename": "PlaylistResponseWrapper",
@@ -2450,6 +2498,17 @@ mod tests {
         let list = playlist_from_library_item(&nested).unwrap();
         assert_eq!(list.id, "sp:playlist:pl3");
         assert!(list.library);
+    }
+
+    #[test]
+    fn editorial_playlist_names_can_be_a_transformed_label() {
+        let json = serde_json::json!({
+            "uri": "spotify:playlist:37i9dQZF1DX0XUs1WfzixN",
+            "name": { "transformedLabel": "Beele Radio" }
+        });
+        let list = playlist_from_gql(&json, "").unwrap();
+        assert_eq!(list.id, "sp:playlist:37i9dQZF1DX0XUs1WfzixN");
+        assert_eq!(list.name, "Beele Radio");
     }
 
     #[test]

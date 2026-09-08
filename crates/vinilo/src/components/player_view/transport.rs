@@ -91,10 +91,10 @@ pub(super) fn build_transport(into: &gtk::Box, sender: &ComponentSender<PlayerVi
     shuffle.set_tooltip_text(Some(vinilo_core::i18n::t(vinilo_core::i18n::Key::Shuffle)));
     let repeat = button("media-playlist-repeat-symbolic", ["flat", "circular"]);
     let previous = button("media-skip-backward-symbolic", ["flat", "circular"]);
-    let play = button(
-        "media-playback-start-symbolic",
-        ["suggested-action", "circular"],
-    );
+    let play = button("media-playback-start-symbolic", [
+        "suggested-action",
+        "circular",
+    ]);
     play.set_width_request(56);
     play.set_height_request(56);
     let next = button("media-skip-forward-symbolic", ["flat", "circular"]);
