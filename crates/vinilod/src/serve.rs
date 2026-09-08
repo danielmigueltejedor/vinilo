@@ -1295,6 +1295,29 @@ fn stop_local(daemon: &Daemon) {
     daemon.model.borrow_mut().art_path = None;
 }
 
+/// Stop catalogue audio and tell every client, so a click cannot leave the
+/// previous file running under a new title.
+fn cut_catalogue_playback(daemon: &Daemon) {
+    let was_on = daemon.local.borrow().is_active()
+        || daemon
+            .spotify
+            .borrow()
+            .as_ref()
+            .is_some_and(|engine| engine.is_active());
+    stop_spotify(daemon);
+    if daemon.local.borrow().is_active() {
+        daemon.local.borrow_mut().stop();
+    }
+    if !was_on {
+        return;
+    }
+    daemon.model.borrow_mut().player.state = PlaybackState::None;
+    daemon.model.borrow_mut().art_path = None;
+    let (items, position) = daemon.model.borrow().queue();
+    daemon.publish(Event::Queue { items, position });
+    daemon.publish_snapshot();
+}
+
 fn stop_spotify(daemon: &Daemon) {
     let Some(mut engine) = daemon.spotify.borrow_mut().take() else {
         return;
@@ -2731,6 +2754,12 @@ fn play_streams(daemon: &Rc<Daemon>, ids: Vec<String>, index: usize, start: Star
     let shuffled = start.reorders();
     let play_gen = daemon.stream_play_gen.get().wrapping_add(1);
     daemon.stream_play_gen.set(play_gen);
+    // Cut the current file now. Waiting until yt-dlp finished is what left
+    // the last song in the speakers while the bar already named the next.
+    if daemon.sidecar.borrow().is_some() {
+        daemon.send(Command::Pause);
+    }
+    cut_catalogue_playback(daemon);
     let daemon = daemon.clone();
     tokio::task::spawn_local(async move {
         let mut hits = Vec::new();
@@ -2871,21 +2900,30 @@ async fn fetch_stream_audio(
     hit: &vinilo_core::streams::StreamHit,
     dir: &std::path::Path,
 ) -> Result<std::path::PathBuf, String> {
-    if hit.id.starts_with("yt:") {
+    let path = if hit.id.starts_with("yt:") {
         let http = vinilo_core::streams::http();
         match vinilo_core::ytmusic::download_audio(&http, &hit.id, dir).await {
             Ok(path) => {
                 vinilo_core::streams::write_sidecar(&path, hit);
-                return Ok(path);
+                path
             }
             Err(err) => {
-                tracing::debug!(%err, id = %hit.id, "innertube audio missed; trying yt-dlp")
+                tracing::debug!(%err, id = %hit.id, "innertube audio missed; trying yt-dlp");
+                let hit = hit.clone();
+                let dir = dir.to_path_buf();
+                tokio::task::spawn_blocking(move || crate::ytdlp::download(&hit, &dir))
+                    .await
+                    .map_err(|err| format!("{err}"))??
             }
         }
-    }
-    let hit = hit.clone();
-    let dir = dir.to_path_buf();
-    tokio::task::spawn_blocking(move || crate::ytdlp::download(&hit, &dir))
+    } else {
+        let hit = hit.clone();
+        let dir = dir.to_path_buf();
+        tokio::task::spawn_blocking(move || crate::ytdlp::download(&hit, &dir))
+            .await
+            .map_err(|err| format!("{err}"))??
+    };
+    tokio::task::spawn_blocking(move || crate::local::prepare_playable(path))
         .await
         .map_err(|err| format!("{err}"))?
 }
@@ -3848,26 +3886,18 @@ mod tests {
 
         // What MusicKit does after we Pause it: it still holds the last Apple
         // track and echoes it. That used to overwrite the bar.
-        on_event(
-            &daemon,
-            PlayerEvent::NowPlaying {
-                item: Some(Item {
-                    title: "Apple title".into(),
-                    artist: "Apple artist".into(),
-                    artwork_template: Some(
-                        "https://is1-ssl.mzstatic.com/image/{w}x{h}bb.jpg".into(),
-                    ),
-                    ..Default::default()
-                }),
-                queue: Default::default(),
-            },
-        );
-        on_event(
-            &daemon,
-            PlayerEvent::PlaybackState {
-                state: PlaybackState::Paused,
-            },
-        );
+        on_event(&daemon, PlayerEvent::NowPlaying {
+            item: Some(Item {
+                title: "Apple title".into(),
+                artist: "Apple artist".into(),
+                artwork_template: Some("https://is1-ssl.mzstatic.com/image/{w}x{h}bb.jpg".into()),
+                ..Default::default()
+            }),
+            queue: Default::default(),
+        });
+        on_event(&daemon, PlayerEvent::PlaybackState {
+            state: PlaybackState::Paused,
+        });
 
         let model = daemon.model.borrow();
         let item = model.player.now_playing.as_ref().expect("local item");

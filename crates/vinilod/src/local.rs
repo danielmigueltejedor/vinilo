@@ -107,7 +107,7 @@ impl Player {
     }
 
     pub fn stop(&mut self) {
-        if let Some(sink) = self.sink.as_ref() {
+        if let Some(sink) = self.sink.take() {
             sink.stop();
         }
         self.active = false;
@@ -474,6 +474,13 @@ impl Player {
     }
 
     fn start_current(&mut self) -> Result<(), String> {
+        // Drop the previous sink before opening the next file. Creating a
+        // second Sink on the same OutputStreamHandle while the last one is
+        // still live is how the bar named a new track and the speakers kept
+        // playing the old one.
+        if let Some(sink) = self.sink.take() {
+            sink.stop();
+        }
         let Some(track) = self.queue.get(self.index) else {
             return Err("the local queue is empty".into());
         };
@@ -514,6 +521,21 @@ impl Player {
         self.sink = Some(sink);
         Ok(())
     }
+}
+
+/// Open, or transcode until rodio will. Used after a download so
+/// `start_current` is not the one blocked on ffmpeg.
+pub fn prepare_playable(path: PathBuf) -> Result<PathBuf, String> {
+    if open_decoder(&path).is_ok() {
+        return Ok(path);
+    }
+    tracing::warn!(
+        path = %path.display(),
+        "native decode failed; transcoding before play"
+    );
+    let converted = crate::ytdlp::transcode_mp3(&path)?;
+    open_decoder(&converted)?;
+    Ok(converted)
 }
 
 fn open_decoder(path: &Path) -> Result<Decoder<BufReader<File>>, String> {
