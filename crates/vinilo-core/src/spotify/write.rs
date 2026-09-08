@@ -85,13 +85,18 @@ async fn library_mutate(
     id: &str,
 ) -> Result<()> {
     let uri = library_item_uri(id)?;
+    let hashes = if operation == "removeFromLibrary" {
+        partner::REMOVE_FROM_LIBRARY
+    } else {
+        partner::ADD_TO_LIBRARY
+    };
     let shapes = [
-        json!({ "libraryItemUris": [uri] }),
         json!({ "uris": [uri] }),
+        json!({ "libraryItemUris": [uri] }),
     ];
     let mut last = anyhow::anyhow!("spotify {operation} failed");
     for variables in shapes {
-        match partner_query(http, session, operation, partner::ADD_TO_LIBRARY, variables).await {
+        match partner_query(http, session, operation, hashes, variables).await {
             Ok(_) => return Ok(()),
             Err(err) => last = err,
         }

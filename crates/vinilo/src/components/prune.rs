@@ -77,10 +77,10 @@ pub(super) fn classify(name: &str) -> Entry<'_> {
         return Entry::Unknown;
     }
 
-    // `<key>-512.backdrop-vivid.png` — a wash of the sleeve's colour, and it
-    // lives or dies with that cover. Older photo and muted washes are retired.
+    // `<key>-512.backdrop.hex` — the sleeve's colour as RRGGBB. Older PNG
+    // washes (photo, tone, glow, vivid) are retired, not reused.
     if let Some((size, tail)) = rest.split_once(".backdrop") {
-        return if LIVE_SIZES.contains(&size) && tail == "-vivid.png" {
+        return if LIVE_SIZES.contains(&size) && tail == ".hex" {
             Entry::Cover(key)
         } else {
             Entry::Retired
@@ -198,7 +198,7 @@ mod tests {
             Entry::Cover("0061ed5f5d6a433f")
         );
         assert_eq!(
-            classify("127f514fc028ac76-512.backdrop-vivid.png"),
+            classify("127f514fc028ac76-512.backdrop.hex"),
             Entry::Cover("127f514fc028ac76")
         );
         let name = format!("{}-mosaic-512.png", keys(4));
@@ -210,7 +210,7 @@ mod tests {
         // It is derived from that file and useless without it, so it has to
         // carry the same key rather than one of its own.
         assert_eq!(
-            classify("abcdef0123456789-512.backdrop-vivid.png"),
+            classify("abcdef0123456789-512.backdrop.hex"),
             classify("abcdef0123456789-512.jpg")
         );
     }
@@ -236,6 +236,10 @@ mod tests {
         );
         assert_eq!(
             classify("abcdef0123456789-512.backdrop-glow.png"),
+            Entry::Retired
+        );
+        assert_eq!(
+            classify("abcdef0123456789-512.backdrop-vivid.png"),
             Entry::Retired
         );
     }

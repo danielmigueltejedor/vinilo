@@ -1759,7 +1759,18 @@ fn write_catalog(
                 if let Some(list_id) = created {
                     insert_created_playlist(&daemon, list_id, name);
                 }
-                request_library_refresh(&daemon);
+                // A like does not change the library list. Refreshing after
+                // every star is what emptied Spotify: Pathfinder 429s the
+                // follow-up fetch and an empty answer used to replace the
+                // cache. Playlists still need a re-read so the new list lands.
+                if matches!(
+                    action,
+                    WriteAction::CreatePlaylist
+                        | WriteAction::AddToPlaylist
+                        | WriteAction::RemoveFromPlaylist
+                ) {
+                    request_library_refresh(&daemon);
+                }
             }
             Err(err) => {
                 tracing::warn!(?err, ?action, %id, "catalogue write failed");
@@ -2229,6 +2240,38 @@ fn apply_catalog_library(
         playlists = playlists.len(),
         "catalogue library refreshed"
     );
+    // Never replace a full library with a thinner one. A 429 mid-fetch
+    // returns playlists and no songs; applying that is what emptied Spotify
+    // after starring a track.
+    let (keep_songs, keep_albums, keep_artists, keep_playlists) = {
+        let library = &daemon.model.borrow().library;
+        (
+            songs.is_empty() && !library.tracks.is_empty(),
+            albums.is_empty() && !library.albums.is_empty(),
+            artists.is_empty() && !library.artists.is_empty(),
+            playlists.is_empty() && !library.playlists.is_empty(),
+        )
+    };
+    let songs = if keep_songs {
+        daemon.model.borrow().library.tracks.clone()
+    } else {
+        songs
+    };
+    let albums = if keep_albums {
+        daemon.model.borrow().library.albums.clone()
+    } else {
+        albums
+    };
+    let artists = if keep_artists {
+        daemon.model.borrow().library.artists.clone()
+    } else {
+        artists
+    };
+    let playlists = if keep_playlists {
+        daemon.model.borrow().library.playlists.clone()
+    } else {
+        playlists
+    };
     remember_songs(daemon, &songs);
     vinilo_core::library_cache::save(&songs, &albums, &artists, &playlists);
     let mut model = daemon.model.borrow_mut();

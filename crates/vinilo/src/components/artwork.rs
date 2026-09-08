@@ -114,30 +114,19 @@ pub fn decode(path: &Path, size: i32) -> Option<Decoded> {
     })
 }
 
-/// How wide the colour wash is, in pixels.
-///
-/// Small on purpose: this is a field of one colour, not a photograph, so the
-/// upscale cannot go pixelated. The name is in the filename, so changing it
-/// retires whatever was already on disk.
-const WASH_PX: i32 = 64;
-
 /// How many pixels we sample to find the sleeve's colour. A cover is already
 /// a square; 48px is enough to see whether it is white, red, or mixed.
 const SAMPLE_PX: i32 = 48;
 
-/// Cached wash filename. Changing the suffix retires whatever was already on
-/// disk: `backdrop256` was a photograph, `backdrop-tone` and `backdrop-glow`
-/// were still too muted under the CSS veil.
-const WASH_EXT: &str = "backdrop-vivid.png";
+/// Cached colour filename. A `.hex` file is the sleeve's colour as `RRGGBB`,
+/// painted as CSS — not a stretched photograph and not a PNG under a veil.
+const WASH_EXT: &str = "backdrop.hex";
 
-/// Write a wash of the sleeve's own colour beside the cover, and say where.
+/// Sample the sleeve and write its colour beside the cover.
 ///
-/// Apple Music tints the player from the record rather than stretching the
-/// photograph: a white sleeve stays white, a red one stays red. The cover is
-/// still the cover in the UI; this is only the atmosphere behind it. The
-/// wash is a soft radial of that colour so the field is not a dead flat fill.
-///
-/// Off the GTK thread (rule 8).
+/// Apple Music tints the player from the record: a white sleeve stays white,
+/// a red one stays red. The cover is still the cover in the UI; this is only
+/// the atmosphere behind it. Off the GTK thread (rule 8).
 pub fn backdrop(path: &Path) -> Option<PathBuf> {
     let out = path.with_extension(WASH_EXT);
     if out.exists() {
@@ -145,16 +134,30 @@ pub fn backdrop(path: &Path) -> Option<PathBuf> {
     }
     let pixbuf = gdk_pixbuf::Pixbuf::from_file_at_scale(path, SAMPLE_PX, SAMPLE_PX, false).ok()?;
     let pixels = pixbuf.read_pixel_bytes().to_vec();
-    let color = dominant(
+    let color = lift_chroma(dominant(
         &pixels,
         pixbuf.width() as usize,
         pixbuf.height() as usize,
         pixbuf.n_channels() as usize,
         pixbuf.rowstride() as usize,
-    );
-    let wash = tone_wash(color, WASH_PX)?;
-    wash.savev(&out, "png", &[]).ok()?;
+    ));
+    std::fs::write(
+        &out,
+        format!("{:02x}{:02x}{:02x}", color[0], color[1], color[2]),
+    )
+    .ok()?;
     Some(out)
+}
+
+/// CSS hex (`#rrggbb`) stored next to the cover, if we sampled one.
+pub fn wash_hex(path: &Path) -> Option<String> {
+    let raw = std::fs::read_to_string(path).ok()?;
+    let hex = raw.trim();
+    if hex.len() == 6 && hex.chars().all(|c| c.is_ascii_hexdigit()) {
+        Some(format!("#{hex}"))
+    } else {
+        None
+    }
 }
 
 /// The colour that should tint the player.
@@ -214,36 +217,8 @@ fn chroma(r: u8, g: u8, b: u8) -> u32 {
     r.max(g).max(b) - r.min(g).min(b)
 }
 
-/// A soft radial field of `color`. The centre is a touch brighter than the
-/// sampled sleeve; the edges fall off so the wash is not a flat poster.
-fn tone_wash(color: [u8; 3], size: i32) -> Option<gdk_pixbuf::Pixbuf> {
-    let size = size.max(1);
-    let wash = gdk_pixbuf::Pixbuf::new(gdk_pixbuf::Colorspace::Rgb, false, 8, size, size)?;
-    let color = lift_chroma(color);
-    let n = size as f32;
-    let cx = (n - 1.0) / 2.0;
-    for y in 0..size as u32 {
-        for x in 0..size as u32 {
-            let dx = (x as f32 - cx) / n;
-            let dy = (y as f32 - cx) / n;
-            let t = (dx * dx + dy * dy).sqrt() * 1.2;
-            let t = t.clamp(0.0, 1.0);
-            let t = t * t;
-            // Centre ~18% brighter, rim a little darker — a glow, not a flat
-            // fill, and bright enough to survive the CSS veil.
-            let k = 1.18 - 0.22 * t;
-            let r = (f32::from(color[0]) * k).round().clamp(0.0, 255.0) as u8;
-            let g = (f32::from(color[1]) * k).round().clamp(0.0, 255.0) as u8;
-            let b = (f32::from(color[2]) * k).round().clamp(0.0, 255.0) as u8;
-            wash.put_pixel(x, y, r, g, b, 255);
-        }
-    }
-    Some(wash)
-}
-
-/// Push a coloured sleeve further from grey, and lift dark sleeves so the
-/// veil does not crush them into the window colour. Greys and whites stay
-/// put — inventing a tint there would lie about the record.
+/// Push a coloured sleeve further from grey so a red record stays red in CSS.
+/// Greys and whites stay put — inventing a tint there would lie about the record.
 fn lift_chroma(color: [u8; 3]) -> [u8; 3] {
     let [r, g, b] = color;
     if chroma(r, g, b) < 28 {
@@ -339,12 +314,16 @@ mod tests {
     }
 
     #[test]
-    fn the_wash_filename_retires_the_muted_and_photo_versions() {
+    fn the_wash_filename_is_a_hex_not_a_photo() {
         let name = std::path::Path::new("/tmp/abc-512.jpg").with_extension(WASH_EXT);
-        assert!(name.to_string_lossy().ends_with("backdrop-vivid.png"));
         let s = name.to_string_lossy();
-        assert!(s.ends_with("backdrop-vivid.png"), "{s}");
-        for old in ["backdrop256", "backdrop-tone.png", "backdrop-glow.png"] {
+        assert!(s.ends_with("backdrop.hex"), "{s}");
+        for old in [
+            "backdrop256",
+            "backdrop-tone.png",
+            "backdrop-glow.png",
+            "backdrop-vivid.png",
+        ] {
             assert!(!s.contains(old), "{s} still looks like {old}");
         }
     }

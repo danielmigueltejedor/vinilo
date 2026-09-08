@@ -156,7 +156,7 @@ pub fn init(accent: Accent, backdrop: bool) {
     // re-emitting the same image through the current theme's numbers.
     adw::StyleManager::default().connect_dark_notify(|_| {
         let shown = SHOWN_ART.with(|c| c.borrow().clone());
-        paint_backdrop(shown.as_deref().map(image_of));
+        paint_backdrop(shown.as_deref());
     });
 }
 
@@ -178,9 +178,8 @@ pub fn init(accent: Accent, backdrop: bool) {
 ///
 /// Naming both stretches the square rather than fitting it, which would matter
 /// on a photograph and cannot be seen on a colour wash.
-const COVER_LAYOUT: &str = ".np-bar { background-size: cover, cover; }
-         .np-sheet, .page-sheet { background-size: cover, 150% 150%; }
-         .np-bar, .np-sheet, .page-sheet { background-position: center, center; }";
+const COVER_LAYOUT: &str = ".np-bar, .np-sheet, .page-sheet { background-size: cover; }
+         .np-bar, .np-sheet, .page-sheet { background-position: center; }";
 
 /// Brand colours for the "tint from source" preference.
 pub fn brand_colors(
@@ -362,12 +361,6 @@ thread_local! {
         const { std::cell::RefCell::new(None) };
 }
 
-/// How long a cover takes to cross-fade to the next track's, and how often it
-/// repaints while doing so. 60fps for a third of a second — long enough to read
-/// as a change of mood, short enough not to lag behind the track.
-const FADE_MS: u64 = 340;
-const FRAME_MS: u64 = 16;
-
 /// Put the sleeve's colour behind the player — the bar and the drawer both —
 /// or take it away.
 ///
@@ -394,111 +387,54 @@ pub fn set_backdrop(path: Option<&std::path::Path>) {
     SHOWN_ART.with(|c| *c.borrow_mut() = to.clone());
 
     if !BACKDROP_ON.with(std::cell::Cell::get) {
-        // Nothing to paint, and no fade to run for a third of a second at 60fps
-        // to arrive at the same nothing. The provider is already empty — either
-        // it was never loaded, or `set_backdrop_enabled(false)` cleared it.
-        //
-        // `SHOWN_ART` is current above this, deliberately: it is what turning
-        // the preference back on paints from, and skipping it here would land
-        // on whatever was showing when it was switched off.
+        paint_backdrop(None);
         return;
     }
 
-    let (Some(from), Some(to)) = (from, to) else {
-        // Nothing to fade between — the first cover of a session, or playback
-        // stopping. Snap, exactly as the colour does.
-        paint_backdrop(path.map(image_of));
-        return;
-    };
-    if from == to {
+    if from.as_deref() == to.as_deref() {
         return;
     }
-
-    // Same clock as the colour, deliberately. They are two readings of one
-    // cover, and finishing apart would be more noticeable than either alone.
-    let start = std::time::Instant::now();
-    let id = gtk::glib::timeout_add_local(std::time::Duration::from_millis(FRAME_MS), move || {
-        let t = (start.elapsed().as_millis() as f32 / FADE_MS as f32).min(1.0);
-        if t >= 1.0 {
-            // Painted plainly at the end rather than as a 100% cross-fade, so
-            // the settled state is one image and one url — and so a wrong guess
-            // about which way `cross-fade` reads its percentage could only ever
-            // be a fade in the wrong direction, never a wrong final frame.
-            paint_backdrop(Some(image_of(&to)));
-            // Cleared here, not by the canceller: removing an already-finished
-            // source logs a GLib critical.
-            ART_FADE.with(|f| *f.borrow_mut() = None);
-            return gtk::glib::ControlFlow::Break;
-        }
-        let pct = (ease(t) * 100.0).round();
-        paint_backdrop(Some(format!(
-            "cross-fade({pct}% {}, {})",
-            image_of(&to),
-            image_of(&from)
-        )));
-        gtk::glib::ControlFlow::Continue
-    });
-    ART_FADE.with(|f| *f.borrow_mut() = Some(id));
+    paint_backdrop(path);
 }
 
-/// One cover as a CSS image.
-fn image_of(path: &std::path::Path) -> String {
-    format!("url(\"file://{}\")", path.display())
+fn wash_of(path: &std::path::Path) -> Option<String> {
+    crate::components::artwork::wash_hex(path)
 }
 
-/// The backdrop rule. A CSS *image* in, CSS out — so the caller can hand over
-/// one cover or a cross-fade of two and this does not care which.
+/// The backdrop rule: a colour, not a photograph.
 ///
-/// Both surfaces, in one rule each, because the two scrims are **not** the
-/// same number. The drawer is a large surface with big type on it and can take
-/// a heavy veil; the bar is a thin strip whose type is small, and at the
-/// drawer's weight the cover behind it was invisible — a flat grey, which is
-/// exactly what the tonal scrim it replaced would never have been. The bar's
-/// veil is set to leave about as much of the record showing as that wash did.
-///
-/// Pure, and separate from the provider it is loaded into, so a test can read
-/// what this actually emits. The first attempt at this feature changed the
-/// doc comment and the base rules and left the selector here saying `.np-sheet`
-/// alone — a mistake nothing could catch, because the CSS was valid and the
-/// drawer went on working.
-/// How opaque the veil is, top and bottom, for each surface — **per theme**.
-///
-/// The backdrop is now a *colour wash*, not a photograph: it can afford to
-/// show more of itself than the old 48px-upscaled sleeve could. Numbers were
-/// retuned so a red record still reads red under the scrim, without losing
-/// the labels that sit on top.
-///
-/// The floor is still set by text. Both surfaces carry labels in the theme's
-/// own foreground colour, so the veil cannot go arbitrarily thin.
+/// The veil is the *same* colour, lighter toward the top so labels stay
+/// readable without turning the field grey. Dark and light differ by how much
+/// of the window colour is mixed in.
 struct Veil {
     bar: (f32, f32),
     sheet: (f32, f32),
 }
 
 const DARK_VEIL: Veil = Veil {
-    bar: (0.42, 0.28),
-    sheet: (0.50, 0.32),
+    bar: (0.22, 0.08),
+    sheet: (0.28, 0.10),
 };
 
 const LIGHT_VEIL: Veil = Veil {
-    bar: (0.38, 0.28),
-    sheet: (0.42, 0.30),
+    bar: (0.18, 0.08),
+    sheet: (0.22, 0.10),
 };
 
-fn backdrop_css(image: Option<&str>, dark: bool) -> String {
-    let Some(image) = image else {
-        return ".np-bar, .np-sheet { background-image: none; }".into();
+fn backdrop_css(color: Option<&str>, dark: bool) -> String {
+    let Some(color) = color else {
+        return ".np-bar, .np-sheet { background-image: none; background-color: transparent; }"
+            .into();
     };
     let veil = if dark { DARK_VEIL } else { LIGHT_VEIL };
     let layers = |(top, bottom): (f32, f32)| {
         format!(
-            "background-image:
-                 linear-gradient(
-                     alpha(@window_bg_color, {top}),
-                     alpha(@window_bg_color, {bottom})
-                 ),
-                 {image};
-             background-repeat: no-repeat, no-repeat;"
+            "background-color: {color};
+             background-image: linear-gradient(
+                 alpha(@window_bg_color, {top}),
+                 alpha(@window_bg_color, {bottom})
+             );
+             background-repeat: no-repeat;"
         )
     };
     format!(
@@ -541,28 +477,27 @@ pub fn backdrop_enabled() -> bool {
 
 /// Paint a playlist or album page with the same colour wash the player uses.
 pub fn set_page_backdrop(provider: &gtk::CssProvider, class: &str, path: Option<&std::path::Path>) {
-    let image = path
+    let color = path
         .filter(|_| backdrop_enabled())
         .filter(|p| p.is_file())
-        .map(image_of);
-    provider.load_from_string(&page_backdrop_css(class, image.as_deref(), painting_dark()));
+        .and_then(wash_of);
+    provider.load_from_string(&page_backdrop_css(class, color.as_deref(), painting_dark()));
 }
 
-fn page_backdrop_css(class: &str, image: Option<&str>, dark: bool) -> String {
-    let Some(image) = image else {
-        return format!(".{class} {{ background-image: none; }}");
+fn page_backdrop_css(class: &str, color: Option<&str>, dark: bool) -> String {
+    let Some(color) = color else {
+        return format!(".{class} {{ background-image: none; background-color: transparent; }}");
     };
     let veil = if dark { DARK_VEIL } else { LIGHT_VEIL };
     let (top, bottom) = veil.sheet;
     format!(
         ".{class} {{
-             background-image:
-                 linear-gradient(
-                     alpha(@window_bg_color, {top}),
-                     alpha(@window_bg_color, {bottom})
-                 ),
-                 {image};
-             background-repeat: no-repeat, no-repeat;
+             background-color: {color};
+             background-image: linear-gradient(
+                 alpha(@window_bg_color, {top}),
+                 alpha(@window_bg_color, {bottom})
+             );
+             background-repeat: no-repeat;
          }}"
     )
 }
@@ -584,15 +519,14 @@ pub fn set_backdrop_enabled(on: bool) {
     // Snapped, not faded. Fading a preference would say the app was thinking
     // about it; a switch should land the moment it is flipped.
     let shown = SHOWN_ART.with(|c| c.borrow().clone());
-    paint_backdrop(shown.as_deref().map(image_of));
+    paint_backdrop(shown.as_deref());
 }
 
-fn paint_backdrop(image: Option<String>) {
-    // The one place every path funnels through — a track change, the fade's
-    // per-frame repaint, the theme-flip handler — so the preference holds by
-    // construction rather than at three call sites that could each forget it.
-    let image = image.filter(|_| BACKDROP_ON.with(std::cell::Cell::get));
-    let css = backdrop_css(image.as_deref(), painting_dark());
+fn paint_backdrop(path: Option<&std::path::Path>) {
+    let color = path
+        .filter(|_| BACKDROP_ON.with(std::cell::Cell::get))
+        .and_then(wash_of);
+    let css = backdrop_css(color.as_deref(), painting_dark());
     BACKDROP.with(|p| p.load_from_string(&css));
 }
 
@@ -653,10 +587,7 @@ mod tests {
         //
         // And the position has to be stated, because it used to fall out of
         // that animation's keyframes: the CSS default is the top-left corner.
-        let css = format!(
-            "{COVER_LAYOUT}{}",
-            backdrop_css(Some("url(\"file:///tmp/x.png\")"), true)
-        );
+        let css = format!("{COVER_LAYOUT}{}", backdrop_css(Some("#c42828"), true));
         assert!(
             !css.contains("animation") && !css.contains("keyframes"),
             "an animation here pins the frame clock open (#126): {css}"
@@ -666,41 +597,33 @@ mod tests {
 
     #[test]
     fn both_surfaces_get_the_cover() {
-        let css = backdrop_css(Some("url(\"file:///tmp/x.png\")"), true);
+        let css = backdrop_css(Some("#c42828"), true);
         assert!(css.contains(".np-bar"), "the bar was left out: {css}");
         assert!(css.contains(".np-sheet"), "the drawer was left out: {css}");
         assert_eq!(
-            css.matches("url(\"file:///tmp/x.png\")").count(),
+            css.matches("#c42828").count(),
             2,
-            "each surface needs its own copy of the image"
+            "each surface needs its own copy of the colour"
         );
-        // Clearing has to reach both too, or a stopped player keeps the last
-        // cover on whichever one was forgotten.
         let cleared = backdrop_css(None, true);
         assert!(cleared.contains(".np-bar") && cleared.contains(".np-sheet"));
     }
 
     #[test]
     fn the_bar_shows_more_of_the_record_than_the_drawer() {
-        // Small type on a thin strip is the harder read, but a veil heavy
-        // enough for the drawer left the bar a flat grey — which is the bug
-        // this pair of numbers exists to prevent regressing.
-        let css = backdrop_css(Some("url(\"a\")"), true);
+        let css = backdrop_css(Some("#c42828"), true);
         let bar = &css[css.find(".np-bar").unwrap()..css.find(".np-sheet").unwrap()];
-        assert!(bar.contains("0.42"), "bar scrim changed: {bar}");
+        assert!(bar.contains("0.22"), "bar scrim changed: {bar}");
         assert!(
-            !bar.contains("0.50"),
+            !bar.contains("0.28"),
             "bar is using the drawer's veil: {bar}"
         );
     }
 
     #[test]
     fn a_light_theme_gets_a_thinner_veil_than_a_dark_one() {
-        // The bug this fixes: one set of numbers for both. A colour wash over
-        // a near-white window still needs less scrim than over a dark one, or
-        // the tint turns pastel.
-        let dark = backdrop_css(Some("url(\"a\")"), true);
-        let light = backdrop_css(Some("url(\"a\")"), false);
+        let dark = backdrop_css(Some("#c42828"), true);
+        let light = backdrop_css(Some("#c42828"), false);
         assert_ne!(dark, light, "both themes got the same veil");
 
         for (top, bottom) in [DARK_VEIL.bar, DARK_VEIL.sheet] {
@@ -727,21 +650,23 @@ mod tests {
             LIGHT_VEIL.bar,
             LIGHT_VEIL.sheet,
         ] {
-            assert!(bottom >= 0.25, "veil too thin for text: {bottom}");
-            assert!(top <= 0.7, "veil so heavy the cover is invisible: {top}");
+            assert!(bottom >= 0.05, "veil too thin for text: {bottom}");
+            assert!(top <= 0.5, "veil so heavy the cover is invisible: {top}");
         }
     }
 
     #[test]
-    fn a_cover_is_a_file_url() {
-        let css = image_of(std::path::Path::new("/tmp/a-b.backdrop.png"));
-        assert_eq!(css, "url(\"file:///tmp/a-b.backdrop.png\")");
+    fn a_cover_colour_is_hex() {
+        let css = backdrop_css(Some("#c42828"), true);
+        assert!(css.contains("background-color: #c42828"), "{css}");
+        assert!(!css.contains("url("), "{css}");
     }
 
     #[test]
     fn a_playlist_page_tints_from_its_own_class() {
-        let css = page_backdrop_css("page-bg-3", Some("url(\"file:///tmp/x.png\")"), true);
+        let css = page_backdrop_css("page-bg-3", Some("#c42828"), true);
         assert!(css.contains(".page-bg-3"), "{css}");
+        assert!(css.contains("#c42828"), "{css}");
         assert!(
             !css.contains(".np-bar"),
             "must not recolour the player: {css}"
