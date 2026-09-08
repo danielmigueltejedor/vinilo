@@ -8,7 +8,7 @@
 //! process may. What is left is a socket that can go away — which is a smaller
 //! problem, since reconnecting costs a connect rather than a Widevine boot.
 
-use relm4::ComponentSender;
+use relm4::{ComponentController, ComponentSender};
 
 use super::{AppModel, CommandMsg, Stage};
 use crate::components::player_view::PlayerViewInput;

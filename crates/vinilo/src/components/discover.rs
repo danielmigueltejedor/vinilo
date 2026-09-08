@@ -21,6 +21,10 @@ use vinilo_core::i18n::{self, Key};
 use vinilo_core::music::types::{Artwork, Track};
 
 /// What a click on a Discover tile is asking for.
+///
+/// `Debug` is by hand: `Context` carries the widget the menu is parented to,
+/// and GTK widgets do not implement it. `AppMsg` derives `Debug`, so this
+/// has to as well.
 pub enum DiscoverAction {
     Open(Entry),
     PlaySongs {
@@ -32,6 +36,24 @@ pub enum DiscoverAction {
         at: (i32, i32),
         over: gtk::Widget,
     },
+}
+
+impl std::fmt::Debug for DiscoverAction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Open(entry) => f.debug_tuple("Open").field(entry).finish(),
+            Self::PlaySongs { songs, index } => f
+                .debug_struct("PlaySongs")
+                .field("songs", songs)
+                .field("index", index)
+                .finish(),
+            Self::Context { entry, at, .. } => f
+                .debug_struct("Context")
+                .field("entry", entry)
+                .field("at", at)
+                .finish(),
+        }
+    }
 }
 
 pub type DiscoverHandler = Rc<dyn Fn(DiscoverAction)>;
