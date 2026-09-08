@@ -21,7 +21,7 @@ dependencies = [
 
 [[package]]
 name = "aguja"
-version = "0.24.0"
+version = "0.24.1"
 dependencies = [
  "anyhow",
  "crossterm",

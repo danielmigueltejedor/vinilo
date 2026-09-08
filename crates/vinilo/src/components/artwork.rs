@@ -125,9 +125,10 @@ const WASH_PX: i32 = 64;
 /// a square; 48px is enough to see whether it is white, red, or mixed.
 const SAMPLE_PX: i32 = 48;
 
-/// Cached wash filename. Older `backdrop256.png` (blurred photo) and
-/// `backdrop-tone.png` (too muted under the veil) are retired by this suffix.
-const WASH_EXT: &str = "backdrop-glow.png";
+/// Cached wash filename. Changing the suffix retires whatever was already on
+/// disk: `backdrop256` was a photograph, `backdrop-tone` and `backdrop-glow`
+/// were still too muted under the CSS veil.
+const WASH_EXT: &str = "backdrop-vivid.png";
 
 /// Write a wash of the sleeve's own colour beside the cover, and say where.
 ///
@@ -228,9 +229,9 @@ fn tone_wash(color: [u8; 3], size: i32) -> Option<gdk_pixbuf::Pixbuf> {
             let t = (dx * dx + dy * dy).sqrt() * 1.2;
             let t = t.clamp(0.0, 1.0);
             let t = t * t;
-            // Centre ~8% brighter, rim ~12% darker — enough depth to read as a
-            // glow without inventing a second colour.
-            let k = 1.08 - 0.20 * t;
+            // Centre ~18% brighter, rim a little darker — a glow, not a flat
+            // fill, and bright enough to survive the CSS veil.
+            let k = 1.18 - 0.22 * t;
             let r = (f32::from(color[0]) * k).round().clamp(0.0, 255.0) as u8;
             let g = (f32::from(color[1]) * k).round().clamp(0.0, 255.0) as u8;
             let b = (f32::from(color[2]) * k).round().clamp(0.0, 255.0) as u8;
@@ -250,18 +251,18 @@ fn lift_chroma(color: [u8; 3]) -> [u8; 3] {
     }
     let luma = (2126 * u32::from(r) + 7152 * u32::from(g) + 722 * u32::from(b)) / 10000;
     let luma = luma as i32;
-    // 1.7× distance from grey — the previous 1.35× still read pastel once the
-    // CSS veil sat on top.
+    // 2.1× from grey. Anything milder still reads as a stained window once
+    // the veil sits on top.
     let lift = |v: u8| {
-        let lifted = luma + (i32::from(v) - luma) * 170 / 100;
+        let lifted = luma + (i32::from(v) - luma) * 210 / 100;
         lifted.clamp(0, 255) as u8
     };
     let mut out = [lift(r), lift(g), lift(b)];
     // Dark sleeves vanish under the scrim; bring them up toward a mid glow.
     let out_luma =
         (2126 * u32::from(out[0]) + 7152 * u32::from(out[1]) + 722 * u32::from(out[2])) / 10000;
-    if out_luma < 90 {
-        let gain = 90.0 / out_luma.max(1) as f32;
+    if out_luma < 110 {
+        let gain = 110.0 / out_luma.max(1) as f32;
         for c in &mut out {
             *c = (f32::from(*c) * gain).round().clamp(0.0, 255.0) as u8;
         }
@@ -334,19 +335,18 @@ mod tests {
         assert_eq!(lift_chroma([250, 250, 250]), [250, 250, 250]);
         assert_eq!(lift_chroma([128, 128, 128]), [128, 128, 128]);
         let [r, g, b] = lift_chroma([160, 80, 80]);
-        assert!(r > 180 && g < 80 && b < 80, "got [{r}, {g}, {b}]");
+        assert!(r > 200 && g < 70 && b < 70, "got [{r}, {g}, {b}]");
     }
 
     #[test]
     fn the_wash_filename_retires_the_muted_and_photo_versions() {
         let name = std::path::Path::new("/tmp/abc-512.jpg").with_extension(WASH_EXT);
-        assert!(name.to_string_lossy().ends_with("backdrop-glow.png"));
-        assert!(
-            !name.to_string_lossy().contains("backdrop256")
-                && !name.to_string_lossy().contains("backdrop-tone"),
-            "{}",
-            name.display()
-        );
+        assert!(name.to_string_lossy().ends_with("backdrop-vivid.png"));
+        let s = name.to_string_lossy();
+        assert!(s.ends_with("backdrop-vivid.png"), "{s}");
+        for old in ["backdrop256", "backdrop-tone.png", "backdrop-glow.png"] {
+            assert!(!s.contains(old), "{s} still looks like {old}");
+        }
     }
 
     #[test]
