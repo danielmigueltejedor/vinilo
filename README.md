@@ -4,53 +4,121 @@ SPDX-FileCopyrightText: 2026 Miguel Rincon
 SPDX-License-Identifier: GPL-3.0-or-later
 -->
 
+<div align="center">
+  <img src="docs/screenshots/icon.png" width="128" alt="Vinilo">
+  <h1>Vinilo</h1>
+  <p><strong>A native GNOME music player for Linux.</strong></p>
+
+  <p>
+    <img src="https://img.shields.io/badge/version-0.25.4-4a86cf" alt="Version 0.25.4">
+    <img src="https://img.shields.io/badge/platform-Linux%20x86__64-fcc624?logo=linux&logoColor=black" alt="Linux x86_64">
+    <img src="https://img.shields.io/badge/GTK4%20%2F%20libadwaita-4a86cf" alt="GTK4 and libadwaita">
+    <img src="https://img.shields.io/badge/Rust-dea584?logo=rust&logoColor=black" alt="Written in Rust">
+    <img src="https://img.shields.io/badge/interface-English%20%7C%20Español-8a63d2" alt="English and Spanish">
+    <a href="./COPYING"><img src="https://img.shields.io/badge/license-GPL--3.0--or--later-2ea44f" alt="GPL-3.0-or-later"></a>
+  </p>
+
+  <p>
+    <a href="#installation">Installation</a> ·
+    <a href="#sources">Sources</a> ·
+    <a href="#preview">Preview</a> ·
+    <a href="#why-vinilo">Why Vinilo</a> ·
+    <a href="#first-launch">First launch</a> ·
+    <a href="#support-and-contributions">Support</a>
+  </p>
+</div>
+
+---
+
+Vinilo is a native front-end for the music you already pay for, not a website
+wrapped in a window. The interface is GTK4 and libadwaita. Apple Music still
+needs Apple's own player and Google's official Widevine CDM, so a small
+Chromium process stays hidden after sign-in. Local files never touch it.
+
+A GNOME app and a terminal client (`aguja`) talk to the same engine. Closing
+the window does not stop the music.
+
+> [!IMPORTANT]
+> **Apple Music** needs an active subscription, an **x86_64** machine and a
+> network connection on every play. Linux Widevine cannot keep licences
+> offline, so there is no download button and there never will be.
+
+> [!TIP]
+> **This computer** plays MP3, FLAC, Ogg and WAV on its own. No Chromium, no
+> account, no sidecar. Choose that source on first launch if you only want
+> files.
+
+## Preview
+
 <p align="center">
-  <img src="docs/screenshots/icon.png" width="128" alt="Icono de Vinilo">
+  <img src="docs/screenshots/library.webp" width="48%" alt="Library songs in Vinilo">
+  <img src="docs/screenshots/player.webp" width="48%" alt="Expanded player with artwork and queue">
 </p>
 
-# Vinilo
-
-Reproductor nativo de música para Linux, con interfaz en **inglés** o **español**.
-
-Vinilo es un fork de [Slipmat](https://github.com/SoftARV/Slipmat) de Miguel Rincon. En el primer arranque eliges **de dónde sale la música**: Apple Music, este equipo, Spotify, YouTube Music o Tidal.
-
-Apple no publica cliente para Linux, y Widevine impide una pila 100 % nativa para el catálogo. Vinilo dibuja su propia interfaz en Rust (GTK4 / libadwaita) y deja el motor web oculto solo para descifrar Apple Music. Los archivos locales se reproducen en el propio demonio, sin Chromium.
-
-La primera vez eliges idioma y fuente. Luego puedes cambiarlos en **Preferencias** (`Ctrl`+`,`).
-
 <p align="center">
-  <img src="docs/screenshots/library.webp" alt="Vinilo mostrando la biblioteca de canciones">
+  <img src="docs/screenshots/albums.webp" width="31%" alt="Albums grid">
+  <img src="docs/screenshots/search.webp" width="31%" alt="Catalogue search">
+  <img src="docs/screenshots/playlist.webp" width="31%" alt="Playlist page">
 </p>
 
-## Qué hace
+## Why Vinilo
 
-- **Dos clientes nativos.** La aplicación GNOME o `aguja` en la terminal. Ambos controlan el mismo motor.
-- **Toda tu biblioteca.** Canciones, álbumes, artistas y listas. Reproducir una lista la convierte en la cola. En Spotify, YouTube Music, Tidal y Apple Music puedes marcar favoritos, guardar en la biblioteca y **crear listas nuevas** (menú de la canción o el botón + en Listas).
-- **Reproducción sin cortes** y reproductor a pantalla completa con portada y cola.
-- **Controles del escritorio.** Barra superior de GNOME, pantalla de bloqueo o teclas multimedia. La música sigue si cierras la ventana.
-- **Búsqueda en Apple Music.** Artistas, álbumes, listas y canciones.
-- **Escuchar ahora.** Recién reproducido, listas hechas para ti y éxitos; con Apple Music o Spotify si esa es la fuente, y con tu biblioteca si el servicio no responde.
-- **Listas rápidas.** Las playlists que ya abriste se quedan en caché; las filas muestran la carátula de cada canción.
-- **Archivos de este equipo.** Ábrelo desde Archivos, suelta una carpeta, o pon Vinilo como reproductor predeterminado. Funciona con Apple Music y también en solitario.
-- **Idioma y fuente en Preferencias.** Inglés y español; Apple Music, este equipo, Spotify, YouTube Music o Tidal.
+| Interface | Playback | Desktop |
+| --- | --- | --- |
+| A GNOME app, not a website in a frame | A player worth the name: gapless, with artwork and a queue | Play, pause and skip from the top bar, lock screen or media keys |
+| Your library: songs, albums, artists and playlists | The catalogues you already use, searchable from one place | Music keeps going when you close the window |
+| English or Spanish, chosen on first launch | A terminal client (`aguja`) on the same engine | Quick, and out of the way |
 
-## Requisitos
+Vinilo is built for daily listening: one queue, two faces, and a small hidden
+web layer only where DRM requires it.
 
-Para **Apple Music** necesitas una suscripción activa, una máquina **x86_64** (Widevine en Linux solo existe ahí) y red cada vez que reproduces. Esa instalación descarga una vez castLabs Electron (~200 MB de Chromium) para el CDM Widevine.
+## Sources
 
-Para **archivos locales** basta con el propio Vinilo: MP3, FLAC, Ogg, WAV y demás que rodio sepa abrir. No hace falta sidecar ni cuenta.
+| Source | Channel | What you need |
+| --- | --- | --- |
+| Apple Music | Beta | Active subscription, x86_64, network on every play |
+| This computer | Stable | Audio files on disk |
+| Spotify | Beta | Sign-in. Premium uses librespot; otherwise a fallback |
+| YouTube Music | Beta | Sign-in |
+| Tidal | Alpha | Sign-in |
 
-Para **Spotify, YouTube Music y Tidal** Vinilo abre una **ventana de inicio de sesión** (como Apple Music). El catálogo se busca en la app. **Spotify (Beta)** reproduce con **librespot** si tienes **Premium** (la primera canción puede abrir el navegador para OAuth); sin Premium cae a `yt-dlp`. **YouTube Music (Beta)** prefiere audio InnerTube y usa `yt-dlp` solo si hace falta. **Tidal (Alpha)** sigue con `yt-dlp`. También `webkitgtk-6.0` para la ventana de login.
+Favourites, library saves and new playlists are available from the row menu
+where the source allows it. Change language or source later in
+**Preferences** (`Ctrl`+`,`).
 
-## Compilar e instalar
+## Installation
 
-El `Makefile` vive **dentro del repositorio**. Si ejecutas `make install` desde `~` verás:
+Build and install from a clone of this repository, **inside that directory**,
+into `~/.local` (no `sudo`).
 
-```
-make: *** No hay ninguna regla para construir el objetivo 'install'.  Alto.
-```
+### Arch Linux — recommended
 
-Eso no es un fallo de pacman: no hay Makefile en el directorio de trabajo. Actualiza e instala **dentro del clon**, nunca desde `~`:
+1. Install the build and runtime packages:
+
+   ```bash
+   sudo pacman -S --needed base-devel pkgconf rustup gtk4 libadwaita librsvg \
+                           nodejs npm libpulse alsa-lib yt-dlp ffmpeg webkitgtk-6.0
+   rustup default stable   # Vinilo needs Rust ≥ 1.93 (edition 2024)
+   ```
+
+2. Clone and install:
+
+   ```bash
+   git clone https://github.com/danielmigueltejedor/vinilo.git
+   cd vinilo
+   make install
+   ```
+
+3. Open **Vinilo** from the app grid, or run `vinilo`.
+
+The first Apple Music install also fetches castLabs Electron (~200 MB) for the
+Widevine CDM. Local-only use skips that once you never open Apple Music.
+
+> [!TIP]
+> On **fish**, GNOME's PATH often omits `~/.local/bin`. Add it once with
+> `fish_add_path ~/.local/bin`.
+
+### Updating
 
 ```bash
 cd ~/vinilo
@@ -58,55 +126,14 @@ pkill vinilo; pkill vinilod
 make update
 ```
 
-`make update` descarta un `Cargo.lock` local (un `cargo build` lo ensucia), trae `main` e instala. Si usas `git pull` a mano y aborta por `Cargo.lock`, no instales a medias: te quedarías en la versión anterior.
+`make update` discards a dirty local `Cargo.lock`, fast-forwards `main` and
+reinstalls. If the grid still launches nothing, the desktop file must read
+`Exec=/home/YOU/.local/bin/vinilo-desktop`. Log out once if an icon or launcher
+looks stale.
 
-Primero publica el código en GitHub (en Cursor: **Create repo**). Hasta que ese remoto exista, `git clone` fallará: el proyecto vive aquí, no todavía en github.com.
+### Default player for files
 
-GitHub **no acepta la contraseña de la cuenta** para `git clone` / `git push`. Usa SSH o un token (PAT), no la contraseña de iCloud/GitHub.
-
-```bash
-# 1. Clona con la URL que te dé GitHub (SSH, no HTTPS+contraseña)
-git clone git@github.com:TU_USUARIO/vinilo.git
-cd vinilo
-
-# 2. Dependencias (Arch). No hace falta sudo para make.
-#    rustup, no el paquete «rust»: Vinilo pide Rust ≥ 1.93 (edition 2024).
-sudo pacman -S --needed base-devel pkgconf rustup gtk4 libadwaita librsvg \
-                        nodejs npm libpulse alsa-lib yt-dlp ffmpeg webkitgtk-6.0
-rustup default stable
-
-# 3. Compila, descarga el sidecar (~200 MB) e instala en ~/.local
-make install
-```
-
-Arranca **Vinilo** desde la parrilla de aplicaciones o:
-
-```bash
-# fish (Arch por defecto a menudo no incluye ~/.local/bin)
-fish_add_path ~/.local/bin
-vinilo
-```
-
-`make install` escribe `Exec=/home/…/.local/bin/vinilo-desktop` en el `.desktop` (un wrapper que pone `~/.local/bin` en el PATH y recupera `WAYLAND_DISPLAY` si GNOME arranca por D-Bus). Un `Exec=vinilo` a secas es por lo que la parrilla no abría nada: el PATH de GNOME no incluye `~/.local/bin`, y el de fish sí.
-
-Si `git pull` aborta por `Cargo.lock` (un `cargo build` local lo ensucia), no instales a medias. Desde `~/vinilo`:
-
-```bash
-make update
-```
-
-Eso descarta el `Cargo.lock` local, trae `main` y vuelve a instalar. Equivale a:
-
-```bash
-git restore -- Cargo.lock
-git pull
-pkill vinilod
-make install
-```
-
-Si tras instalar la parrilla sigue muda: cierra sesión y vuelve a entrar, o `update-desktop-database ~/.local/share/applications`. El `.desktop` tiene que decir `Exec=/home/TU_USUARIO/.local/bin/vinilo-desktop`, no `vinilo`. Tras un clic, `~/.cache/vinilo/launcher.log` dice si GNOME llegó a ejecutar el acceso directo.
-
-Para que sea el reproductor predeterminado: en Archivos, clic derecho en una canción → **Abrir con** → Vinilo → **Siempre**. O:
+In Files: right-click a track → **Open With** → Vinilo → **Always**. Or:
 
 ```bash
 xdg-mime default dev.danielmiguelt.Vinilo.desktop audio/mpeg
@@ -114,69 +141,82 @@ xdg-mime default dev.danielmiguelt.Vinilo.desktop audio/flac
 xdg-mime default dev.danielmiguelt.Vinilo.desktop audio/ogg
 ```
 
-`make install` **no lleva sudo**: instala en `~/.local`. La primera vez tarda un rato (Rust en release + Chromium del sidecar si usas Apple Music).
-
-Si ya tenías Vinilo abierto, cierra la aplicación y para el demonio viejo para que coja el protocolo nuevo:
+### Development
 
 ```bash
-pkill vinilod
+cargo run                 # GNOME app
+cargo run -p aguja        # terminal client
+make sidecar-run          # hidden player, window visible (DRM isolation)
+make check                # fmt + clippy + tests
 ```
 
-`aguja` se instala junto a Vinilo: el reproductor en terminal. También necesita una sesión gráfica porque el demonio ejecuta Chromium.
+`aguja` is installed with Vinilo. Apple Music still needs a graphical session
+because Chromium needs a display server.
 
-```bash
-cargo run                                    # la app GNOME
-cargo run -p aguja                           # el reproductor de terminal
-RUST_LOG=vinilod=debug cargo run -p vinilod  # el motor
-make sidecar-run                             # sidecar solo, ventana VISIBLE
-make check                                   # fmt + clippy + test
-```
+## First launch
 
-## Primer arranque
+1. Choose **English** or **Español**.
+2. Choose a source: Apple Music, this computer, Spotify, YouTube Music or Tidal.
+3. Streaming sources open a **sign-in window** you cannot skip. Sign out from
+   the app menu to pick another source.
+4. The Apple Music library is cached for the next start. Local files play as
+   soon as you open them.
 
-1. Elige **English** o **Español**.
-2. Elige de dónde sale la música: **Apple Music**, **este equipo**, **Spotify**, **YouTube Music** o **Tidal**.
-3. Si elegiste Apple Music, Spotify, YouTube Music o Tidal, se abre una **ventana de inicio de sesión** que no puedes saltarte (igual que Apple Music). Cierra sesión desde el menú para volver a configurarla.
-4. La biblioteca de Apple aparece desde la caché en los siguientes arranques. En Spotify / YouTube Music / Tidal busca una canción y pulsa: suena de verdad si tienes `yt-dlp` (y `ffmpeg` ayuda). Los archivos locales se reproducen en cuanto los abres.
+Language lives in `~/.config/vinilo/locale`. The source lives in
+`~/.config/vinilo/provider`. Catalogue sessions stay in cookies next to that;
+tokens are never written to disk.
 
-Una instalación que ya tenía idioma elegido no vuelve a preguntar la fuente: se queda en Apple Music, que es lo que ya usabas.
-
-El idioma queda en `~/.config/vinilo/locale`, la fuente en `~/.config/vinilo/provider` y las sesiones de catálogo en `~/.config/vinilo/configured` más `cookies-*.txt`.
-
-## Cómo funciona
+## How it works
 
 ```
 ┌────────────────────────────┐   ┌────────────────────────────┐
-│  Vinilo: GTK4/libadwaita   │   │  aguja: la terminal        │
-│  biblioteca · búsqueda     │   │  lo mismo, en texto        │
+│  Vinilo  GTK4 / libadwaita │   │  aguja  terminal           │
+│  library · search · player │   │  the same engine, in text  │
 └─────────────┬──────────────┘   └─────────────┬──────────────┘
-              │      JSON por un socket Unix
+              │         JSON on a Unix socket
               └──────────────┬─────────────────┘
-┌────────────────────────────▼─────────────────────────────────┐
-│  vinilod: el motor                            ← sin ventana  │
-│  cola · MPRIS · portadas · archivos locales · caché          │
+┌─────────────────────────────▼─────────────────────────────────┐
+│  vinilod — the engine                         no window      │
+│  queue · desktop controls · artwork · local files · cache    │
 └──────────────┬──────────────────────────────┬────────────────┘
-               │ Apple Music                  │ archivos
+               │ Apple Music                  │ files
 ┌──────────────▼──────────────┐    ┌──────────▼────────────────┐
-│  sidecar: castLabs Electron │    │  rodio en el propio motor │
-│  MusicKit + Widevine        │    │  MP3, FLAC, Ogg, WAV…     │
+│  sidecar  castLabs Electron │    │  rodio in the engine      │
+│  MusicKit + Widevine CDM    │    │  MP3, FLAC, Ogg, WAV…     │
 └─────────────────────────────┘    └───────────────────────────┘
 ```
 
-Apple Music pasa por el reproductor MusicKit de Apple con el CDM oficial de Google. Los archivos de este equipo no. Vinilo no quita el DRM ni descarga pistas.
+Apple Music goes through Apple's MusicKit player and Google's official CDM.
+Vinilo does not strip DRM, cache decrypted audio, or offer downloads.
 
-## Limitaciones
+## Limitations
 
-- **Sin reproducción sin conexión de Apple Music.** El CDM de Linux no admite licencias persistentes.
-- **~200 MB en disco** para el sidecar de Chromium, solo si usas Apple Music.
-- **Solo x86_64** para Apple Music, mientras Widevine en Linux ARM no esté estable.
-- **Spotify (Beta)** reproduce con librespot si tienes Premium; **YouTube Music (Beta)** prefiere InnerTube; **Tidal (Alpha)** aún usa yt-dlp. Apple Music es **Beta**.
-- **`aguja` necesita una sesión de escritorio** si usas Apple Music: Chromium pide un servidor de pantalla.
+| Constraint | Why |
+| --- | --- |
+| No offline Apple Music | Linux Widevine cannot persist licences |
+| ~200 MB Chromium sidecar | Only if you use Apple Music |
+| x86_64 only for Apple Music | Linux ARM Widevine is not a stable target |
+| Spotify, YouTube Music and Apple Music are **Beta**; Tidal is **Alpha** | Catalogue clients are still settling |
+| `aguja` needs a desktop session for Chromium sources | The decoder still needs a display server |
 
-## Créditos
+## Support and contributions
 
-Fork de [Slipmat](https://github.com/SoftARV/Slipmat) (GPL-3.0-or-later) de Miguel Rincon. [Sidra](https://github.com/wimpysworld/sidra) y [Cider](https://cider.sh) abrieron el camino de castLabs Electron para Apple Music en Linux.
+- Use [GitHub Issues](https://github.com/danielmigueltejedor/vinilo/issues) for
+  reproducible bugs and focused feature requests.
+- Include the Vinilo version (`0.25.4`), distribution, GTK/libadwaita versions
+  and the source (Apple Music, local, Spotify, YouTube Music or Tidal).
+- Never paste tokens, cookies or `settings.ini` into an issue.
 
-## Licencia
+## Credits
 
-GPL-3.0-or-later. Ver [COPYING](COPYING).
+Vinilo is a fork of [Slipmat](https://github.com/SoftARV/Slipmat)
+(GPL-3.0-or-later) by Miguel Rincon. Linux Apple Music playback through
+castLabs Electron follows the path opened by Sidra and Cider.
+
+## License
+
+Vinilo is released under the [GPL-3.0-or-later](./COPYING).
+
+<p align="center">
+  Designed and maintained by Daniel Miguel Tejedor.
+</p>
