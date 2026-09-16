@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
+  <title>Hide sidebar</title>
+  <path fill="#000000" fill-rule="evenodd" d="M2 2.5h12v11H2zm1.5 1.5h9v8h-9z"/>
+  <path fill="#000000" d="M7.85 8 10.6 5.25H8.7L5.95 8 8.7 10.75h1.9z"/>
+</svg>

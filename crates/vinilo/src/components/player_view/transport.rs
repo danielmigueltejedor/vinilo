@@ -249,10 +249,7 @@ impl PlayerView {
         bits.play.set_sensitive(self.snap.active);
         bits.previous.set_sensitive(self.snap.has_previous);
         bits.shuffle.set_opacity(mode_opacity(self.snap.shuffle));
-        bits.repeat.set_icon_name(match self.snap.repeat {
-            RepeatMode::One => "media-playlist-repeat-song-symbolic",
-            _ => "media-playlist-repeat-symbolic",
-        });
+        bits.repeat.set_icon_name(self.snap.repeat.icon());
         bits.repeat
             .set_opacity(mode_opacity(!matches!(self.snap.repeat, RepeatMode::None)));
         bits.next.set_sensitive(self.snap.has_next);

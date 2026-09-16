@@ -202,19 +202,10 @@ pub(super) fn register_actions(
 ///
 /// A name that does not exist renders as nothing at all — silently, with no
 /// warning — which is how `music-note-single-symbolic` shipped as an invisible
-/// icon.
+/// icon. Colloid's Bold pack is the *symbolic* 1.5px set; colour app icons
+/// have no bold cut, so this keeps the `-symbolic` suffix on purpose.
 pub(super) fn icon(name: &'static str) -> &'static str {
-    let Some(theme) = gtk::gdk::Display::default().map(|d| gtk::IconTheme::for_display(&d)) else {
-        return "audio-x-generic-symbolic";
-    };
-    if crate::nodalix::colloid_is_live() {
-        if let Some(colour) = name.strip_suffix("-symbolic") {
-            if theme.has_icon(colour) {
-                return colour;
-            }
-        }
-    }
-    if theme.has_icon(name) {
+    if crate::nodalix::has_icon(name) {
         name
     } else {
         tracing::warn!(icon = name, "icon missing from the theme; falling back");

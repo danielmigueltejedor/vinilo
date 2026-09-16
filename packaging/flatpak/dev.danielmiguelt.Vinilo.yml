@@ -132,3 +132,9 @@ modules:
           /app/share/icons/hicolor/symbolic/apps/dev.danielmiguelt.Vinilo-symbolic.svg
       - install -Dm644 data/icons/hicolor/symbolic/actions/vinilo-lyrics-symbolic.svg
           /app/share/icons/hicolor/symbolic/actions/vinilo-lyrics-symbolic.svg
+      - install -Dm644 data/icons/hicolor/symbolic/actions/vinilo-repeat-one-symbolic.svg
+          /app/share/icons/hicolor/symbolic/actions/vinilo-repeat-one-symbolic.svg
+      - install -Dm644 data/icons/hicolor/symbolic/actions/vinilo-sidebar-show-symbolic.svg
+          /app/share/icons/hicolor/symbolic/actions/vinilo-sidebar-show-symbolic.svg
+      - install -Dm644 data/icons/hicolor/symbolic/actions/vinilo-sidebar-hide-symbolic.svg
+          /app/share/icons/hicolor/symbolic/actions/vinilo-sidebar-hide-symbolic.svg

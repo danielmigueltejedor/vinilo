@@ -324,10 +324,7 @@ impl Component for QueueView {
                         model.repeat.tooltip()
                     }),
                     #[watch]
-                    set_icon_name: match model.repeat {
-                        RepeatMode::One => "media-playlist-repeat-song-symbolic",
-                        _ => "media-playlist-repeat-symbolic",
-                    },
+                    set_icon_name: model.repeat.icon(),
                     #[watch]
                     set_opacity: mode_opacity(!matches!(model.repeat, RepeatMode::None)),
                     connect_clicked[sender] => move |_| {

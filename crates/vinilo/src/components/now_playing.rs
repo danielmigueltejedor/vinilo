@@ -136,7 +136,11 @@ impl RepeatButton for RepeatMode {
     fn icon(self) -> &'static str {
         match self {
             Self::None | Self::All => "media-playlist-repeat-symbolic",
-            Self::One => "media-playlist-repeat-song-symbolic",
+            Self::One => crate::nodalix::first_icon(&[
+                "vinilo-repeat-one-symbolic",
+                "media-playlist-repeat-song-symbolic",
+                "media-playlist-repeat-symbolic",
+            ]),
         }
     }
 

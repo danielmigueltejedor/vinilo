@@ -941,11 +941,18 @@ impl Component for AppModel {
                                         set_show_start_title_buttons: !model.show_sidebar,
 
                                         pack_start = &gtk::ToggleButton {
-                                            set_icon_name: "sidebar-show-symbolic",
+                                            #[watch]
+                                            set_icon_name: crate::nodalix::sidebar_toggle_icon(
+                                                model.show_sidebar,
+                                            ),
                                             #[watch]
                                             set_tooltip_text: Some({
                                                 let _ = model.locale_tick;
-                                                i18n::t(Key::ToggleSidebar)
+                                                i18n::t(if model.show_sidebar {
+                                                    Key::HideSidebar
+                                                } else {
+                                                    Key::ShowSidebar
+                                                })
                                             }),
                                             #[watch]
                                             set_active: model.show_sidebar,

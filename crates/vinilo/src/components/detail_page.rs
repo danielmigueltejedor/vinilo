@@ -293,8 +293,8 @@ impl DetailPage {
         // `show_sidebar_toggle`, because the header is assembled here and the
         // page does not learn how it was opened until later.
         let sidebar_toggle = gtk::ToggleButton::builder()
-            .icon_name("sidebar-show-symbolic")
-            .tooltip_text(vinilo_core::i18n::t(vinilo_core::i18n::Key::ToggleSidebar))
+            .icon_name(crate::nodalix::sidebar_toggle_icon(false))
+            .tooltip_text(vinilo_core::i18n::t(vinilo_core::i18n::Key::ShowSidebar))
             .visible(false)
             .build();
         sidebar_toggle.connect_clicked(move |_| on_toggle_sidebar());
@@ -360,6 +360,15 @@ impl DetailPage {
     /// pressed over a hidden sidebar is a control that lies about its own state.
     pub fn set_sidebar_shown(&self, shown: bool) {
         self.sidebar_toggle.set_active(shown);
+        self.sidebar_toggle
+            .set_icon_name(crate::nodalix::sidebar_toggle_icon(shown));
+        self.sidebar_toggle.set_tooltip_text(Some(vinilo_core::i18n::t(
+            if shown {
+                vinilo_core::i18n::Key::HideSidebar
+            } else {
+                vinilo_core::i18n::Key::ShowSidebar
+            },
+        )));
     }
 
     /// This page's own row widgets, so the play marker can find them.

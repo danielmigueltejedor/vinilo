@@ -79,7 +79,11 @@ pub fn apply_icons() {
         Some(name) => {
             settings.set_gtk_icon_theme_name(Some(name.as_str()));
             if settings.gtk_icon_theme_name().as_deref() == Some(name.as_str()) {
-                tracing::info!(theme = %name, "nodalix: Colloid icons");
+                tracing::info!(
+                    theme = %name,
+                    live = colloid_is_live(),
+                    "nodalix: Colloid icons"
+                );
             } else {
                 tracing::warn!(
                     wanted = %name,
@@ -166,28 +170,73 @@ fn is_colloid_theme(path: &Path) -> bool {
             .is_some_and(|n| n == "Colloid" || n.starts_with("Colloid-"))
 }
 
-/// Prefer the unsuffixed Dark/Light pack over a colour variant (Teal, Nord…).
+/// Prefer a Bold pack, then unsuffixed Dark/Light, then a colour variant.
+///
+/// Colloid's `-b` install overwrites symbolic icons in the same folder, but a
+/// second copy named `Colloid-Dark-Bold` is how a machine keeps both weights.
+/// Colour app icons have no bold cut — the 1.5px set is the symbolic one.
 pub(crate) fn choose_colloid(dark: bool, installed: &[String]) -> Option<String> {
-    let exact = if dark {
-        "Colloid-Dark"
+    let mut ranked: Vec<(u8, &str)> = installed
+        .iter()
+        .filter_map(|name| colloid_rank(dark, name).map(|rank| (rank, name.as_str())))
+        .collect();
+    ranked.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(b.1)));
+    ranked.into_iter().next().map(|(_, name)| name.to_owned())
+}
+
+fn colloid_rank(dark: bool, name: &str) -> Option<u8> {
+    if name != "Colloid" && !name.starts_with("Colloid-") {
+        return None;
+    }
+    let tokens: Vec<&str> = name.split('-').skip(1).collect();
+    let has_dark = tokens.contains(&"Dark");
+    let has_light = tokens.contains(&"Light");
+    let has_bold = tokens.iter().any(|t| t.eq_ignore_ascii_case("Bold"));
+    let extra = tokens
+        .iter()
+        .any(|t| !matches!(*t, "Dark" | "Light") && !t.eq_ignore_ascii_case("Bold"));
+    if dark && has_light || !dark && has_dark {
+        return None;
+    }
+    let scheme = has_dark || has_light;
+    Some(match (has_bold, scheme, extra) {
+        (true, true, false) => 0,
+        (true, true, true) => 1,
+        (true, false, false) => 2,
+        (true, false, true) => 3,
+        (false, true, false) => 4,
+        (false, true, true) => 5,
+        (false, false, false) => 6,
+        (false, false, true) => 7,
+    })
+}
+
+pub fn has_icon(name: &str) -> bool {
+    gdk::Display::default()
+        .map(|d| gtk::IconTheme::for_display(&d))
+        .is_some_and(|theme| theme.has_icon(name))
+}
+
+pub fn first_icon(names: &[&'static str]) -> &'static str {
+    names
+        .iter()
+        .copied()
+        .find(|name| has_icon(name))
+        .unwrap_or("image-missing-symbolic")
+}
+
+/// Open vs closed must not share a glyph — a pressed toggle of the same icon
+/// is too easy to miss, which is why this is two names rather than `set_active`.
+pub fn sidebar_toggle_icon(shown: bool) -> &'static str {
+    if shown {
+        first_icon(&[
+            "vinilo-sidebar-hide-symbolic",
+            "sidebar-hide-symbolic",
+            "sidebar-show-symbolic",
+        ])
     } else {
-        "Colloid-Light"
-    };
-    if installed.iter().any(|n| n == exact) {
-        return Some(exact.to_owned());
+        first_icon(&["vinilo-sidebar-show-symbolic", "sidebar-show-symbolic"])
     }
-    let prefix = if dark {
-        "Colloid-Dark-"
-    } else {
-        "Colloid-Light-"
-    };
-    if let Some(n) = installed.iter().find(|n| n.starts_with(prefix)) {
-        return Some(n.clone());
-    }
-    if installed.iter().any(|n| n == "Colloid") {
-        return Some("Colloid".into());
-    }
-    None
 }
 
 #[cfg(test)]
@@ -208,6 +257,33 @@ mod tests {
         assert_eq!(
             choose_colloid(false, &installed).as_deref(),
             Some("Colloid-Light")
+        );
+    }
+
+    #[test]
+    fn bold_pack_beats_regular_dark() {
+        let installed = [
+            "Colloid-Dark".into(),
+            "Colloid-Dark-Bold".into(),
+            "Colloid-Light-Bold".into(),
+            "Colloid-Light".into(),
+        ];
+        assert_eq!(
+            choose_colloid(true, &installed).as_deref(),
+            Some("Colloid-Dark-Bold")
+        );
+        assert_eq!(
+            choose_colloid(false, &installed).as_deref(),
+            Some("Colloid-Light-Bold")
+        );
+    }
+
+    #[test]
+    fn unsuffixed_bold_is_used_when_no_scheme_bold_exists() {
+        let installed = ["Colloid-Dark".into(), "Colloid-Bold".into()];
+        assert_eq!(
+            choose_colloid(true, &installed).as_deref(),
+            Some("Colloid-Bold")
         );
     }
 
