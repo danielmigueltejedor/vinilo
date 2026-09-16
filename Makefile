@@ -236,7 +236,9 @@ dev-install:
 # grid launching an old `Exec=vinilo` desktop file (a no-op on GNOME's PATH).
 update:
 	git restore -- Cargo.lock 2>/dev/null || git checkout -- Cargo.lock
-	git pull --ff-only origin main
+	# Whatever this branch tracks — often `github/main`, not Cursor.
+	# Hardcoding `origin` aborts on a clone whose two remotes diverged.
+	git pull --ff-only
 	$(MAKE) install
 
 uninstall:
