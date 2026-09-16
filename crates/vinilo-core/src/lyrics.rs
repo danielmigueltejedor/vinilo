@@ -69,7 +69,7 @@ fn lines_from_ttml(ttml: &str) -> Option<Lyrics> {
     })
 }
 
-fn attr(tag: &str, name: &str) -> Option<&str> {
+fn attr<'a>(tag: &'a str, name: &str) -> Option<&'a str> {
     let needle = format!("{name}=");
     let rest = tag.get(tag.find(&needle)? + needle.len()..)?;
     let quote = rest.chars().next()?;
