@@ -71,7 +71,7 @@ impl Cover {
             .width_request(size)
             .height_request(size)
             .halign(gtk::Align::Center)
-            .css_classes(["card"])
+            .css_classes(["card", "nodalix-cover"])
             .overflow(gtk::Overflow::Hidden)
             .build();
 
@@ -87,7 +87,8 @@ impl Cover {
             .width_request(size)
             .height_request(size)
             .halign(gtk::Align::Center)
-            .css_classes(["card", "np-cover-empty"])
+            .css_classes(["card", "nodalix-cover", "np-cover-empty"])
+            .overflow(gtk::Overflow::Hidden)
             .build();
 
         let stack = gtk::Stack::builder()

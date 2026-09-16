@@ -1,12 +1,12 @@
 // SPDX-FileCopyrightText: 2026 Miguel Rincon
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! The app's accent colour, and the two rules that need CSS.
+//! The app's accent colour, the Nodalix chrome, and the two rules that need CSS.
 //!
-//! CLAUDE.md says not to reach for CSS where a libadwaita widget would do. This
-//! is the exception it allows: an **accent colour** is not a widget. libadwaita
-//! 1.6 exposes it as CSS variables (`--accent-bg-color` and friends) and there
-//! is no API to set an app-specific one, so a provider is the only route.
+//! CLAUDE.md says not to reach for CSS where a libadwaita widget would do. The
+//! exceptions it allows are here: an **accent colour** is not a widget, and the
+//! Nodalix identity — Colloid cover radii, rounder sidebar rows — is a family
+//! look other apps copy, not a GNOME widget we failed to find.
 //!
 //! Two providers, deliberately:
 //!
@@ -229,6 +229,8 @@ fn set_colors(colors: Option<(&'static str, &'static str)>) {
 
     // The star follows the accent (and the source tint, when that is on).
     // `color` on `image` is what tints a symbolic icon in GTK 4.
+    // Nodalix chrome last, so cover radii and sidebar rows win over Adwaita.
+    let chrome = crate::nodalix::CHROME;
     let css = format!(
         "{accent_rules}
          image.favorite-star {{ color: var(--accent-color); }}
@@ -328,7 +330,7 @@ fn set_colors(colors: Option<(&'static str, &'static str)>) {
             having a place the cover goes. The left edge is a touch lighter,
             which is enough to suggest a spine. */
          .np-cover-empty {{
-             border-radius: 6px;
+             border-radius: var(--nodalix-radius-cover, 12px);
              background-image: linear-gradient(
                  to right,
                  alpha(currentColor, 0.16) 0%,
@@ -359,7 +361,8 @@ fn set_colors(colors: Option<(&'static str, &'static str)>) {
          }}
          .lyrics-synced .lyric-line.lyric-current {{
              opacity: 1;
-         }}"
+         }}
+         {chrome}"
     );
 
     BASE.with(|p| p.load_from_string(&css));
@@ -813,5 +816,10 @@ mod tests {
         );
         let cleared = page_backdrop_css("page-bg-3", None, true);
         assert!(cleared.contains("background-image: none"));
+    }
+
+    #[test]
+    fn empty_sleeves_follow_the_colloid_cover_radius() {
+        assert!(crate::nodalix::CHROME.contains("--nodalix-radius-cover: 22%"));
     }
 }

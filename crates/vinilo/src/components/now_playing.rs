@@ -268,6 +268,7 @@ impl SimpleComponent for NowPlaying {
                     set_pixel_size: 48,
                     set_size_request: (48, 48),
                     add_css_class: "np-cover",
+                    set_overflow: gtk::Overflow::Hidden,
                 },
 
                 // An empty sleeve rather than a floating icon: with nothing
@@ -281,6 +282,7 @@ impl SimpleComponent for NowPlaying {
                     set_icon_name: Some("media-optical-symbolic"),
                     add_css_class: "np-cover",
                     add_css_class: "np-cover-empty",
+                    set_overflow: gtk::Overflow::Hidden,
                 },
 
                 // **After the children**, or naming one before it is added

@@ -5,6 +5,7 @@ mod app;
 mod components;
 mod daemon;
 mod mirror;
+mod nodalix;
 mod notify;
 mod open;
 mod settings;
@@ -109,6 +110,7 @@ fn main() {
         settings.provider,
         style::Accent::parse(&settings.accent),
     );
+    nodalix::init();
     app.run::<app::AppModel>(settings);
 }
 

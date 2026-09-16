@@ -741,6 +741,7 @@ impl Component for AppModel {
 
     view! {
         adw::ApplicationWindow {
+            add_css_class: "nodalix",
             set_title: Some(WINDOW_TITLE),
 
             // Closing a music player mid-song should not stop the music.
@@ -820,8 +821,8 @@ impl Component for AppModel {
                         #[wrap(Some)]
                         #[name = "nav_split"]
                         set_content = &adw::OverlaySplitView {
-                            set_min_sidebar_width: 200.0,
-                            set_max_sidebar_width: 260.0,
+                            set_min_sidebar_width: 220.0,
+                            set_max_sidebar_width: 280.0,
                             // Not a `#[watch]`. See `sync_animated`.
                             set_show_sidebar: model.show_sidebar,
                             // **The model has to adopt what the widget did.**
