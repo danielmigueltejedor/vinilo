@@ -826,6 +826,39 @@ impl Client {
         Ok((first(albums), first(artists)))
     }
 
+    /// Timed lyrics when Apple has them, otherwise the unsynced TTML.
+    ///
+    /// `syllable-lyrics` is the timed resource the web player uses; `lyrics`
+    /// is the fallback when a song only has a plain transcript. Both need the
+    /// Music User Token — without a session Apple 404s them the same way as a
+    /// song that has no words.
+    pub async fn lyrics(&self, song_id: &str) -> Result<crate::ipc::Lyrics> {
+        if !song_id.bytes().all(|b| b.is_ascii_digit()) {
+            anyhow::bail!("{}", crate::i18n::t(crate::i18n::Key::LyricsMissing));
+        }
+        let sf = &self.storefront;
+        for kind in ["syllable-lyrics", "lyrics"] {
+            let res = self
+                .get(&format!("/catalog/{sf}/songs/{song_id}/{kind}"))
+                .send()
+                .await
+                .map_err(Self::transport_error)
+                .context("requesting lyrics")?;
+            let status = res.status();
+            if status.as_u16() == 404 {
+                continue;
+            }
+            if !status.is_success() {
+                return Err(self.explain(res).await);
+            }
+            let value: serde_json::Value = res.json().await.context("decoding lyrics")?;
+            if let Some(lyrics) = crate::lyrics::from_apple_ttml(&value) {
+                return Ok(lyrics);
+            }
+        }
+        anyhow::bail!("{}", crate::i18n::t(crate::i18n::Key::LyricsMissing))
+    }
+
     /// An album and its tracks, in one request.
     ///
     /// `include=tracks` saves a round trip: the relationship comes back inside

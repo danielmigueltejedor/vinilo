@@ -1267,9 +1267,10 @@ fn answer(
 
 fn fetch_lyrics(daemon: &Rc<Daemon>, id: String) {
     let daemon = daemon.clone();
+    let apple = daemon.client();
     tokio::task::spawn_local(async move {
         let http = vinilo_core::streams::http();
-        let event = match vinilo_core::lyrics::for_id(&http, &id).await {
+        let event = match vinilo_core::lyrics::for_id(&http, apple.as_ref(), &id).await {
             Ok(lyrics) => Event::Lyrics {
                 id,
                 lyrics: Some(lyrics),
