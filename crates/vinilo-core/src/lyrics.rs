@@ -29,13 +29,48 @@ pub async fn for_id(http: &reqwest::Client, apple: Option<&Client>, id: &str) ->
 
 /// Apple's lyrics resources carry a TTML blob, not JSON lines.
 pub(crate) fn from_apple_ttml(value: &Value) -> Option<Lyrics> {
-    let data = value.get("data")?.as_array()?;
-    let ttml = data.iter().find_map(|item| {
-        item.get("attributes")
-            .and_then(|a| a.get("ttml"))
-            .and_then(Value::as_str)
-    })?;
-    lines_from_ttml(ttml)
+    lines_from_ttml(ttml_blob(value)?)
+}
+
+fn ttml_blob(value: &Value) -> Option<&str> {
+    if let Some(s) = ttml_in_attrs(value.get("attributes")) {
+        return Some(s);
+    }
+    if let Some(rel) = value.get("relationships") {
+        for key in ["syllable-lyrics", "lyrics"] {
+            if let Some(s) = rel.get(key).and_then(ttml_blob) {
+                return Some(s);
+            }
+        }
+    }
+    let items = match value {
+        Value::Array(items) => items.as_slice(),
+        _ => value.get("data")?.as_array()?.as_slice(),
+    };
+    items.iter().find_map(ttml_blob)
+}
+
+fn ttml_in_attrs(attrs: Option<&Value>) -> Option<&str> {
+    let attrs = attrs?;
+    for key in ["ttml", "ttmlLocalizations"] {
+        match attrs.get(key) {
+            Some(Value::String(s)) if looks_like_ttml(s) => return Some(s),
+            Some(Value::Object(map)) => {
+                if let Some(s) = map
+                    .values()
+                    .find_map(|v| v.as_str().filter(|text| looks_like_ttml(text)))
+                {
+                    return Some(s);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+fn looks_like_ttml(s: &str) -> bool {
+    s.contains("<p") || s.contains("<tt")
 }
 
 fn lines_from_ttml(ttml: &str) -> Option<Lyrics> {
@@ -57,7 +92,10 @@ fn lines_from_ttml(ttml: &str) -> Option<Lyrics> {
         if text.is_empty() {
             continue;
         }
-        let start_ms = attr(attrs, "begin").and_then(ttml_ms).unwrap_or(0);
+        let start_ms = attr(attrs, "begin")
+            .or_else(|| attr(attrs, "in"))
+            .and_then(ttml_ms)
+            .unwrap_or(0);
         lines.push(LyricLine { start_ms, text });
     }
     if lines.is_empty() {
@@ -170,5 +208,40 @@ mod tests {
     fn seconds_suffix_parses() {
         assert_eq!(ttml_ms("12.5s"), Some(12_500));
         assert_eq!(ttml_ms("1:02.000"), Some(62_000));
+    }
+
+    #[test]
+    fn include_lyrics_nests_the_ttml() {
+        let json = serde_json::json!({
+            "data": [{
+                "type": "songs",
+                "relationships": {
+                    "lyrics": {
+                        "data": [{
+                            "attributes": {
+                                "ttml": "<tt><body><div><p begin=\"1.5s\">Hola</p></div></body></tt>"
+                            }
+                        }]
+                    }
+                }
+            }]
+        });
+        let lyrics = from_apple_ttml(&json).unwrap();
+        assert_eq!(lyrics.lines[0].text, "Hola");
+        assert_eq!(lyrics.lines[0].start_ms, 1500);
+    }
+
+    #[test]
+    fn ttml_localizations_string_is_used() {
+        let json = serde_json::json!({
+            "data": [{
+                "attributes": {
+                    "ttmlLocalizations": "<tt><body><div><p begin=\"0.064\">Uno</p></div></body></tt>"
+                }
+            }]
+        });
+        let lyrics = from_apple_ttml(&json).unwrap();
+        assert_eq!(lyrics.lines[0].text, "Uno");
+        assert_eq!(lyrics.lines[0].start_ms, 64);
     }
 }

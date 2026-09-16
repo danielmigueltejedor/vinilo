@@ -38,6 +38,9 @@ pub struct SearchResults {
 }
 
 const API_BASE: &str = "https://api.music.apple.com/v1";
+/// Where `music.apple.com` itself asks for timed lyrics. The public catalog
+/// host refuses `syllable-lyrics` for the harvested AMPWebPlay token (40012).
+const AMP_API_BASE: &str = "https://amp-api.music.apple.com/v1";
 /// The origin the harvested developer token is minted for — see `get()`.
 const WEB_ORIGIN: &str = "https://music.apple.com";
 const WEB_REFERER: &str = "https://music.apple.com/";
@@ -828,35 +831,73 @@ impl Client {
 
     /// Timed lyrics when Apple has them, otherwise the unsynced TTML.
     ///
-    /// `syllable-lyrics` is the timed resource the web player uses; `lyrics`
-    /// is the fallback when a song only has a plain transcript. Both need the
-    /// Music User Token — without a session Apple 404s them the same way as a
-    /// song that has no words.
+    /// `syllable-lyrics` on `api.music.apple.com` is not a public catalog
+    /// privilege: the harvested AMPWebPlay token answers 40012, the same class
+    /// of refusal as un-favouriting. The web player asks amp-api with
+    /// `Media-User-Token` instead — that is the session we already hold.
+    /// A 400/403/404 is "try the next URL", never a JSON dump in the pane.
     pub async fn lyrics(&self, song_id: &str) -> Result<crate::ipc::Lyrics> {
         if !song_id.bytes().all(|b| b.is_ascii_digit()) {
             anyhow::bail!("{}", crate::i18n::t(crate::i18n::Key::LyricsMissing));
         }
         let sf = &self.storefront;
-        for kind in ["syllable-lyrics", "lyrics"] {
-            let res = self
-                .get(&format!("/catalog/{sf}/songs/{song_id}/{kind}"))
-                .send()
-                .await
-                .map_err(Self::transport_error)
-                .context("requesting lyrics")?;
-            let status = res.status();
-            if status.as_u16() == 404 {
-                continue;
-            }
-            if !status.is_success() {
-                return Err(self.explain(res).await);
-            }
-            let value: serde_json::Value = res.json().await.context("decoding lyrics")?;
-            if let Some(lyrics) = crate::lyrics::from_apple_ttml(&value) {
+        if let Some(lyrics) = self
+            .lyrics_amp(&format!(
+                "/catalog/{sf}/songs/{song_id}/syllable-lyrics?extend=ttmlLocalizations"
+            ))
+            .await?
+        {
+            return Ok(lyrics);
+        }
+        for path in [
+            format!("/catalog/{sf}/songs/{song_id}/lyrics"),
+            format!("/catalog/{sf}/songs/{song_id}?include=lyrics"),
+        ] {
+            if let Some(lyrics) = self.lyrics_public(&path).await? {
                 return Ok(lyrics);
             }
         }
         anyhow::bail!("{}", crate::i18n::t(crate::i18n::Key::LyricsMissing))
+    }
+
+    async fn lyrics_amp(&self, path: &str) -> Result<Option<crate::ipc::Lyrics>> {
+        let mut req = self
+            .http
+            .get(format!("{AMP_API_BASE}{path}"))
+            .bearer_auth(&self.developer_token)
+            .header("Origin", WEB_ORIGIN)
+            .header("Referer", WEB_REFERER);
+        if let Some(token) = &self.music_user_token {
+            req = req
+                .header("Media-User-Token", token.as_str())
+                .header("Music-User-Token", token.as_str());
+        }
+        let res = req
+            .send()
+            .await
+            .map_err(Self::transport_error)
+            .context("requesting lyrics")?;
+        self.lyrics_body(res).await
+    }
+
+    async fn lyrics_public(&self, path: &str) -> Result<Option<crate::ipc::Lyrics>> {
+        let res = self
+            .get(path)
+            .send()
+            .await
+            .map_err(Self::transport_error)
+            .context("requesting lyrics")?;
+        self.lyrics_body(res).await
+    }
+
+    async fn lyrics_body(&self, res: reqwest::Response) -> Result<Option<crate::ipc::Lyrics>> {
+        let status = res.status();
+        if !status.is_success() {
+            tracing::debug!(%status, "lyrics endpoint skipped");
+            return Ok(None);
+        }
+        let value: serde_json::Value = res.json().await.context("decoding lyrics")?;
+        Ok(crate::lyrics::from_apple_ttml(&value))
     }
 
     /// An album and its tracks, in one request.

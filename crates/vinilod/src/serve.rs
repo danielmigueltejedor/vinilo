@@ -1276,11 +1276,19 @@ fn fetch_lyrics(daemon: &Rc<Daemon>, id: String) {
                 lyrics: Some(lyrics),
                 error: None,
             },
-            Err(err) => Event::Lyrics {
-                id,
-                lyrics: None,
-                error: Some(err.to_string()),
-            },
+            Err(err) => {
+                tracing::warn!(error = %err, id = %id, "lyrics fetch failed");
+                let detail = err.to_string();
+                Event::Lyrics {
+                    id,
+                    lyrics: None,
+                    error: Some(if detail.contains("offline") {
+                        detail
+                    } else {
+                        vinilo_core::i18n::t(vinilo_core::i18n::Key::LyricsMissing).into()
+                    }),
+                }
+            }
         };
         daemon.publish(event);
     });
