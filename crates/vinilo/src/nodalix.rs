@@ -14,6 +14,7 @@
 use std::path::{Path, PathBuf};
 
 use relm4::adw;
+use relm4::gtk::prelude::*;
 use relm4::gtk::{self, gdk};
 
 /// CSS the rest of the suite can paste. Variables first, then the chrome that
@@ -38,7 +39,6 @@ pub(crate) const CHROME: &str = r#"
 .nodalix-cover,
 .np-cover {
     border-radius: var(--nodalix-radius-cover);
-    overflow: hidden;
 }
 
 .nodalix .np-bar {
@@ -63,28 +63,48 @@ pub(crate) const CHROME: &str = r#"
 
 /// Point GTK at Colloid and keep Dark/Light in step with libadwaita.
 pub fn init() {
-    add_icon_roots();
     apply_icons();
     adw::StyleManager::default().connect_dark_notify(|_| apply_icons());
 }
 
 /// Re-pick Colloid-Dark or Colloid-Light. Safe to call on every theme flip.
 pub fn apply_icons() {
-    let Some(display) = gdk::Display::default() else {
+    add_icon_roots();
+    let Some(settings) = gtk_settings() else {
         return;
     };
-    let theme = gtk::IconTheme::for_display(&display);
     let dark = adw::StyleManager::default().is_dark();
     let installed = installed_colloid();
     match choose_colloid(dark, &installed) {
         Some(name) => {
-            theme.set_theme_name(Some(&name));
-            tracing::info!(theme = %name, "nodalix: Colloid icons");
+            settings.set_gtk_icon_theme_name(Some(name.as_str()));
+            if settings.gtk_icon_theme_name().as_deref() == Some(name.as_str()) {
+                tracing::info!(theme = %name, "nodalix: Colloid icons");
+            } else {
+                tracing::warn!(
+                    wanted = %name,
+                    got = ?settings.gtk_icon_theme_name(),
+                    "nodalix: GtkSettings rejected the Colloid icon theme"
+                );
+            }
         }
         None => {
             tracing::debug!("nodalix: Colloid is not installed; keeping the system icon theme");
         }
     }
+}
+
+/// Whether this process is actually serving Colloid icons — not just logging it.
+pub fn colloid_is_live() -> bool {
+    gtk_settings()
+        .and_then(|s| s.gtk_icon_theme_name())
+        .is_some_and(|n| n == "Colloid" || n.starts_with("Colloid-"))
+}
+
+fn gtk_settings() -> Option<gtk::Settings> {
+    gtk::Settings::default().or_else(|| {
+        gdk::Display::default().map(|d| gtk::Settings::for_display(&d))
+    })
 }
 
 fn add_icon_roots() {

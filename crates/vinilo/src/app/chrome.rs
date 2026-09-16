@@ -204,10 +204,17 @@ pub(super) fn register_actions(
 /// warning — which is how `music-note-single-symbolic` shipped as an invisible
 /// icon.
 pub(super) fn icon(name: &'static str) -> &'static str {
-    let present = gtk::gdk::Display::default()
-        .map(|display| gtk::IconTheme::for_display(&display))
-        .is_some_and(|theme| theme.has_icon(name));
-    if present {
+    let Some(theme) = gtk::gdk::Display::default().map(|d| gtk::IconTheme::for_display(&d)) else {
+        return "audio-x-generic-symbolic";
+    };
+    if crate::nodalix::colloid_is_live() {
+        if let Some(colour) = name.strip_suffix("-symbolic") {
+            if theme.has_icon(colour) {
+                return colour;
+            }
+        }
+    }
+    if theme.has_icon(name) {
         name
     } else {
         tracing::warn!(icon = name, "icon missing from the theme; falling back");

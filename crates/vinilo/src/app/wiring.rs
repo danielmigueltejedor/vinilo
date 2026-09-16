@@ -101,7 +101,12 @@ fn sidebar_rows(model: &mut AppModel, widgets: &Widgets, sender: &ComponentSende
             ),
         };
 
-        content.append(&gtk::Image::from_icon_name(super::icon(icon)));
+        let icon_name = super::icon(icon);
+        let image = gtk::Image::from_icon_name(icon_name);
+        if !icon_name.ends_with("-symbolic") {
+            image.set_pixel_size(22);
+        }
+        content.append(&image);
 
         let label = gtk::Label::new(Some(&text));
         label.set_hexpand(true);
