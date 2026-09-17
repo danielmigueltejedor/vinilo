@@ -134,14 +134,10 @@ impl RepeatButton for RepeatMode {
     }
 
     fn icon(self) -> &'static str {
-        match self {
+        crate::nodalix::icon(match self {
             Self::None | Self::All => "media-playlist-repeat-symbolic",
-            Self::One => crate::nodalix::first_icon(&[
-                "vinilo-repeat-one-symbolic",
-                "media-playlist-repeat-song-symbolic",
-                "media-playlist-repeat-symbolic",
-            ]),
-        }
+            Self::One => "media-playlist-repeat-song-symbolic",
+        })
     }
 
     fn tooltip(self) -> &'static str {
@@ -283,7 +279,7 @@ impl SimpleComponent for NowPlaying {
                 add_named[Some("sleeve")] = &gtk::Image {
                     set_pixel_size: EMPTY_COVER_PX,
                     set_size_request: (48, 48),
-                    set_icon_name: Some("media-optical-symbolic"),
+                    set_icon_name: Some(crate::nodalix::icon("media-optical-symbolic")),
                     add_css_class: "np-cover",
                     add_css_class: "np-cover-empty",
                     set_overflow: gtk::Overflow::Hidden,
@@ -448,7 +444,7 @@ impl SimpleComponent for NowPlaying {
                 // drawer had no equivalent of, so the same control read two
                 // ways in one app.
                 gtk::Button {
-                    set_icon_name: "media-playlist-shuffle-symbolic",
+                    set_icon_name: crate::nodalix::icon("media-playlist-shuffle-symbolic"),
                     #[watch]
                     set_tooltip_text: Some({
                         let _ = model.locale_tick;
@@ -470,7 +466,7 @@ impl SimpleComponent for NowPlaying {
                 },
 
                 gtk::Button {
-                    set_icon_name: "media-skip-backward-symbolic",
+                    set_icon_name: crate::nodalix::icon("media-skip-backward-symbolic"),
                     #[watch]
                     set_tooltip_text: Some({
                         let _ = model.locale_tick;
@@ -487,11 +483,11 @@ impl SimpleComponent for NowPlaying {
                     add_css_class: "circular",
                     add_css_class: "suggested-action",
                     #[watch]
-                    set_icon_name: if model.snap.playing {
+                    set_icon_name: crate::nodalix::icon(if model.snap.playing {
                         "media-playback-pause-symbolic"
                     } else {
                         "media-playback-start-symbolic"
-                    },
+                    }),
                     #[watch]
                     set_tooltip_text: Some({
                         let _ = model.locale_tick;
@@ -505,7 +501,7 @@ impl SimpleComponent for NowPlaying {
                 },
 
                 gtk::Button {
-                    set_icon_name: "media-skip-forward-symbolic",
+                    set_icon_name: crate::nodalix::icon("media-skip-forward-symbolic"),
                     #[watch]
                     set_tooltip_text: Some({
                         let _ = model.locale_tick;
@@ -546,7 +542,7 @@ impl SimpleComponent for NowPlaying {
                 // unreachable until you navigated back. The bar is on every
                 // page by definition.
                 gtk::ToggleButton {
-                    set_icon_name: "view-list-symbolic",
+                    set_icon_name: crate::nodalix::icon("view-list-symbolic"),
                     #[watch]
                     set_tooltip_text: Some({
                         let _ = model.locale_tick;
@@ -561,18 +557,14 @@ impl SimpleComponent for NowPlaying {
 
                 #[name = "volume"]
                 gtk::ScaleButton {
-                    set_icons: &[
-                        "audio-volume-muted-symbolic",
-                        "audio-volume-high-symbolic",
-                        "audio-volume-low-symbolic",
-                        "audio-volume-medium-symbolic",
-                    ],
+                    set_icons: &crate::nodalix::volume_icons(),
                     #[watch]
                     set_tooltip_text: Some({
                         let _ = model.locale_tick;
                         vinilo_core::i18n::t(vinilo_core::i18n::Key::Volume)
                     }),
                     add_css_class: "flat",
+                    add_css_class: "nodalix-scale",
                     #[watch]
                     set_visible: !model.snap.narrow,
                     // ScaleButton is not a Range, so it takes an Adjustment

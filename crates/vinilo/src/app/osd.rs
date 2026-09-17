@@ -60,7 +60,7 @@ pub(super) struct VolumeOsd {
 
 impl VolumeOsd {
     pub(super) fn new() -> Self {
-        let icon = gtk::Image::from_icon_name(icon_for(1.0));
+        let icon = gtk::Image::from_icon_name(crate::nodalix::icon(icon_for(1.0)));
         icon.set_pixel_size(16);
 
         let level = gtk::LevelBar::new();
@@ -126,7 +126,8 @@ impl VolumeOsd {
     }
 
     fn show_level(&self, volume: f64) {
-        self.icon.set_icon_name(Some(icon_for(volume)));
+        self.icon
+            .set_icon_name(Some(crate::nodalix::icon(icon_for(volume))));
         self.level.set_value(volume.clamp(0.0, 1.0));
     }
 }

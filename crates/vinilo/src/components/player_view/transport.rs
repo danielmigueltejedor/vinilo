@@ -47,6 +47,7 @@ pub(super) fn build_transport(into: &gtk::Box, sender: &ComponentSender<PlayerVi
     let scale = gtk::Scale::builder()
         .hexpand(true)
         .draw_value(false)
+        .css_classes(["nodalix-scale"])
         .build();
     {
         let sender = sender.clone();
@@ -87,23 +88,35 @@ pub(super) fn build_transport(into: &gtk::Box, sender: &ComponentSender<PlayerVi
     // Flanking the transport, and only while the queue is closed — the queue's
     // own header carries them once it is open, and two live copies of one
     // control on screen at once is the redundancy this drawer keeps avoiding.
-    let shuffle = button("media-playlist-shuffle-symbolic", ["flat", "circular"]);
+    let shuffle = button(
+        crate::nodalix::icon("media-playlist-shuffle-symbolic"),
+        ["flat", "circular"],
+    );
     shuffle.set_tooltip_text(Some(vinilo_core::i18n::t(vinilo_core::i18n::Key::Shuffle)));
-    let repeat = button("media-playlist-repeat-symbolic", ["flat", "circular"]);
-    let previous = button("media-skip-backward-symbolic", ["flat", "circular"]);
-    let play = button("media-playback-start-symbolic", [
-        "suggested-action",
-        "circular",
-    ]);
+    let repeat = button(
+        crate::nodalix::icon("media-playlist-repeat-symbolic"),
+        ["flat", "circular"],
+    );
+    let previous = button(
+        crate::nodalix::icon("media-skip-backward-symbolic"),
+        ["flat", "circular"],
+    );
+    let play = button(
+        crate::nodalix::icon("media-playback-start-symbolic"),
+        ["suggested-action", "circular"],
+    );
     play.set_width_request(56);
     play.set_height_request(56);
-    let next = button("media-skip-forward-symbolic", ["flat", "circular"]);
+    let next = button(
+        crate::nodalix::icon("media-skip-forward-symbolic"),
+        ["flat", "circular"],
+    );
     // **A toggle, and always visible.** It was a one-way button that hid once
     // the queue was open, with the queue's own header carrying the way out —
     // which cost 34px of drawer height every time it vanished, and left volume
     // sitting alone in a row built for two.
     let queue = gtk::ToggleButton::builder()
-        .icon_name("view-list-symbolic")
+        .icon_name(crate::nodalix::icon("view-list-symbolic"))
         .tooltip_text(vinilo_core::i18n::t(vinilo_core::i18n::Key::Queue))
         .css_classes(["flat", "circular"])
         .build();
@@ -117,14 +130,9 @@ pub(super) fn build_transport(into: &gtk::Box, sender: &ComponentSender<PlayerVi
     // breakpoint, and shuffle and repeat were already down here to fall back
     // on — volume was the one control that would have had nowhere left to go.
     let volume = gtk::ScaleButton::builder()
-        .icons([
-            "audio-volume-muted-symbolic",
-            "audio-volume-high-symbolic",
-            "audio-volume-low-symbolic",
-            "audio-volume-medium-symbolic",
-        ])
+        .icons(crate::nodalix::volume_icons())
         .tooltip_text(vinilo_core::i18n::t(vinilo_core::i18n::Key::Volume))
-        .css_classes(["flat", "circular"])
+        .css_classes(["flat", "circular", "nodalix-scale"])
         .adjustment(&gtk::Adjustment::new(1.0, 0.0, 1.0, VOLUME_STEP, 0.1, 0.0))
         .build();
     // The id is kept, not discarded: `refresh` blocks this handler while it
@@ -241,11 +249,12 @@ impl PlayerView {
         if !self.scrubbing {
             bits.scale.set_value(self.snap.position_ms as f64);
         }
-        bits.play.set_icon_name(if self.snap.playing {
-            "media-playback-pause-symbolic"
-        } else {
-            "media-playback-start-symbolic"
-        });
+        bits.play
+            .set_icon_name(crate::nodalix::icon(if self.snap.playing {
+                "media-playback-pause-symbolic"
+            } else {
+                "media-playback-start-symbolic"
+            }));
         bits.play.set_sensitive(self.snap.active);
         bits.previous.set_sensitive(self.snap.has_previous);
         bits.shuffle.set_opacity(mode_opacity(self.snap.shuffle));

@@ -302,7 +302,7 @@ impl Component for QueueView {
                 // button only ever reports clicks, so there is nothing to echo
                 // and no guard to get wrong.
                 pack_end = &gtk::Button {
-                    set_icon_name: "media-playlist-shuffle-symbolic",
+                    set_icon_name: crate::nodalix::icon("media-playlist-shuffle-symbolic"),
                     #[watch]
                     set_tooltip_text: Some({
                         let _ = model.locale_tick;
@@ -351,7 +351,7 @@ impl Component for QueueView {
                     set_visible: model.entries.is_empty(),
 
                     adw::StatusPage {
-                        set_icon_name: Some("view-list-symbolic"),
+                        set_icon_name: Some(crate::nodalix::icon("view-list-symbolic")),
                         #[watch]
                         set_title: {
                             let _ = model.locale_tick;

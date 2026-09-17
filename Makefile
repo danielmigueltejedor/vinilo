@@ -27,6 +27,7 @@ AGUJA   = dev.danielmiguelt.Aguja
 SIDECAR  = $(DATADIR)/vinilo/sidecar
 
 ICON_SIZES = 16 32 48 64 128 256 512
+ACTION_ICONS = $(notdir $(wildcard data/icons/hicolor/symbolic/actions/*.svg))
 
 .PHONY: all help build run test check sidecar sidecar-run gapless footprint install install-sidecar \
         dev-install update uninstall clean flatpak flatpak-bundle aur aur-publish
@@ -198,14 +199,19 @@ dev-install:
 		$(DATADIR)/icons/hicolor/scalable/apps/$(AGUJA).svg
 	install -Dm644 data/icons/hicolor/symbolic/apps/$(APPID)-symbolic.svg \
 		$(DATADIR)/icons/hicolor/symbolic/apps/$(APPID)-symbolic.svg
-	install -Dm644 data/icons/hicolor/symbolic/actions/vinilo-lyrics-symbolic.svg \
-		$(DATADIR)/icons/hicolor/symbolic/actions/vinilo-lyrics-symbolic.svg
-	install -Dm644 data/icons/hicolor/symbolic/actions/vinilo-repeat-one-symbolic.svg \
-		$(DATADIR)/icons/hicolor/symbolic/actions/vinilo-repeat-one-symbolic.svg
-	install -Dm644 data/icons/hicolor/symbolic/actions/vinilo-sidebar-show-symbolic.svg \
-		$(DATADIR)/icons/hicolor/symbolic/actions/vinilo-sidebar-show-symbolic.svg
-	install -Dm644 data/icons/hicolor/symbolic/actions/vinilo-sidebar-hide-symbolic.svg \
-		$(DATADIR)/icons/hicolor/symbolic/actions/vinilo-sidebar-hide-symbolic.svg
+	@test -n "$(ACTION_ICONS)" || { echo "error: no action icons under data/icons/hicolor/symbolic/actions"; exit 1; }
+	@for icon in $(ACTION_ICONS); do \
+		install -Dm644 data/icons/hicolor/symbolic/actions/$$icon \
+			$(DATADIR)/icons/hicolor/symbolic/actions/$$icon; \
+	done
+	@for dir in $(DATADIR)/icons/Colloid*/actions/symbolic; do \
+		[ -d "$$dir" ] || continue; \
+		for icon in $(ACTION_ICONS); do \
+			install -Dm644 data/icons/hicolor/symbolic/actions/$$icon \
+				"$$dir/$$icon"; \
+		done; \
+		echo "Installed action icons into $$dir"; \
+	done
 	@# Raster sizes, rendered from the same SVG the app installs so the two
 	@# can never drift. GTK resolves the SVG on its own, but the shell, the
 	@# notification daemon and anything reading the icon theme without an SVG
@@ -263,10 +269,8 @@ uninstall:
 	rm -f $(DATADIR)/icons/hicolor/scalable/apps/$(APPID).svg
 	rm -f $(DATADIR)/icons/hicolor/scalable/apps/$(AGUJA).svg
 	rm -f $(DATADIR)/icons/hicolor/symbolic/apps/$(APPID)-symbolic.svg
-	rm -f $(DATADIR)/icons/hicolor/symbolic/actions/vinilo-lyrics-symbolic.svg
-	rm -f $(DATADIR)/icons/hicolor/symbolic/actions/vinilo-repeat-one-symbolic.svg
-	rm -f $(DATADIR)/icons/hicolor/symbolic/actions/vinilo-sidebar-show-symbolic.svg
-	rm -f $(DATADIR)/icons/hicolor/symbolic/actions/vinilo-sidebar-hide-symbolic.svg
+	@rm -f $(DATADIR)/icons/hicolor/symbolic/actions/vinilo-*.svg
+	@rm -f $(DATADIR)/icons/Colloid*/actions/symbolic/vinilo-*.svg
 	@for sz in $(ICON_SIZES); do \
 		rm -f $(DATADIR)/icons/hicolor/$${sz}x$${sz}/apps/$(APPID).png; \
 		rm -f $(DATADIR)/icons/hicolor/$${sz}x$${sz}/apps/$(AGUJA).png; \

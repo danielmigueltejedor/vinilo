@@ -59,6 +59,53 @@ pub(crate) const CHROME: &str = r#"
 .nodalix .tile-grid {
     padding: 16px;
 }
+
+/* Not under .nodalix: GtkScaleButton's popover is its own window. */
+scale.horizontal > trough,
+scale.vertical > trough {
+    border-radius: 9999px;
+    background-color: alpha(@window_fg_color, 0.16);
+}
+scale.horizontal > trough {
+    min-height: 12px;
+}
+scale.vertical > trough {
+    min-width: 12px;
+}
+scale.horizontal > trough > highlight,
+scale.vertical > trough > highlight {
+    border-radius: 9999px;
+    background-color: @accent_bg_color;
+}
+scale.horizontal > trough > highlight {
+    min-height: 12px;
+}
+scale.vertical > trough > highlight {
+    min-width: 12px;
+}
+scale > trough > slider {
+    min-width: 22px;
+    min-height: 22px;
+    margin: -5px;
+    border-radius: 9999px;
+    background-color: @view_bg_color;
+    box-shadow: 0 1px 3px alpha(#000000, 0.28);
+}
+.scale-popup {
+    padding: 8px 4px;
+}
+.scale-popup scale.vertical {
+    min-height: 140px;
+}
+.volume-osd levelbar > trough {
+    min-height: 12px;
+    border-radius: 9999px;
+    background-color: alpha(@window_fg_color, 0.16);
+}
+.volume-osd levelbar > trough > block.filled {
+    border-radius: 9999px;
+    background-color: @accent_bg_color;
+}
 "#;
 
 /// Point GTK at Colloid and keep Dark/Light in step with libadwaita.
@@ -225,6 +272,83 @@ pub fn first_icon(names: &[&'static str]) -> &'static str {
         .unwrap_or("image-missing-symbolic")
 }
 
+/// Adwaita names that Vinilo ships a Bold cut of.
+///
+/// Unique `vinilo-*-symbolic` names beat the active theme: Colloid Regular
+/// still answers `starred-symbolic` even when GtkSettings prefers a Bold pack
+/// that was never installed. The sidebar toggle already worked for this
+/// reason; the section and transport glyphs did not.
+const BOLD_CUT: &[(&str, &str)] = &[
+    ("starred-symbolic", "vinilo-discover-symbolic"),
+    ("system-search-symbolic", "vinilo-search-symbolic"),
+    ("folder-music-symbolic", "vinilo-songs-symbolic"),
+    ("media-optical-symbolic", "vinilo-albums-symbolic"),
+    ("avatar-default-symbolic", "vinilo-artists-symbolic"),
+    ("view-grid-symbolic", "vinilo-playlists-symbolic"),
+    ("view-list-symbolic", "vinilo-queue-symbolic"),
+    ("list-add-symbolic", "vinilo-list-add-symbolic"),
+    ("media-playlist-shuffle-symbolic", "vinilo-shuffle-symbolic"),
+    ("media-playlist-repeat-symbolic", "vinilo-repeat-symbolic"),
+    (
+        "media-playlist-repeat-song-symbolic",
+        "vinilo-repeat-one-symbolic",
+    ),
+    (
+        "media-skip-backward-symbolic",
+        "vinilo-skip-backward-symbolic",
+    ),
+    ("media-playback-start-symbolic", "vinilo-play-symbolic"),
+    ("media-playback-pause-symbolic", "vinilo-pause-symbolic"),
+    (
+        "media-skip-forward-symbolic",
+        "vinilo-skip-forward-symbolic",
+    ),
+    (
+        "audio-volume-muted-symbolic",
+        "vinilo-volume-muted-symbolic",
+    ),
+    ("audio-volume-low-symbolic", "vinilo-volume-low-symbolic"),
+    (
+        "audio-volume-medium-symbolic",
+        "vinilo-volume-medium-symbolic",
+    ),
+    ("audio-volume-high-symbolic", "vinilo-volume-high-symbolic"),
+];
+
+fn bold_cut(name: &str) -> Option<&'static str> {
+    BOLD_CUT
+        .iter()
+        .find(|(adwaita, _)| *adwaita == name)
+        .map(|(_, ours)| *ours)
+}
+
+/// Prefer the Bold cut we ship. Falls back to the Adwaita name when that cut
+/// is not on the icon path yet (a binary run without `make install`).
+pub fn icon(name: &'static str) -> &'static str {
+    if let Some(ours) = bold_cut(name) {
+        if has_icon(ours) || !has_icon(name) {
+            return ours;
+        }
+        return name;
+    }
+    if has_icon(name) || gdk::Display::default().is_none() {
+        name
+    } else {
+        tracing::warn!(icon = name, "icon missing from the theme; falling back");
+        "audio-x-generic-symbolic"
+    }
+}
+
+/// Mute, high, low, medium — the order `GtkScaleButton` documents.
+pub fn volume_icons() -> [&'static str; 4] {
+    [
+        icon("audio-volume-muted-symbolic"),
+        icon("audio-volume-high-symbolic"),
+        icon("audio-volume-low-symbolic"),
+        icon("audio-volume-medium-symbolic"),
+    ]
+}
+
 /// Open vs closed must not share a glyph — a pressed toggle of the same icon
 /// is too easy to miss, which is why this is two names rather than `set_active`.
 pub fn sidebar_toggle_icon(shown: bool) -> &'static str {
@@ -330,5 +454,36 @@ mod tests {
         );
         assert!(CHROME.contains("--nodalix-radius-cover: 22%"));
         assert!(CHROME.contains(".nodalix .navigation-sidebar"));
+        assert!(CHROME.contains("scale.vertical > trough"));
+        assert!(
+            !CHROME.contains(".nodalix scale"),
+            "ScaleButton's popover is its own window"
+        );
+    }
+
+    #[test]
+    fn sidebar_and_player_names_have_a_bold_cut() {
+        for (adwaita, ours) in [
+            ("starred-symbolic", "vinilo-discover-symbolic"),
+            ("media-playback-start-symbolic", "vinilo-play-symbolic"),
+            ("audio-volume-high-symbolic", "vinilo-volume-high-symbolic"),
+            ("view-list-symbolic", "vinilo-queue-symbolic"),
+        ] {
+            assert_eq!(bold_cut(adwaita), Some(ours));
+        }
+        assert_eq!(bold_cut("open-menu-symbolic"), None);
+    }
+
+    #[test]
+    fn icon_names_the_bold_cut_when_the_theme_cannot_be_asked() {
+        assert_eq!(icon("starred-symbolic"), "vinilo-discover-symbolic");
+        assert_eq!(
+            icon("media-playback-start-symbolic"),
+            "vinilo-play-symbolic"
+        );
+        assert_eq!(
+            icon("audio-volume-high-symbolic"),
+            "vinilo-volume-high-symbolic"
+        );
     }
 }

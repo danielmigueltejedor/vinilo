@@ -200,17 +200,10 @@ pub(super) fn register_actions(
 
 /// Check an icon name against the theme, falling back if it is missing.
 ///
-/// A name that does not exist renders as nothing at all — silently, with no
-/// warning — which is how `music-note-single-symbolic` shipped as an invisible
-/// icon. Colloid's Bold pack is the *symbolic* 1.5px set; colour app icons
-/// have no bold cut, so this keeps the `-symbolic` suffix on purpose.
+/// Sidebar rows go through here so they pick the Bold cut in `nodalix::icon`
+/// rather than the Adwaita name Colloid Regular would still serve.
 pub(super) fn icon(name: &'static str) -> &'static str {
-    if crate::nodalix::has_icon(name) {
-        name
-    } else {
-        tracing::warn!(icon = name, "icon missing from the theme; falling back");
-        "audio-x-generic-symbolic"
-    }
+    crate::nodalix::icon(name)
 }
 
 pub(super) fn show_about(parent: &adw::ApplicationWindow) {

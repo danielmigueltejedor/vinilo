@@ -71,8 +71,9 @@ package_vinilo() {
     "$pkgdir/usr/share/icons/hicolor/scalable/apps/$appid.svg"
   install -Dm644 "data/icons/hicolor/symbolic/apps/$appid-symbolic.svg" \
     "$pkgdir/usr/share/icons/hicolor/symbolic/apps/$appid-symbolic.svg"
-  install -Dm644 "data/icons/hicolor/symbolic/actions/vinilo-lyrics-symbolic.svg" \
-    "$pkgdir/usr/share/icons/hicolor/symbolic/actions/vinilo-lyrics-symbolic.svg"
+  install -d "$pkgdir/usr/share/icons/hicolor/symbolic/actions"
+  install -m644 data/icons/hicolor/symbolic/actions/*.svg \
+    "$pkgdir/usr/share/icons/hicolor/symbolic/actions/"
 
   for sz in 16 32 48 64 128 256 512; do
     install -d "$pkgdir/usr/share/icons/hicolor/${sz}x${sz}/apps"

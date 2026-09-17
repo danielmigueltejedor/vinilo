@@ -537,7 +537,7 @@ fn popover_reset(surfaces: &[&str]) -> String {
         .map(|s| format!("{s} popover"))
         .collect::<Vec<_>>()
         .join(",\n         ");
-    let children = ["label", "image", "button"]
+    let children = ["label", "image", "button", "scale"]
         .into_iter()
         .flat_map(|widget| {
             surfaces
