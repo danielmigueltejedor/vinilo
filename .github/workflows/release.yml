@@ -1,0 +1,223 @@
+name: Release bundles
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  packages:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Debian / Ubuntu package
+            packager: deb
+            image: ubuntu:26.04
+          - name: Fedora RPM
+            packager: rpm
+            image: fedora:43
+          - name: Arch Linux package
+            packager: archlinux
+            image: archlinux:base-devel
+
+    container:
+      image: ${{ matrix.image }}
+
+    steps:
+      - name: Install distribution build dependencies
+        shell: bash
+        run: |
+          set -euxo pipefail
+          case "${{ matrix.packager }}" in
+            deb)
+              export DEBIAN_FRONTEND=noninteractive
+              apt-get update
+              apt-get install -y --no-install-recommends \
+                ca-certificates curl git tar gzip build-essential pkg-config \
+                libgtk-4-dev libadwaita-1-dev libpulse-dev libasound2-dev \
+                libwebkitgtk-6.0-dev librsvg2-dev nodejs npm
+              ;;
+            rpm)
+              dnf -y install \
+                ca-certificates curl git tar gzip gcc gcc-c++ make \
+                pkgconf-pkg-config gtk4-devel libadwaita-devel \
+                pulseaudio-libs-devel alsa-lib-devel webkitgtk6.0-devel \
+                librsvg2-devel nodejs npm
+              ;;
+            archlinux)
+              pacman -Syu --needed --noconfirm \
+                ca-certificates curl git tar gzip base-devel pkgconf \
+                gtk4 libadwaita libpulse alsa-lib webkitgtk-6.0 librsvg \
+                nodejs npm
+              ;;
+          esac
+
+      - uses: actions/checkout@v5
+
+      - name: Install current stable Rust
+        shell: bash
+        run: |
+          set -euxo pipefail
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+            | sh -s -- -y --profile minimal
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          "$HOME/.cargo/bin/rustup" default stable
+          "$HOME/.cargo/bin/rustc" --version
+
+      - name: Cache Cargo
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: release-${{ matrix.packager }}-${{ hashFiles('Cargo.lock') }}
+
+      - name: Build Vinilo
+        shell: bash
+        run: |
+          set -euxo pipefail
+          export PATH="$HOME/.cargo/bin:$PATH"
+          cargo build --release --locked
+          make sidecar
+          ./packaging/release/stage.sh
+
+      - name: Install nFPM
+        shell: bash
+        run: |
+          set -euxo pipefail
+          curl -sSfL \
+            https://github.com/goreleaser/nfpm/releases/download/v2.47.0/nfpm_2.47.0_Linux_x86_64.tar.gz \
+            | tar -xz -C /usr/local/bin nfpm
+          nfpm --version
+
+      - name: Build native package
+        shell: bash
+        run: |
+          set -euxo pipefail
+          VERSION=$(awk -F\" '/^version = / {print $2; exit}' Cargo.toml)
+          export VERSION
+
+          if [[ "$GITHUB_REF" == refs/tags/v* ]] && [[ "${GITHUB_REF_NAME#v}" != "$VERSION" ]]; then
+            echo "tag ${GITHUB_REF_NAME} does not match Cargo.toml version $VERSION" >&2
+            exit 1
+          fi
+
+          mkdir -p dist/packages
+          case "${{ matrix.packager }}" in
+            deb)
+              OUTPUT="dist/packages/vinilo_${VERSION}_amd64.deb"
+              ;;
+            rpm)
+              OUTPUT="dist/packages/vinilo-${VERSION}-1.x86_64.rpm"
+              ;;
+            archlinux)
+              OUTPUT="dist/packages/vinilo-${VERSION}-1-x86_64.pkg.tar.zst"
+              ;;
+          esac
+
+          nfpm pkg \
+            --config packaging/release/nfpm.yaml \
+            --packager "${{ matrix.packager }}" \
+            --target "$OUTPUT"
+
+          test -s "$OUTPUT"
+          ls -lh "$OUTPUT"
+
+      - name: Keep native package
+        uses: actions/upload-artifact@v6
+        with:
+          name: release-${{ matrix.packager }}
+          path: dist/packages/*
+          retention-days: 14
+
+  flatpak:
+    name: Flatpak bundle
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Flatpak toolchain
+        run: |
+          set -euxo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq flatpak flatpak-builder
+          flatpak remote-add --user --if-not-exists flathub \
+            https://dl.flathub.org/repo/flathub.flatpakrepo
+          flatpak install -y --user --noninteractive flathub \
+            org.gnome.Platform//49 \
+            org.gnome.Sdk//49 \
+            org.freedesktop.Sdk.Extension.rust-stable//25.08 \
+            org.electronjs.Electron2.BaseApp//25.08
+
+      - name: Build Flatpak bundle
+        run: |
+          set -euxo pipefail
+          make flatpak-bundle
+          VERSION=$(awk -F\" '/^version = / {print $2; exit}' Cargo.toml)
+
+          if [[ "$GITHUB_REF" == refs/tags/v* ]] && [[ "${GITHUB_REF_NAME#v}" != "$VERSION" ]]; then
+            echo "tag ${GITHUB_REF_NAME} does not match Cargo.toml version $VERSION" >&2
+            exit 1
+          fi
+
+          mv Vinilo.flatpak "Vinilo-${VERSION}.flatpak"
+          test -s "Vinilo-${VERSION}.flatpak"
+
+      - name: Keep Flatpak bundle
+        uses: actions/upload-artifact@v6
+        with:
+          name: release-flatpak
+          path: Vinilo-*.flatpak
+          retention-days: 14
+
+  release:
+    name: Publish GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [packages, flatpak]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download release artifacts
+        uses: actions/download-artifact@v7
+        with:
+          pattern: release-*
+          path: release
+          merge-multiple: true
+
+      - name: Create checksums
+        run: |
+          set -euxo pipefail
+          cd release
+          sha256sum \
+            *.deb \
+            *.rpm \
+            *.pkg.tar.zst \
+            *.flatpak \
+            > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euxo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          gh release create "$GITHUB_REF_NAME" release/* \
+            --verify-tag \
+            --title "Vinilo $VERSION" \
+            --generate-notes
