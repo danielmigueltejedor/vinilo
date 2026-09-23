@@ -1238,16 +1238,19 @@ fn ensure_liked_playlist(playlists: &mut Vec<Playlist>, songs: &[Track]) {
         }
         return;
     }
-    playlists.insert(0, Playlist {
-        id: "yt:liked".into(),
-        date_added: String::new(),
-        last_modified: String::new(),
-        name: i18n::t(Key::LikedSongs).to_owned(),
-        curator: String::new(),
-        description: String::new(),
-        artwork: songs.first().and_then(|s| s.artwork.clone()),
-        library: true,
-    });
+    playlists.insert(
+        0,
+        Playlist {
+            id: "yt:liked".into(),
+            date_added: String::new(),
+            last_modified: String::new(),
+            name: i18n::t(Key::LikedSongs).to_owned(),
+            curator: String::new(),
+            description: String::new(),
+            artwork: songs.first().and_then(|s| s.artwork.clone()),
+            library: true,
+        },
+    );
 }
 
 fn playlists_from_browse(value: &Value) -> Vec<Playlist> {

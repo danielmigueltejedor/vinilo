@@ -25,3 +25,6 @@ packaging/flatpak/.flatpak-cargo-generator.py
 *.flatpak
 
 CLAUDE.local.md
+
+# Native release build output
+/dist/

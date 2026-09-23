@@ -80,10 +80,9 @@ impl StreamHit {
             format!("https://open.spotify.com/track/{sp}")
         } else if let Some(yt) = id.strip_prefix("yt:") {
             format!("https://www.youtube.com/watch?v={yt}")
-        } else if let Some(td) = id.strip_prefix("td:") {
-            format!("https://tidal.com/browse/track/{td}")
         } else {
-            return None;
+            let td = id.strip_prefix("td:")?;
+            format!("https://tidal.com/browse/track/{td}")
         };
         Some(Self {
             play_query,

@@ -76,7 +76,10 @@ pub fn show(
         queue.append(Some(i18n::t(Key::PlayNext)), Some("queue-row.play-next"));
     }
     if removable {
-        queue.append(Some(i18n::t(Key::RemoveFromQueue)), Some("queue-row.remove"));
+        queue.append(
+            Some(i18n::t(Key::RemoveFromQueue)),
+            Some("queue-row.remove"),
+        );
     }
     if queue.n_items() > 0 {
         menu.append_section(None, &queue);

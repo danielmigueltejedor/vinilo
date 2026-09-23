@@ -11,7 +11,6 @@
 //! Native GNOME/Adwaita icons are used regardless of the system icon theme.
 //! theme stays, and named icons still resolve through Adwaita / hicolor.
 
-
 use relm4::gtk;
 
 /// CSS the rest of the suite can paste. Variables first, then the chrome that
@@ -111,23 +110,20 @@ pub fn init() {
     }
 }
 
-
 /// Native GNOME/Adwaita icon handling.
 pub fn icon(name: &'static str) -> &'static str {
-name
+    name
 }
-
 
 /// Mute, high, low, medium — the order `GtkScaleButton` documents.
 pub fn volume_icons() -> [&'static str; 4] {
-[
-"audio-volume-muted-symbolic",
-"audio-volume-high-symbolic",
-"audio-volume-low-symbolic",
-"audio-volume-medium-symbolic",
-]
+    [
+        "audio-volume-muted-symbolic",
+        "audio-volume-high-symbolic",
+        "audio-volume-low-symbolic",
+        "audio-volume-medium-symbolic",
+    ]
 }
-
 
 /// Native GNOME sidebar toggle.
 ///

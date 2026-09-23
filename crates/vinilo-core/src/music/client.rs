@@ -1305,10 +1305,11 @@ impl Client {
                     }
                 }
                 Entry::Song(_) => {}
-                other if !other.title().is_empty() => {
-                    if !playlists.iter().any(|e: &Entry| e.id() == other.id()) {
-                        playlists.push(other);
-                    }
+                other
+                    if !other.title().is_empty()
+                        && !playlists.iter().any(|e: &Entry| e.id() == other.id()) =>
+                {
+                    playlists.push(other);
                 }
                 _ => {}
             }

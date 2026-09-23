@@ -201,11 +201,9 @@ pub fn apply_from_settings(
     provider: vinilo_core::provider::Provider,
     accent: Accent,
 ) {
-    if source_tint {
-        if let Some(pair) = brand_colors(provider) {
-            set_colors(Some(pair));
-            return;
-        }
+    if source_tint && let Some(pair) = brand_colors(provider) {
+        set_colors(Some(pair));
+        return;
     }
     set_accent(accent);
 }
@@ -352,15 +350,24 @@ fn set_colors(colors: Option<(&'static str, &'static str)>) {
          /* Timed lyrics in the expanded player. Opacity only, and finite:
             an infinite animation here would pin the frame clock (#126). */
          .lyrics-lines .lyric-line {{
-             padding: 6px 2px;
-             opacity: 0.88;
-             transition: 220ms ease;
+             padding: 8px 4px;
+             opacity: 0.86;
+             transform: translateX(0px) scale(1);
+             transform-origin: left center;
+             transition: opacity 260ms ease-out, transform 320ms cubic-bezier(0.2, 0.8, 0.2, 1);
          }}
          .lyrics-synced .lyric-line {{
-             opacity: 0.38;
+             opacity: 0.30;
+             transform: translateX(-4px) scale(0.985);
+         }}
+         .lyrics-synced .lyric-line.lyric-near {{
+             opacity: 0.56;
+             transform: translateX(-2px) scale(0.995);
          }}
          .lyrics-synced .lyric-line.lyric-current {{
              opacity: 1;
+             transform: translateX(6px) scale(1.02);
+             font-weight: 600;
          }}
          {chrome}"
     );
@@ -424,12 +431,25 @@ fn wash_of(path: &std::path::Path) -> Option<String> {
 /// of the window colour is mixed in.
 fn backdrop_css(color: Option<&str>, dark: bool) -> String {
     let Some(color) = color else {
-        return ".np-bar, .np-sheet { background-image: none; background-color: transparent; }".into();
+        return ".np-bar, .np-sheet { background-image: none; background-color: transparent; }"
+            .into();
     };
-    let (bar, sheet) = if dark { ((0.52, 0.24, 0.06), (0.42, 0.18, 0.04)) } else { ((0.30, 0.13, 0.03), (0.24, 0.10, 0.02)) };
-    let gradient = |direction: &str, (strong, middle, tail): (f32, f32, f32)| format!("background-color: @window_bg_color; background-image: linear-gradient({direction}, alpha({color}, {strong}) 0%, alpha({color}, {middle}) 42%, alpha({color}, {tail}) 72%, alpha({color}, 0.0) 100%); background-repeat: no-repeat;");
-    format!(".np-bar {{ {} }}
-.np-sheet {{ {} }}", gradient("to right", bar), gradient("to bottom", sheet))
+    let (bar, sheet) = if dark {
+        ((0.52, 0.24, 0.06), (0.42, 0.18, 0.04))
+    } else {
+        ((0.30, 0.13, 0.03), (0.24, 0.10, 0.02))
+    };
+    let gradient = |direction: &str, (strong, middle, tail): (f32, f32, f32)| {
+        format!(
+            "background-color: @window_bg_color; background-image: linear-gradient({direction}, alpha({color}, {strong}) 0%, alpha({color}, {middle}) 42%, alpha({color}, {tail}) 72%, alpha({color}, 0.0) 100%); background-repeat: no-repeat;"
+        )
+    };
+    format!(
+        ".np-bar {{ {} }}
+.np-sheet {{ {} }}",
+        gradient("to right", bar),
+        gradient("to bottom", sheet)
+    )
 }
 
 /// CSS class a detail page uses so its backdrop cannot paint another page.
@@ -475,8 +495,14 @@ fn page_backdrop_css(class: &str, color: Option<&str>, dark: bool) -> String {
     let Some(color) = color else {
         return format!(".{class} {{ background-image: none; background-color: transparent; }}");
     };
-    let (strong, middle, tail) = if dark { (0.38, 0.16, 0.035) } else { (0.22, 0.09, 0.02) };
-    format!(".{class} {{ background-color: @window_bg_color; background-image: linear-gradient(to bottom, alpha({color}, {strong}) 0%, alpha({color}, {middle}) 32%, alpha({color}, {tail}) 67%, alpha({color}, 0.0) 100%); background-repeat: no-repeat; }}")
+    let (strong, middle, tail) = if dark {
+        (0.38, 0.16, 0.035)
+    } else {
+        (0.22, 0.09, 0.02)
+    };
+    format!(
+        ".{class} {{ background-color: @window_bg_color; background-image: linear-gradient(to bottom, alpha({color}, {strong}) 0%, alpha({color}, {middle}) 32%, alpha({color}, {tail}) 67%, alpha({color}, 0.0) 100%); background-repeat: no-repeat; }}"
+    )
 }
 
 /// Whether libadwaita is currently painting dark.
@@ -508,6 +534,7 @@ fn paint_backdrop(path: Option<&std::path::Path>) {
 }
 
 /// Ease in and out, so the fade does not start and stop abruptly.
+#[cfg(test)]
 fn ease(t: f32) -> f32 {
     let t = t.clamp(0.0, 1.0);
     t * t * (3.0 - 2.0 * t)

@@ -17,6 +17,7 @@ No network and no dependencies: it compares names, not hashes. A wrong hash is
 a different failure and one the real build will catch.
 """
 
+import json
 import re
 import sys
 from pathlib import Path
@@ -25,6 +26,12 @@ root = Path(__file__).resolve().parents[2]
 lock = (root / "Cargo.lock").read_text()
 sources = root / "packaging" / "flatpak" / "cargo-sources.json"
 blob = sources.read_text()
+generated = json.loads(blob)
+destinations = {
+    entry.get("dest")
+    for entry in generated
+    if isinstance(entry, dict) and entry.get("dest")
+}
 
 missing = []
 for block in lock.split("[[package]]")[1:]:
@@ -35,7 +42,12 @@ for block in lock.split("[[package]]")[1:]:
     if not (name and version and re.search(r"^source = ", block, re.M)):
         continue
     name, version = name.group(1), version.group(1)
-    if f"/{name}/{name}-{version}.crate" not in blob and f'"{name}-{version}"' not in blob:
+    if re.search(r"^source = .git[+]", block, re.M):
+        present = f"cargo/vendor/{name}" in destinations
+    else:
+        present = f"cargo/vendor/{name}-{version}" in destinations
+
+    if not present:
         missing.append(f"{name} {version}")
 
 if missing:

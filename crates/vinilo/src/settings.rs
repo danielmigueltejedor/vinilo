@@ -335,11 +335,11 @@ impl Settings {
         if let Some(language) = i18n::load() {
             settings.language = language;
             settings.language_chosen = true;
-        } else if let Ok(language) = file.string(GROUP, "language") {
-            if let Some(language) = Language::parse(&language) {
-                settings.language = language;
-                settings.language_chosen = true;
-            }
+        } else if let Ok(language) = file.string(GROUP, "language")
+            && let Some(language) = Language::parse(&language)
+        {
+            settings.language = language;
+            settings.language_chosen = true;
         }
         // Same split as language: the dedicated file is what the daemon reads.
         if let Some(provider) = vinilo_core::provider::load() {

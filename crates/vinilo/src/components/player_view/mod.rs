@@ -239,7 +239,7 @@ const ART_THUMB: i32 = 72;
 /// One number for both: they are one movement and must not finish apart.
 const QUEUE_ANIM_MS: u32 = 250;
 /// How long the current lyric takes to settle in the middle of the pane.
-const LYRIC_SCROLL_MS: u32 = 280;
+const LYRIC_SCROLL_MS: u32 = 320;
 
 /// How long the scrubber waits after the last movement before seeking.
 const SCRUB_COMMIT_MS: u64 = 250;
@@ -667,6 +667,8 @@ impl SimpleComponent for PlayerView {
         let lyrics_scroll = gtk::ScrolledWindow::builder()
             .hscrollbar_policy(gtk::PolicyType::Never)
             .vscrollbar_policy(gtk::PolicyType::Automatic)
+            .margin_top(28)
+            .margin_bottom(16)
             .child(&lyrics_lines)
             .vexpand(true)
             .build();
@@ -684,6 +686,15 @@ impl SimpleComponent for PlayerView {
         pane.add_named(&queue, Some("queue"));
         pane.add_named(&lyrics_root, Some("lyrics"));
         let widgets = view_output!();
+
+        for revealer in [&widgets.queue_wide_rev, &widgets.queue_compact_rev] {
+            revealer.connect_child_revealed_notify(|revealer| {
+                if !revealer.reveals_child() && !revealer.is_child_revealed() {
+                    revealer.set_visible(false);
+                }
+            });
+        }
+
         model.cover.attach_first(&widgets.art_slot);
         model.cover.empty_sleeve(ART_LARGE);
         model.menu_button = Some(widgets.track_menu.clone());
@@ -854,13 +865,13 @@ impl SimpleComponent for PlayerView {
                     }
                     self.lyrics_shown = true;
                     self.queue_shown = false;
-                    if self.lyric_times.is_empty() {
-                        if let Some(slots) = self.slots.as_ref() {
-                            slots.lyrics_status.set_title(vinilo_core::i18n::t(
-                                vinilo_core::i18n::Key::LyricsLoading,
-                            ));
-                            slots.lyrics_root.set_visible_child_name("status");
-                        }
+                    if self.lyric_times.is_empty()
+                        && let Some(slots) = self.slots.as_ref()
+                    {
+                        slots
+                            .lyrics_status
+                            .set_title(vinilo_core::i18n::t(vinilo_core::i18n::Key::LyricsLoading));
+                        slots.lyrics_root.set_visible_child_name("status");
                     }
                     let _ = sender.output(NowPlayingOutput::SetLyricsShown(true));
                 } else {
@@ -1045,12 +1056,22 @@ impl PlayerView {
         // stays visible: hiding it would pre-empt the very transition the
         // revealer is there to play, and the close would be a cut.
         slots.pane.set_visible(true);
+        let pane_open = self.pane_open();
+
+        if pane_open {
+            if self.wide {
+                slots.queue_wide_rev.set_visible(true);
+            } else {
+                slots.queue_compact_rev.set_visible(true);
+            }
+        }
+
         slots
             .queue_wide_rev
-            .set_reveal_child(self.pane_open() && self.wide);
+            .set_reveal_child(pane_open && self.wide);
         slots
             .queue_compact_rev
-            .set_reveal_child(self.pane_open() && !self.wide);
+            .set_reveal_child(pane_open && !self.wide);
     }
 
     fn show_lyrics(
@@ -1149,8 +1170,14 @@ impl PlayerView {
             while let Some(widget) = child {
                 if i == current {
                     widget.add_css_class("lyric-current");
+                    widget.remove_css_class("lyric-near");
                 } else {
                     widget.remove_css_class("lyric-current");
+                    if i.abs_diff(current) == 1 {
+                        widget.add_css_class("lyric-near");
+                    } else {
+                        widget.remove_css_class("lyric-near");
+                    }
                 }
                 child = widget.next_sibling();
                 i += 1;
@@ -1242,5 +1269,5 @@ fn child_at(parent: &gtk::Box, index: usize) -> Option<gtk::Widget> {
 /// Verse plus a note. A missing name draws as nothing, so fall back to the
 /// three-line glyph Adwaita always has.
 pub(super) fn lyrics_icon() -> &'static str {
-"format-justify-left-symbolic"
+    "format-justify-left-symbolic"
 }

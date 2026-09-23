@@ -117,11 +117,7 @@ impl AppModel {
             }
         }
         if let Some((pin_id, pin_name)) = pin
-            && self
-                .settings
-                .pinned_playlists
-                .iter()
-                .any(|id| *id == pin_id)
+            && self.settings.pinned_playlists.contains(&pin_id)
             && !pin_name.is_empty()
         {
             self.settings.remember_pin_title(&pin_id, &pin_name);

@@ -660,11 +660,13 @@ mod tests {
         assert!(pin_belongs_to("sp:playlist:1", Provider::Spotify));
         assert!(!pin_belongs_to("sp:playlist:1", Provider::AppleMusic));
         let mixed = vec!["p.abc".into(), "sp:playlist:1".into()];
-        assert_eq!(pins_for(&mixed, Provider::AppleMusic), vec![
-            "p.abc".to_owned()
-        ]);
-        assert_eq!(pins_for(&mixed, Provider::Spotify), vec![
-            "sp:playlist:1".to_owned()
-        ]);
+        assert_eq!(
+            pins_for(&mixed, Provider::AppleMusic),
+            vec!["p.abc".to_owned()]
+        );
+        assert_eq!(
+            pins_for(&mixed, Provider::Spotify),
+            vec!["sp:playlist:1".to_owned()]
+        );
     }
 }

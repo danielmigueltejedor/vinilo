@@ -13,9 +13,9 @@
 
 use std::path::PathBuf;
 
-use vinilo_core::ipc::{Event, Request};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::mpsc;
+use vinilo_core::ipc::{Event, Request};
 
 /// Sends requests. Cheap to clone; the writer task owns the socket.
 #[derive(Clone)]
@@ -54,9 +54,8 @@ fn daemon_path() -> PathBuf {
 /// Connect — starting a daemon if none is listening — and stream its events.
 pub async fn connect() -> anyhow::Result<(Link, mpsc::UnboundedReceiver<Incoming>)> {
     // Blocking, and it may start a process: off the async thread.
-    let stream =
-        tokio::task::spawn_blocking(|| vinilo_core::ipc::connect_or_spawn(&daemon_path()))
-            .await??;
+    let stream = tokio::task::spawn_blocking(|| vinilo_core::ipc::connect_or_spawn(&daemon_path()))
+        .await??;
     stream.set_nonblocking(true)?;
     let (read, mut write) = tokio::net::UnixStream::from_std(stream)?.into_split();
 

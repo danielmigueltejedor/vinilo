@@ -430,9 +430,9 @@ fn en(key: Key) -> &'static str {
         }
         Key::ProviderTitle => "Where is your music?",
         Key::ProviderBody => {
-            "Pick a catalogue. Apple Music, Spotify and YouTube Music are Beta: they work, the Apple sidecar is still heavy. Tidal is Alpha. Files on this computer always play."
+            "Pick a catalogue. Apple Music is stable; Spotify and YouTube Music are Beta: they work, the Apple sidecar is still heavy. Tidal is Alpha. Files on this computer always play."
         }
-        Key::ProviderApple => "Apple Music (Beta)",
+        Key::ProviderApple => "Apple Music",
         Key::ProviderAppleSub => {
             "Your library and the catalogue. Works well; the hidden player is still a full Chromium."
         }
@@ -572,7 +572,7 @@ fn en(key: Key) -> &'static str {
         Key::EmptyPlaylist => "This playlist has no songs.",
         Key::AboutComments => {
             "A native GNOME music player for Linux.\n\n\
-             Apple Music (Beta) plays through Apple's MusicKit player using \
+             Apple Music plays through Apple's MusicKit player using \
              Google's Widevine CDM, in a hidden helper process. Files on this \
              computer play natively. Spotify (Beta) plays through librespot \
              when you have Premium; YouTube Music (Beta) prefers InnerTube \
@@ -707,9 +707,9 @@ fn es(key: Key) -> &'static str {
         }
         Key::ProviderTitle => "¿Dónde está tu música?",
         Key::ProviderBody => {
-            "Elige un catálogo. Apple Music, Spotify y YouTube Music son Beta: funcionan, el sidecar de Apple sigue siendo pesado. Tidal es Alpha. Los archivos de este equipo siempre suenan."
+            "Elige un catálogo. Apple Music es estable; Spotify y YouTube Music son Beta: funcionan, el sidecar de Apple sigue siendo pesado. Tidal es Alpha. Los archivos de este equipo siempre suenan."
         }
-        Key::ProviderApple => "Apple Music (Beta)",
+        Key::ProviderApple => "Apple Music",
         Key::ProviderAppleSub => {
             "Tu biblioteca y el catálogo. Funciona bien; el reproductor oculto sigue siendo Chromium."
         }
@@ -856,7 +856,7 @@ fn es(key: Key) -> &'static str {
         Key::EmptyPlaylist => "Esta lista no tiene canciones.",
         Key::AboutComments => {
             "Un reproductor nativo de GNOME para Linux.\n\n\
-             Apple Music (Beta) pasa por el reproductor MusicKit de Apple con el CDM \
+             Apple Music pasa por el reproductor MusicKit de Apple con el CDM \
              Widevine de Google, en un proceso auxiliar oculto. Los archivos \
              de este equipo se reproducen de forma nativa. Spotify (Beta) suena \
              con librespot si tienes Premium; YouTube Music (Beta) prefiere \

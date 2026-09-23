@@ -37,7 +37,6 @@ pub enum View {
 pub(super) struct Row {
     pub view: View,
     pub icon: &'static str,
-    pub label: &'static str,
 }
 
 /// What a sidebar row means.
@@ -100,27 +99,22 @@ impl View {
         Row {
             view: Self::Discover,
             icon: "starred-symbolic",
-            label: "discover",
         },
         Row {
             view: Self::Search,
             icon: "system-search-symbolic",
-            label: "search",
         },
         Row {
             view: Self::Songs,
             icon: "folder-music-symbolic",
-            label: "songs",
         },
         Row {
             view: Self::Albums,
             icon: "media-optical-symbolic",
-            label: "albums",
         },
         Row {
             view: Self::Artists,
             icon: "avatar-default-symbolic",
-            label: "artists",
         },
         Row {
             view: Self::Playlists,
@@ -134,7 +128,6 @@ impl View {
             // "All", because the heading above it says Playlists and the pins
             // below it are the rest of that group. On its own the row would
             // read as a section; in place it reads as "all of them".
-            label: "all",
         },
     ];
 
@@ -416,12 +409,12 @@ mod tests {
         let rows = sidebar_rows(&[]);
         for row in &View::SIDEBAR {
             let index = section_index(&rows, row.view)
-                .unwrap_or_else(|| panic!("{} has no row", row.label));
+                .unwrap_or_else(|| panic!("{:?} has no row", row.view));
             assert_eq!(
                 rows[index as usize],
                 SidebarRow::Section(row.view),
-                "{} was found at somebody else's row",
-                row.label
+                "{:?} was found at somebody else's row",
+                row.view
             );
         }
     }
@@ -556,7 +549,13 @@ mod tests {
     #[test]
     fn only_search_looks_at_the_catalog() {
         assert_eq!(View::Search.scope(), SearchScope::Catalog);
-        for view in [View::Discover, View::Songs, View::Albums, View::Artists, View::Playlists] {
+        for view in [
+            View::Discover,
+            View::Songs,
+            View::Albums,
+            View::Artists,
+            View::Playlists,
+        ] {
             assert_eq!(view.scope(), SearchScope::Library);
         }
     }

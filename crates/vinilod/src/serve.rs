@@ -1270,7 +1270,15 @@ fn fetch_lyrics(daemon: &Rc<Daemon>, id: String) {
     let apple = daemon.client();
     tokio::task::spawn_local(async move {
         let http = vinilo_core::streams::http();
-        let event = match vinilo_core::lyrics::for_id(&http, apple.as_ref(), &id).await {
+        tracing::debug!(%id, "lyrics fetch started");
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            vinilo_core::lyrics::for_id(&http, apple.as_ref(), &id),
+        )
+        .await
+        .map_err(|_| anyhow::anyhow!("lyrics timeout"))
+        .and_then(|result| result);
+        let event = match result {
             Ok(lyrics) => Event::Lyrics {
                 id,
                 lyrics: Some(lyrics),
@@ -3895,18 +3903,26 @@ mod tests {
 
         // What MusicKit does after we Pause it: it still holds the last Apple
         // track and echoes it. That used to overwrite the bar.
-        on_event(&daemon, PlayerEvent::NowPlaying {
-            item: Some(Item {
-                title: "Apple title".into(),
-                artist: "Apple artist".into(),
-                artwork_template: Some("https://is1-ssl.mzstatic.com/image/{w}x{h}bb.jpg".into()),
-                ..Default::default()
-            }),
-            queue: Default::default(),
-        });
-        on_event(&daemon, PlayerEvent::PlaybackState {
-            state: PlaybackState::Paused,
-        });
+        on_event(
+            &daemon,
+            PlayerEvent::NowPlaying {
+                item: Some(Item {
+                    title: "Apple title".into(),
+                    artist: "Apple artist".into(),
+                    artwork_template: Some(
+                        "https://is1-ssl.mzstatic.com/image/{w}x{h}bb.jpg".into(),
+                    ),
+                    ..Default::default()
+                }),
+                queue: Default::default(),
+            },
+        );
+        on_event(
+            &daemon,
+            PlayerEvent::PlaybackState {
+                state: PlaybackState::Paused,
+            },
+        );
 
         let model = daemon.model.borrow();
         let item = model.player.now_playing.as_ref().expect("local item");

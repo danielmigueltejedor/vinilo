@@ -164,10 +164,15 @@ impl AppModel {
     fn on_event(&mut self, event: Event, sender: &ComponentSender<Self>) {
         match event {
             Event::Snapshot(snap) => {
+                let previous_track = self.mirror.snap.track_id.clone();
+                let next_track = snap.track_id.clone();
                 self.mirror.snap = snap;
                 self.sync_tick(sender);
                 self.push_snapshot();
                 if self.lyrics_shown {
+                    if previous_track != next_track {
+                        self.lyrics_for = None;
+                    }
                     self.ask_lyrics();
                 }
                 // **Here, not on the queue event.** The cover belongs to the

@@ -1,0 +1,73 @@
+name: vinilo
+arch: amd64
+platform: linux
+version: ${VERSION}
+release: 1
+section: sound
+priority: optional
+
+maintainer: Daniel Miguel Tejedor
+description: Native GNOME music player for Linux with Apple Music support
+homepage: https://github.com/danielmigueltejedor/vinilo
+license: GPL-3.0-or-later
+
+contents:
+  - src: ./dist/root/
+    dst: /
+    type: tree
+
+overrides:
+  deb:
+    depends:
+      - libgtk-4-1 (>= 4.20)
+      - libgtk-3-0t64
+      - libadwaita-1-0 (>= 1.8)
+      - libpulse0
+      - libwebkitgtk-6.0-4
+      - libnss3
+      - libasound2t64
+      - libcups2t64
+      - libxkbcommon0
+      - libdrm2
+      - libgbm1
+      - libseccomp2
+      - ffmpeg
+      - yt-dlp
+
+  rpm:
+    depends:
+      - gtk4 >= 4.20
+      - gtk3
+      - libadwaita >= 1.8
+      - pulseaudio-libs
+      - webkitgtk6.0
+      - nss
+      - alsa-lib
+      - cups-libs
+      - libxkbcommon
+      - libdrm
+      - mesa-libgbm
+      - libseccomp
+      - ffmpeg-free
+      - yt-dlp
+
+  archlinux:
+    depends:
+      - gtk4
+      - gtk3
+      - libadwaita
+      - libpulse
+      - webkitgtk-6.0
+      - nss
+      - alsa-lib
+      - libcups
+      - libxkbcommon
+      - libdrm
+      - mesa
+      - libseccomp
+      - ffmpeg
+      - yt-dlp
+
+archlinux:
+  pkgbase: vinilo
+  packager: Daniel Miguel Tejedor

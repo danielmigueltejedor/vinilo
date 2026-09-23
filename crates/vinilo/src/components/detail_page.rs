@@ -362,13 +362,12 @@ impl DetailPage {
         self.sidebar_toggle.set_active(shown);
         self.sidebar_toggle
             .set_icon_name(crate::nodalix::sidebar_toggle_icon(shown));
-        self.sidebar_toggle.set_tooltip_text(Some(vinilo_core::i18n::t(
-            if shown {
+        self.sidebar_toggle
+            .set_tooltip_text(Some(vinilo_core::i18n::t(if shown {
                 vinilo_core::i18n::Key::HideSidebar
             } else {
                 vinilo_core::i18n::Key::ShowSidebar
-            },
-        )));
+            })));
     }
 
     /// This page's own row widgets, so the play marker can find them.

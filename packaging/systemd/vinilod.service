@@ -13,7 +13,7 @@
 
 [Unit]
 Description=Vinilo daemon
-Documentation=https://github.com/SoftARV/Slipmat
+Documentation=https://github.com/danielmigueltejedor/vinilo
 # Chromium needs a display server even with its window hidden, so there is no
 # point starting before there is a graphical session to attach to.
 After=graphical-session.target

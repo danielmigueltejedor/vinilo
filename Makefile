@@ -197,9 +197,12 @@ dev-install:
 		install -Dm644 data/icons/hicolor/$${sz}x$${sz}/apps/$(APPID).png \
 			$(DATADIR)/icons/hicolor/$${sz}x$${sz}/apps/$(APPID).png; \
 	done
-	@# Remove the old scalable Vinilo icon left by pre-PNG installs.
-	rm -f $(DATADIR)/icons/hicolor/scalable/apps/$(APPID).svg
-	install -Dm644 data/icons/hicolor/scalable/apps/$(AGUJA).svg \
+	@for sz in $(ICON_SIZES); do \
+		install -Dm644 data/icons/hicolor/$${sz}x$${sz}/apps/$(AGUJA).png \
+			$(DATADIR)/icons/hicolor/$${sz}x$${sz}/apps/$(AGUJA).png; \
+	done
+	@# Remove old scalable app icons left by pre-PNG installs.
+	rm -f $(DATADIR)/icons/hicolor/scalable/apps/$(APPID).svg \
 		$(DATADIR)/icons/hicolor/scalable/apps/$(AGUJA).svg
 	install -Dm644 data/icons/hicolor/symbolic/apps/$(APPID)-symbolic.svg \
 		$(DATADIR)/icons/hicolor/symbolic/apps/$(APPID)-symbolic.svg
@@ -216,18 +219,6 @@ dev-install:
 		done; \
 		echo "Installed action icons into $$dir"; \
 	done
-	@# Vinilo ships pre-rendered PNGs; Aguja still uses an SVG master.
-	@if command -v rsvg-convert >/dev/null 2>&1; then \
-		for sz in $(ICON_SIZES); do \
-			install -d $(DATADIR)/icons/hicolor/$${sz}x$${sz}/apps; \
-			rsvg-convert -w $${sz} -h $${sz} \
-				data/icons/hicolor/scalable/apps/$(AGUJA).svg \
-				-o $(DATADIR)/icons/hicolor/$${sz}x$${sz}/apps/$(AGUJA).png; \
-		done; \
-		echo "Rendered Aguja PNG icons: $(ICON_SIZES)"; \
-	else \
-		echo "rsvg-convert not found — installing Aguja SVG only."; \
-	fi
 	@if [ -f $(DATADIR)/icons/hicolor/index.theme ]; then \
 		touch $(DATADIR)/icons/hicolor; \
 		gtk-update-icon-cache -q -t -f $(DATADIR)/icons/hicolor; \
@@ -264,8 +255,8 @@ uninstall:
 	rm -f $(DATADIR)/applications/vinilo.desktop \
 		$(DATADIR)/applications/slipmat.desktop \
 		$(DATADIR)/applications/Slipmat.desktop
-	rm -f $(DATADIR)/icons/hicolor/scalable/apps/$(APPID).svg
-	rm -f $(DATADIR)/icons/hicolor/scalable/apps/$(AGUJA).svg
+	rm -f $(DATADIR)/icons/hicolor/scalable/apps/$(APPID).svg \
+		$(DATADIR)/icons/hicolor/scalable/apps/$(AGUJA).svg
 	rm -f $(DATADIR)/icons/hicolor/symbolic/apps/$(APPID)-symbolic.svg
 	@rm -f $(DATADIR)/icons/hicolor/symbolic/actions/vinilo-*.svg
 	@rm -f $(DATADIR)/icons/Colloid*/actions/symbolic/vinilo-*.svg

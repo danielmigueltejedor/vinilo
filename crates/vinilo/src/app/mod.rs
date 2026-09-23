@@ -64,7 +64,7 @@ use vinilo_core::ipc::{PlayMode, Request, Transport, WriteAction};
 use vinilo_core::music::types::{Album, Artist, Artwork, Playlist, Track};
 use vinilo_core::player::protocol::RepeatMode;
 
-const WINDOW_TITLE: &str = concat!("Vinilo ", env!("CARGO_PKG_VERSION"));
+const WINDOW_TITLE: &str = "Vinilo";
 
 /// How often the seek bar redraws while playing.
 ///
@@ -593,8 +593,6 @@ pub enum AppMsg {
     ChooseProvider(vinilo_core::provider::Provider),
     SetLanguage(u32),
     SetProvider(u32),
-    /// Close the catalogue setup dialog and put the caret in Search.
-    FocusCatalogSearch,
     /// The hide-timer fired: the panel has been up long enough.
     HideVolumeOsd,
     /// A sidebar row was selected, by position. What it does depends on what
@@ -2261,10 +2259,6 @@ impl AppModel {
                     &sender,
                     root,
                 );
-            }
-            AppMsg::FocusCatalogSearch => {
-                self.handle(AppMsg::SetView(View::Search), &sender, root);
-                self.focus_search = true;
             }
             AppMsg::ThemeFlipped => {
                 for page in &self.pages {
