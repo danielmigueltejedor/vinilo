@@ -218,6 +218,7 @@ jobs:
           set -euxo pipefail
           VERSION="${GITHUB_REF_NAME#v}"
           gh release create "$GITHUB_REF_NAME" release/* \
+            --repo "$GITHUB_REPOSITORY" \
             --verify-tag \
             --title "Vinilo $VERSION" \
             --generate-notes
