@@ -758,9 +758,10 @@ sidecar/
   package.json  main.js  preload.js    # ~1200 lines of JS
 data/
   dev.danielmiguelt.Vinilo.desktop
-  icons/hicolor/{scalable,symbolic}/apps/dev.danielmiguelt.Vinilo{,-symbolic}.svg
-                       # the PNG sizes are rendered from the SVG by `make install`,
-                       # never committed — two copies of an icon always drift
+  icons/source/dev.danielmiguelt.Vinilo.png
+  icons/hicolor/{16x16,32x32,48x48,64x64,128x128,256x256,512x512}/apps/dev.danielmiguelt.Vinilo.png
+  icons/hicolor/symbolic/apps/dev.danielmiguelt.Vinilo-symbolic.svg
+                       # full-colour sizes are committed PNGs; symbolic remains SVG
 Makefile             # make install → ~/.local (no sudo); make sidecar; make check
 ```
 

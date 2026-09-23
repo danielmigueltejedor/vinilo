@@ -11,9 +11,7 @@ What the top-level README expects to find here, and what each shot should show.
 128px, so it can never drift from what the app actually installs:
 
 ```bash
-rsvg-convert -w 128 -h 128 \
-  data/icons/hicolor/scalable/apps/dev.danielmiguelt.Vinilo.svg \
-  -o docs/screenshots/icon.png
+cp data/icons/hicolor/128x128/apps/dev.danielmiguelt.Vinilo.png docs/screenshots/icon.png
 ```
 
 ## The shots

@@ -193,8 +193,12 @@ dev-install:
 	rm -f $(DATADIR)/applications/vinilo.desktop \
 		$(DATADIR)/applications/slipmat.desktop \
 		$(DATADIR)/applications/Slipmat.desktop
-	install -Dm644 data/icons/hicolor/scalable/apps/$(APPID).svg \
-		$(DATADIR)/icons/hicolor/scalable/apps/$(APPID).svg
+	@for sz in $(ICON_SIZES); do \
+		install -Dm644 data/icons/hicolor/$${sz}x$${sz}/apps/$(APPID).png \
+			$(DATADIR)/icons/hicolor/$${sz}x$${sz}/apps/$(APPID).png; \
+	done
+	@# Remove the old scalable Vinilo icon left by pre-PNG installs.
+	rm -f $(DATADIR)/icons/hicolor/scalable/apps/$(APPID).svg
 	install -Dm644 data/icons/hicolor/scalable/apps/$(AGUJA).svg \
 		$(DATADIR)/icons/hicolor/scalable/apps/$(AGUJA).svg
 	install -Dm644 data/icons/hicolor/symbolic/apps/$(APPID)-symbolic.svg \
@@ -212,23 +216,17 @@ dev-install:
 		done; \
 		echo "Installed action icons into $$dir"; \
 	done
-	@# Raster sizes, rendered from the same SVG the app installs so the two
-	@# can never drift. GTK resolves the SVG on its own, but the shell, the
-	@# notification daemon and anything reading the icon theme without an SVG
-	@# loader all want PNGs — and this loop used to look for files that were
-	@# never in the tree, so it silently installed none.
+	@# Vinilo ships pre-rendered PNGs; Aguja still uses an SVG master.
 	@if command -v rsvg-convert >/dev/null 2>&1; then \
-		for id in $(APPID) $(AGUJA); do \
-			for sz in $(ICON_SIZES); do \
-				install -d $(DATADIR)/icons/hicolor/$${sz}x$${sz}/apps; \
-				rsvg-convert -w $${sz} -h $${sz} \
-					data/icons/hicolor/scalable/apps/$${id}.svg \
-					-o $(DATADIR)/icons/hicolor/$${sz}x$${sz}/apps/$${id}.png; \
-			done; \
+		for sz in $(ICON_SIZES); do \
+			install -d $(DATADIR)/icons/hicolor/$${sz}x$${sz}/apps; \
+			rsvg-convert -w $${sz} -h $${sz} \
+				data/icons/hicolor/scalable/apps/$(AGUJA).svg \
+				-o $(DATADIR)/icons/hicolor/$${sz}x$${sz}/apps/$(AGUJA).png; \
 		done; \
-		echo "Rendered PNG icons: $(ICON_SIZES)"; \
+		echo "Rendered Aguja PNG icons: $(ICON_SIZES)"; \
 	else \
-		echo "rsvg-convert not found — installing the SVG only."; \
+		echo "rsvg-convert not found — installing Aguja SVG only."; \
 	fi
 	@if [ -f $(DATADIR)/icons/hicolor/index.theme ]; then \
 		touch $(DATADIR)/icons/hicolor; \

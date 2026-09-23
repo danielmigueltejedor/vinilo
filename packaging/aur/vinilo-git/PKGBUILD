@@ -134,8 +134,6 @@ package_vinilo-git() {
 
   install -Dm644 "data/$appid.desktop" \
     "$pkgdir/usr/share/applications/$appid.desktop"
-  install -Dm644 "data/icons/hicolor/scalable/apps/$appid.svg" \
-    "$pkgdir/usr/share/icons/hicolor/scalable/apps/$appid.svg"
   install -Dm644 "data/icons/hicolor/symbolic/apps/$appid-symbolic.svg" \
     "$pkgdir/usr/share/icons/hicolor/symbolic/apps/$appid-symbolic.svg"
   install -d "$pkgdir/usr/share/icons/hicolor/symbolic/actions"
@@ -144,8 +142,8 @@ package_vinilo-git() {
 
   for sz in 16 32 48 64 128 256 512; do
     install -d "$pkgdir/usr/share/icons/hicolor/${sz}x${sz}/apps"
-    rsvg-convert -w "$sz" -h "$sz" "data/icons/hicolor/scalable/apps/$appid.svg" \
-      -o "$pkgdir/usr/share/icons/hicolor/${sz}x${sz}/apps/$appid.png"
+    install -Dm644 "data/icons/hicolor/${sz}x${sz}/apps/$appid.png" \
+      "$pkgdir/usr/share/icons/hicolor/${sz}x${sz}/apps/$appid.png"
   done
 
   install -Dm644 COPYING "$pkgdir/usr/share/licenses/$pkgname/COPYING"
@@ -183,12 +181,10 @@ package_aguja-git() {
   # business. Without this aguja is only ever a command.
   install -Dm644 "data/$appid.desktop" \
     "$pkgdir/usr/share/applications/$appid.desktop"
-  install -Dm644 "data/icons/hicolor/scalable/apps/$appid.svg" \
-    "$pkgdir/usr/share/icons/hicolor/scalable/apps/$appid.svg"
   for sz in 16 32 48 64 128 256 512; do
     install -d "$pkgdir/usr/share/icons/hicolor/${sz}x${sz}/apps"
-    rsvg-convert -w "$sz" -h "$sz" "data/icons/hicolor/scalable/apps/$appid.svg" \
-      -o "$pkgdir/usr/share/icons/hicolor/${sz}x${sz}/apps/$appid.png"
+    install -Dm644 "data/icons/hicolor/${sz}x${sz}/apps/$appid.png" \
+      "$pkgdir/usr/share/icons/hicolor/${sz}x${sz}/apps/$appid.png"
   done
 
   install -Dm644 COPYING "$pkgdir/usr/share/licenses/$pkgname/COPYING"

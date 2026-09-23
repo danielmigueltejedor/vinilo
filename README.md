@@ -5,7 +5,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 -->
 
 <div align="center">
-  <img src="data/icons/hicolor/scalable/apps/dev.danielmiguelt.Vinilo.svg" width="192" height="192" alt="Vinilo">
+  <img src="data/icons/hicolor/512x512/apps/dev.danielmiguelt.Vinilo.png" width="192" height="192" alt="Vinilo">
   <h1>Vinilo</h1>
   <p><strong>A native GNOME music player for Linux.</strong></p>
 

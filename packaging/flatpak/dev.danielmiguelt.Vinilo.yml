@@ -126,8 +126,10 @@ modules:
       - install -Dm755 vinilo-launcher /app/bin/vinilo
 
       - install -Dm644 data/dev.danielmiguelt.Vinilo.desktop /app/share/applications/dev.danielmiguelt.Vinilo.desktop
-      - install -Dm644 data/icons/hicolor/scalable/apps/dev.danielmiguelt.Vinilo.svg
-          /app/share/icons/hicolor/scalable/apps/dev.danielmiguelt.Vinilo.svg
+      - |
+        for sz in 16 32 48 64 128 256 512; do
+          install -Dm644 "data/icons/hicolor/${sz}x${sz}/apps/dev.danielmiguelt.Vinilo.png" "/app/share/icons/hicolor/${sz}x${sz}/apps/dev.danielmiguelt.Vinilo.png"
+        done
       - install -Dm644 data/icons/hicolor/symbolic/apps/dev.danielmiguelt.Vinilo-symbolic.svg
           /app/share/icons/hicolor/symbolic/apps/dev.danielmiguelt.Vinilo-symbolic.svg
       - |
