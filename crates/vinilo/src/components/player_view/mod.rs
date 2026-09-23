@@ -1242,12 +1242,5 @@ fn child_at(parent: &gtk::Box, index: usize) -> Option<gtk::Widget> {
 /// Verse plus a note. A missing name draws as nothing, so fall back to the
 /// three-line glyph Adwaita always has.
 pub(super) fn lyrics_icon() -> &'static str {
-    let present = gdk::Display::default()
-        .map(|display| gtk::IconTheme::for_display(&display))
-        .is_some_and(|theme| theme.has_icon("vinilo-lyrics-symbolic"));
-    if present {
-        "vinilo-lyrics-symbolic"
-    } else {
-        "format-justify-left-symbolic"
-    }
+"format-justify-left-symbolic"
 }

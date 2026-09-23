@@ -10,7 +10,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
   <p><strong>A native GNOME music player for Linux.</strong></p>
 
   <p>
-    <img src="https://img.shields.io/badge/version-0.26.1-4a86cf" alt="Version 0.26.1">
+    <img src="https://img.shields.io/badge/version-0.27.0-4a86cf" alt="Version 0.27.0">
     <img src="https://img.shields.io/badge/platform-Linux%20x86__64-fcc624?logo=linux&logoColor=black" alt="Linux x86_64">
     <img src="https://img.shields.io/badge/GTK4%20%2F%20libadwaita-4a86cf" alt="GTK4 and libadwaita">
     <img src="https://img.shields.io/badge/Rust-dea584?logo=rust&logoColor=black" alt="Written in Rust">
@@ -203,7 +203,7 @@ Vinilo does not strip DRM, cache decrypted audio, or offer downloads.
 
 - Use [GitHub Issues](https://github.com/danielmigueltejedor/vinilo/issues) for
   reproducible bugs and focused feature requests.
-- Include the Vinilo version (`0.26.1`), distribution, GTK/libadwaita versions
+- Include the Vinilo version (`0.27.0`), distribution, GTK/libadwaita versions
   and the source (Apple Music, local, Spotify, YouTube Music or Tidal).
 - Never paste tokens, cookies or `settings.ini` into an issue.
 

@@ -5,7 +5,7 @@
 //!
 //! CLAUDE.md says not to reach for CSS where a libadwaita widget would do. The
 //! exceptions it allows are here: an **accent colour** is not a widget, and the
-//! Nodalix identity — Colloid cover radii, rounder sidebar rows — is a family
+//! Nodalix identity — cover radii, rounder sidebar rows — is a family
 //! look other apps copy, not a GNOME widget we failed to find.
 //!
 //! Two providers, deliberately:
@@ -147,7 +147,7 @@ pub fn init(accent: Accent, backdrop: bool) {
     set_accent(accent);
 
     // **Repaint the backdrop when the theme flips.** The veil's alphas differ
-    // per theme (see `Veil`), so a cover painted while dark stays painted with
+    // per theme, so a cover painted while dark stays painted with
     // dark's numbers until the next track — which on a paused player is never.
     // Switching to light then left the drawer wearing an 0.86 white veil, which
     // is the washed-out state this pair of numbers exists to avoid.
@@ -422,140 +422,14 @@ fn wash_of(path: &std::path::Path) -> Option<String> {
 /// The veil is the *same* colour, lighter toward the top so labels stay
 /// readable without turning the field grey. Dark and light differ by how much
 /// of the window colour is mixed in.
-struct Veil {
-    bar: (f32, f32),
-    sheet: (f32, f32),
-}
-
-const DARK_VEIL: Veil = Veil {
-    bar: (0.22, 0.08),
-    sheet: (0.28, 0.10),
-};
-
-const LIGHT_VEIL: Veil = Veil {
-    bar: (0.18, 0.08),
-    sheet: (0.22, 0.10),
-};
-
 fn backdrop_css(color: Option<&str>, dark: bool) -> String {
     let Some(color) = color else {
-        return ".np-bar, .np-sheet { background-image: none; background-color: transparent; }"
-            .into();
+        return ".np-bar, .np-sheet { background-image: none; background-color: transparent; }".into();
     };
-    let veil = if dark { DARK_VEIL } else { LIGHT_VEIL };
-    let ink = ink_on(color);
-    let layers = |(top, bottom): (f32, f32)| {
-        format!(
-            "background-color: {color};
-             background-image: linear-gradient(
-                 alpha(@window_bg_color, {top}),
-                 alpha(@window_bg_color, {bottom})
-             );
-             background-repeat: no-repeat;"
-        )
-    };
-    format!(
-        ".np-bar {{ {} }}
-         .np-sheet {{ {} }}
-         {}",
-        layers(veil.bar),
-        layers(veil.sheet),
-        ink_rules(&[".np-bar", ".np-sheet"], ink)
-    )
-}
-
-/// Black on a light wash, white on a dark one.
-///
-/// WCAG relative luminance, cut at 0.179 — the point where black and white
-/// contrast equally against the field. The theme's own foreground is the
-/// wrong answer here: a cream sleeve in a dark window still needs black type.
-fn ink_on(hex: &str) -> &'static str {
-    match rgb_of(hex) {
-        Some((r, g, b)) if relative_luminance(r, g, b) > 0.179 => "#000000",
-        _ => "#ffffff",
-    }
-}
-
-fn rgb_of(hex: &str) -> Option<(u8, u8, u8)> {
-    let h = hex.strip_prefix('#')?;
-    if h.len() != 6 {
-        return None;
-    }
-    let n = u32::from_str_radix(h, 16).ok()?;
-    Some(((n >> 16) as u8, (n >> 8) as u8, n as u8))
-}
-
-fn relative_luminance(r: u8, g: u8, b: u8) -> f32 {
-    fn lin(c: u8) -> f32 {
-        let s = f32::from(c) / 255.0;
-        if s <= 0.04045 {
-            s / 12.92
-        } else {
-            ((s + 0.055) / 1.055).powf(2.4)
-        }
-    }
-    0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
-}
-
-/// Adwaita paints labels and symbolic icons from `@window_fg_color`, not
-/// from inherited `color`, so the ink has to land on the children as well
-/// as on the surface — and on the variables those widgets actually read.
-///
-/// Each surface is its own selector. Passing `.np-bar, .np-sheet` and then
-/// appending ` label` would paint `.np-bar` itself and only `.np-sheet label`.
-fn ink_rules(surfaces: &[&str], ink: &str) -> String {
-    let parent = surfaces.join(", ");
-    let children = ["label", "image", "button", "scale"]
-        .into_iter()
-        .flat_map(|widget| surfaces.iter().map(move |s| format!("{s} {widget}")))
-        .collect::<Vec<_>>()
-        .join(",\n         ");
-    format!(
-        "{parent} {{
-             color: {ink};
-             --window-fg-color: {ink};
-             --headerbar-fg-color: {ink};
-             --view-fg-color: {ink};
-             --sidebar-fg-color: {ink};
-         }}
-         {children} {{
-             color: {ink};
-         }}
-         {}",
-        popover_reset(surfaces)
-    )
-}
-
-/// Popovers are parented to the row, tile or bar that opened them. The ink
-/// rules above would otherwise paint their labels with the wash colour — black
-/// type on Adwaita's dark menu, which is how a right-click in dark mode went
-/// unreadable. Higher specificity than `{surface} label` so the menu keeps
-/// the theme's own foreground.
-fn popover_reset(surfaces: &[&str]) -> String {
-    let popovers = surfaces
-        .iter()
-        .map(|s| format!("{s} popover"))
-        .collect::<Vec<_>>()
-        .join(",\n         ");
-    let children = ["label", "image", "button", "scale"]
-        .into_iter()
-        .flat_map(|widget| {
-            surfaces
-                .iter()
-                .map(move |s| format!("{s} popover {widget}"))
-        })
-        .collect::<Vec<_>>()
-        .join(",\n         ");
-    format!(
-        "{popovers},
-         {children} {{
-             color: @window_fg_color;
-             --window-fg-color: @window_fg_color;
-             --headerbar-fg-color: @headerbar_fg_color;
-             --view-fg-color: @view_fg_color;
-             --sidebar-fg-color: @sidebar_fg_color;
-         }}"
-    )
+    let (bar, sheet) = if dark { ((0.52, 0.24, 0.06), (0.42, 0.18, 0.04)) } else { ((0.30, 0.13, 0.03), (0.24, 0.10, 0.02)) };
+    let gradient = |direction: &str, (strong, middle, tail): (f32, f32, f32)| format!("background-color: @window_bg_color; background-image: linear-gradient({direction}, alpha({color}, {strong}) 0%, alpha({color}, {middle}) 42%, alpha({color}, {tail}) 72%, alpha({color}, 0.0) 100%); background-repeat: no-repeat;");
+    format!(".np-bar {{ {} }}
+.np-sheet {{ {} }}", gradient("to right", bar), gradient("to bottom", sheet))
 }
 
 /// CSS class a detail page uses so its backdrop cannot paint another page.
@@ -601,21 +475,8 @@ fn page_backdrop_css(class: &str, color: Option<&str>, dark: bool) -> String {
     let Some(color) = color else {
         return format!(".{class} {{ background-image: none; background-color: transparent; }}");
     };
-    let veil = if dark { DARK_VEIL } else { LIGHT_VEIL };
-    let (top, bottom) = veil.sheet;
-    let ink = ink_on(color);
-    format!(
-        ".{class} {{
-             background-color: {color};
-             background-image: linear-gradient(
-                 alpha(@window_bg_color, {top}),
-                 alpha(@window_bg_color, {bottom})
-             );
-             background-repeat: no-repeat;
-         }}
-         {}",
-        ink_rules(&[&format!(".{class}")], ink)
-    )
+    let (strong, middle, tail) = if dark { (0.38, 0.16, 0.035) } else { (0.22, 0.09, 0.02) };
+    format!(".{class} {{ background-color: @window_bg_color; background-image: linear-gradient(to bottom, alpha({color}, {strong}) 0%, alpha({color}, {middle}) 32%, alpha({color}, {tail}) 67%, alpha({color}, 0.0) 100%); background-repeat: no-repeat; }}")
 }
 
 /// Whether libadwaita is currently painting dark.
@@ -718,8 +579,8 @@ mod tests {
         assert!(css.contains(".np-sheet"), "the drawer was left out: {css}");
         assert_eq!(
             css.matches("#c42828").count(),
-            2,
-            "each surface needs its own copy of the colour"
+            8,
+            "each surface needs all four gradient stops"
         );
         let cleared = backdrop_css(None, true);
         assert!(cleared.contains(".np-bar") && cleared.contains(".np-sheet"));
@@ -729,80 +590,45 @@ mod tests {
     fn the_bar_shows_more_of_the_record_than_the_drawer() {
         let css = backdrop_css(Some("#c42828"), true);
         let bar = &css[css.find(".np-bar").unwrap()..css.find(".np-sheet").unwrap()];
-        assert!(bar.contains("0.22"), "bar scrim changed: {bar}");
+        assert!(bar.contains("0.52"), "bar scrim changed: {bar}");
         assert!(
-            !bar.contains("0.28"),
+            !bar.contains("0.42"),
             "bar is using the drawer's veil: {bar}"
         );
     }
 
     #[test]
-    fn a_light_theme_gets_a_thinner_veil_than_a_dark_one() {
+    fn a_light_theme_gets_a_subtler_gradient_than_a_dark_one() {
         let dark = backdrop_css(Some("#c42828"), true);
         let light = backdrop_css(Some("#c42828"), false);
-        assert_ne!(dark, light, "both themes got the same veil");
-
-        for (top, bottom) in [DARK_VEIL.bar, DARK_VEIL.sheet] {
-            assert!(top > bottom, "the veil must thin downwards");
-        }
-        for (top, bottom) in [LIGHT_VEIL.bar, LIGHT_VEIL.sheet] {
-            assert!(top > bottom, "the veil must thin downwards");
-        }
-        assert!(
-            LIGHT_VEIL.sheet.0 < DARK_VEIL.sheet.0 && LIGHT_VEIL.bar.0 < DARK_VEIL.bar.0,
-            "light must let more of the cover through, not less"
-        );
+        assert!(dark.contains("alpha(#c42828, 0.52)"), "{dark}");
+        assert!(light.contains("alpha(#c42828, 0.3)"), "{light}");
     }
 
     #[test]
-    fn a_veil_never_gets_thin_enough_to_lose_the_words() {
-        // The floor is set by looks, not by type: ink is black or white from
-        // the wash itself. The veil only has to keep the field from going
-        // fluorescent against the rest of the window.
-        for (top, bottom) in [
-            DARK_VEIL.bar,
-            DARK_VEIL.sheet,
-            LIGHT_VEIL.bar,
-            LIGHT_VEIL.sheet,
-        ] {
-            assert!(bottom >= 0.05, "veil too thin for text: {bottom}");
-            assert!(top <= 0.5, "veil so heavy the cover is invisible: {top}");
-        }
-    }
-
-    #[test]
-    fn a_pale_wash_gets_black_type_and_a_dark_one_gets_white() {
-        assert_eq!(ink_on("#f5e6c8"), "#000000");
-        assert_eq!(ink_on("#ffffff"), "#000000");
-        assert_eq!(ink_on("#1a1a2e"), "#ffffff");
-        assert_eq!(ink_on("#000000"), "#ffffff");
-        // The red used by the other backdrop tests: dark enough for white.
-        assert_eq!(ink_on("#c42828"), "#ffffff");
-        let pale = backdrop_css(Some("#f5e6c8"), true);
-        assert!(pale.contains("color: #000000"), "{pale}");
-        assert!(
-            pale.contains(".np-bar label") && pale.contains(".np-sheet label"),
-            "comma in the parent selector must not drop one surface's labels: {pale}"
-        );
-        assert!(
-            pale.contains(".np-bar popover") && pale.contains("@window_fg_color"),
-            "a popover parented to the bar must not inherit wash ink: {pale}"
-        );
-        let dark = backdrop_css(Some("#1a1a2e"), false);
-        assert!(dark.contains("color: #ffffff"), "{dark}");
-        let page = page_backdrop_css("page-bg-3", Some("#f5e6c8"), true);
-        assert!(page.contains("color: #000000"), "{page}");
-        assert!(
-            page.contains(".page-bg-3 label"),
-            "page type must reach the heading: {page}"
-        );
-    }
-
-    #[test]
-    fn a_cover_colour_is_hex() {
+    fn gradients_fade_fully_into_the_window_background() {
         let css = backdrop_css(Some("#c42828"), true);
-        assert!(css.contains("background-color: #c42828"), "{css}");
-        assert!(!css.contains("url("), "{css}");
+        assert!(css.contains("alpha(#c42828, 0.0) 100%"), "{css}");
+        assert!(css.contains("background-color: @window_bg_color"), "{css}");
+    }
+
+    #[test]
+    fn gradient_keeps_the_theme_foreground() {
+        let pale = backdrop_css(Some("#f5e6c8"), true);
+        let dark = backdrop_css(Some("#1a1a2e"), false);
+        assert!(pale.contains("@window_bg_color"), "{pale}");
+        assert!(dark.contains("@window_bg_color"), "{dark}");
+        assert!(!pale.contains("color: #000000"), "{pale}");
+        assert!(!dark.contains("color: #ffffff"), "{dark}");
+    }
+
+    #[test]
+    fn a_cover_colour_becomes_a_gradient() {
+        let css = backdrop_css(Some("#c42828"), true);
+        assert!(css.contains("linear-gradient"), "{css}");
+        assert!(css.contains("alpha(#c42828, 0.52)"), "{css}");
+        assert!(css.contains("alpha(#c42828, 0.0)"), "{css}");
+        assert!(!css.contains("background-color: #c42828"), "{css}");
     }
 
     #[test]
@@ -819,7 +645,7 @@ mod tests {
     }
 
     #[test]
-    fn empty_sleeves_follow_the_colloid_cover_radius() {
+    fn empty_sleeves_follow_the_cover_radius() {
         assert!(crate::nodalix::CHROME.contains("--nodalix-radius-cover: 22%"));
     }
 }

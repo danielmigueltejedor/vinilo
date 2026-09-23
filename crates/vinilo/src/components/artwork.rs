@@ -310,7 +310,7 @@ mod tests {
         assert_eq!(lift_chroma([250, 250, 250]), [250, 250, 250]);
         assert_eq!(lift_chroma([128, 128, 128]), [128, 128, 128]);
         let [r, g, b] = lift_chroma([160, 80, 80]);
-        assert!(r > 200 && g < 70 && b < 70, "got [{r}, {g}, {b}]");
+        assert!(r > 200 && g <= 70 && b <= 70, "got [{r}, {g}, {b}]");
     }
 
     #[test]

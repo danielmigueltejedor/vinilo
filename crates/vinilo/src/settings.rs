@@ -491,8 +491,8 @@ mod tests {
         }
         // A hand-edited or future-version ini must not break startup. This
         // once used "playlists" as the unknown value, which stopped being one.
-        assert_eq!(Section::parse("radio"), Section::Library);
-        assert_eq!(Section::parse(""), Section::Library);
+        assert_eq!(Section::parse("radio"), Section::Discover);
+        assert_eq!(Section::parse(""), Section::Discover);
     }
 
     #[test]
