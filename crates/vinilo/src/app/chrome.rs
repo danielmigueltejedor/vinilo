@@ -213,7 +213,13 @@ pub(super) fn show_about(parent: &adw::ApplicationWindow) {
         .developer_name("Daniel Miguel Tejedor")
         .version(env!("CARGO_PKG_VERSION"))
         .release_notes_version(env!("CARGO_PKG_VERSION"))
-        .release_notes("<p>Vinilo 1.0.0 refreshes the visual identity of the app.</p><ul><li>Native GNOME and Adwaita icons throughout the interface.</li><li>Artwork colours now fade into elegant gradients across playlists, albums and the player.</li><li>The bottom player now integrates flush with the window without rounded upper corners.</li><li>A new Vinilo application icon.</li></ul>")
+        .release_notes(
+            "<p>Vinilo 1.0.1</p><ul>\
+             <li>Language follows the system by default; English and Spanish stay in Preferences.</li>\
+             <li>Spotify no longer shows as Beta.</li>\
+             <li>Music source preference no longer warns that changing it restarts the player.</li>\
+             </ul>",
+        )
         .license_type(gtk::License::Gpl30)
         .comments(t(Key::AboutComments))
         .build();
