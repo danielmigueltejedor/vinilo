@@ -10,11 +10,11 @@ SPDX-License-Identifier: GPL-3.0-or-later
   <p><strong>A native GNOME music player for Linux.</strong></p>
 
   <p>
-    <img src="https://img.shields.io/badge/version-1.0.0-4a86cf" alt="Version 1.0.0">
+    <img src="https://img.shields.io/badge/version-1.0.1-4a86cf" alt="Version 1.0.1">
     <img src="https://img.shields.io/badge/platform-Linux%20x86__64-fcc624?logo=linux&logoColor=black" alt="Linux x86_64">
     <img src="https://img.shields.io/badge/GTK4%20%2F%20libadwaita-4a86cf" alt="GTK4 and libadwaita">
     <img src="https://img.shields.io/badge/Rust-dea584?logo=rust&logoColor=black" alt="Written in Rust">
-    <img src="https://img.shields.io/badge/interface-English%20%7C%20Español-8a63d2" alt="English and Spanish">
+    <img src="https://img.shields.io/badge/interface-System%20%7C%20English%20%7C%20Español-8a63d2" alt="System, English and Spanish">
     <a href="./COPYING"><img src="https://img.shields.io/badge/license-GPL--3.0--or--later-2ea44f" alt="GPL-3.0-or-later"></a>
   </p>
 
@@ -51,14 +51,13 @@ the window does not stop the music.
 ## Preview
 
 <p align="center">
-  <img src="docs/screenshots/library.webp" width="48%" alt="Library songs in Vinilo">
-  <img src="docs/screenshots/player.webp" width="48%" alt="Expanded player with artwork and queue">
+  <img src="docs/screenshots/library.webp" width="48%" alt="Listen Now in Vinilo">
+  <img src="docs/screenshots/player.webp" width="48%" alt="Expanded player with lyrics">
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/albums.webp" width="31%" alt="Albums grid">
-  <img src="docs/screenshots/search.webp" width="31%" alt="Catalogue search">
-  <img src="docs/screenshots/playlist.webp" width="31%" alt="Playlist page">
+  <img src="docs/screenshots/playlist.webp" width="48%" alt="Playlist page">
+  <img src="docs/screenshots/albums.webp" width="48%" alt="Spotify playlist in Vinilo">
 </p>
 
 ## Why Vinilo
@@ -67,7 +66,7 @@ the window does not stop the music.
 | --- | --- | --- |
 | A GNOME app, not a website in a frame | A player worth the name: gapless, with artwork and a queue | Play, pause and skip from the top bar, lock screen or media keys |
 | Your library: songs, albums, artists and playlists | The catalogues you already use, searchable from one place | Music keeps going when you close the window |
-| English or Spanish, chosen on first launch | A terminal client (`aguja`) on the same engine | Quick, and out of the way |
+| English or Spanish, or the system language | A terminal client (`aguja`) on the same engine | Quick, and out of the way |
 
 Vinilo is built for daily listening: one queue, two faces, and a small hidden
 web layer only where DRM requires it.
@@ -78,7 +77,7 @@ web layer only where DRM requires it.
 | --- | --- | --- |
 | Apple Music | Stable | Active subscription, x86_64, network on every play |
 | This computer | Stable | Audio files on disk |
-| Spotify | Beta | Sign-in. Premium uses librespot; otherwise a fallback |
+| Spotify | Stable | Sign-in. Premium uses librespot; otherwise a fallback |
 | YouTube Music | Beta | Sign-in |
 | Tidal | Alpha | Sign-in |
 
@@ -155,7 +154,8 @@ because Chromium needs a display server.
 
 ## First launch
 
-1. Choose **English** or **Español**.
+1. The interface follows the system language (English or Spanish). Change it in
+   Preferences if you want.
 2. Choose a source: Apple Music, this computer, Spotify, YouTube Music or Tidal.
 3. Streaming sources open a **sign-in window** you cannot skip. Sign out from
    the app menu to pick another source.
@@ -196,14 +196,14 @@ Vinilo does not strip DRM, cache decrypted audio, or offer downloads.
 | No offline Apple Music | Linux Widevine cannot persist licences |
 | ~200 MB Chromium sidecar | Only if you use Apple Music |
 | x86_64 only for Apple Music | Linux ARM Widevine is not a stable target |
-| Spotify, YouTube Music and Apple Music are **Beta**; Tidal is **Alpha** | Catalogue clients are still settling |
+| Spotify and Apple Music are ready; YouTube Music is **Beta**; Tidal is **Alpha** | Catalogue clients are still settling |
 | `aguja` needs a desktop session for Chromium sources | The decoder still needs a display server |
 
 ## Support and contributions
 
 - Use [GitHub Issues](https://github.com/danielmigueltejedor/vinilo/issues) for
   reproducible bugs and focused feature requests.
-- Include the Vinilo version (`1.0.0`), distribution, GTK/libadwaita versions
+- Include the Vinilo version (`1.0.1`), distribution, GTK/libadwaita versions
   and the source (Apple Music, local, Spotify, YouTube Music or Tidal).
 - Never paste tokens, cookies or `settings.ini` into an issue.
 

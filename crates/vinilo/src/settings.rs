@@ -13,7 +13,7 @@
 //! got mangled would be absurd.
 
 use relm4::gtk::glib::{self, KeyFile, KeyFileFlags};
-use vinilo_core::i18n::{self, Language};
+use vinilo_core::i18n::{self, Locale};
 use vinilo_core::provider::Provider;
 
 const GROUP: &str = "Vinilo";
@@ -138,9 +138,9 @@ pub struct Settings {
     /// Names remembered when a pin was added, so a catalogue radio still
     /// has a title after Listen Now has scrolled it off the screen.
     pub pinned_names: Vec<(String, String)>,
-    /// Interface language. Chosen on the first-run picker, then again from
-    /// Preferences. Missing from disk means the picker still has to run.
-    pub language: Language,
+    /// Interface language. Defaults to System (follow `LANG`). An explicit
+    /// choice from Preferences is written to `~/.config/vinilo/locale`.
+    pub language: Locale,
     pub language_chosen: bool,
     /// Where the music comes from. Missing from disk means the picker still
     /// has to run — except for installs that already had a language, which
@@ -248,8 +248,8 @@ impl Default for Settings {
             // guesses which playlists matter to you gets it wrong.
             pinned_playlists: Vec::new(),
             pinned_names: Vec::new(),
-            language: Language::English,
-            language_chosen: false,
+            language: Locale::System,
+            language_chosen: true,
             provider: Provider::AppleMusic,
             provider_chosen: false,
         }
@@ -332,11 +332,14 @@ impl Settings {
         }
         // The locale file is the source of truth so Aguja can read it without
         // glib. A value in the ini is only a fallback for older installs.
+        // Default is System — that is not "a saved preference", so it must not
+        // masquerade as evidence of an older install when deciding the provider.
+        let had_saved_language = i18n::load().is_some() || file.string(GROUP, "language").is_ok();
         if let Some(language) = i18n::load() {
             settings.language = language;
             settings.language_chosen = true;
         } else if let Ok(language) = file.string(GROUP, "language")
-            && let Some(language) = Language::parse(&language)
+            && let Some(language) = Locale::parse(&language)
         {
             settings.language = language;
             settings.language_chosen = true;
@@ -352,7 +355,7 @@ impl Settings {
             }
         } else if let Ok(chosen) = file.boolean(GROUP, "provider-chosen") {
             settings.provider_chosen = chosen;
-        } else if settings.language_chosen {
+        } else if had_saved_language {
             // An install from before this field existed already went through
             // Apple Music onboarding. Showing the picker now would be a
             // first-run screen on a machine that is not on a first run.
@@ -521,9 +524,9 @@ mod tests {
     }
 
     #[test]
-    fn the_language_is_unchosen_until_the_picker_runs() {
-        assert!(!Settings::default().language_chosen);
-        assert_eq!(Settings::default().language, Language::English);
+    fn language_defaults_to_the_system() {
+        assert!(Settings::default().language_chosen);
+        assert_eq!(Settings::default().language, Locale::System);
     }
 
     #[test]

@@ -17,7 +17,7 @@ use relm4::{ComponentSender, adw, gtk};
 
 use super::{AppModel, AppMsg};
 use crate::style::Accent;
-use vinilo_core::i18n::{self, Key, Language};
+use vinilo_core::i18n::{self, Key, Language, Locale};
 
 fn t(key: Key) -> &'static str {
     i18n::t(key)
@@ -590,6 +590,7 @@ impl AppModel {
             .title(t(Key::Language))
             .subtitle(t(Key::LanguageSub))
             .model(&gtk::StringList::new(&[
+                t(Key::LanguageSystem),
                 Language::English.native_name(),
                 Language::Spanish.native_name(),
             ]))
@@ -697,7 +698,7 @@ impl AppModel {
         {
             let sender = sender.clone();
             english.connect_clicked(move |_| {
-                sender.input(AppMsg::ChooseLanguage(Language::English));
+                sender.input(AppMsg::ChooseLanguage(Locale::English));
             });
         }
 
@@ -710,7 +711,7 @@ impl AppModel {
         {
             let sender = sender.clone();
             spanish.connect_clicked(move |_| {
-                sender.input(AppMsg::ChooseLanguage(Language::Spanish));
+                sender.input(AppMsg::ChooseLanguage(Locale::Spanish));
             });
         }
 

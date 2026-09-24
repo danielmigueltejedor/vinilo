@@ -1,5 +1,6 @@
 <!--
 SPDX-FileCopyrightText: 2026 Miguel Rincon
+SPDX-FileCopyrightText: 2026 Daniel Miguel Tejedor
 SPDX-License-Identifier: GPL-3.0-or-later
 -->
 
@@ -18,12 +19,10 @@ cp data/icons/hicolor/128x128/apps/dev.danielmiguelt.Vinilo.png docs/screenshots
 
 | File | Shows |
 | --- | --- |
-| `library.webp` | Songs — the play marker, unplayable tracks, row menus |
-| `search.webp` | A catalogue search: artists, playlists, albums and songs mixed |
-| `albums.webp` | The Albums grid, four to a row |
-| `artists.webp` | An artist page — the round portrait from the catalogue twin, and their albums |
-| `playlist.webp` | A playlist page: the composed mosaic, Play and Shuffle, tracks |
-| `player.webp` | The expanded player: artwork, transport, queue |
+| `library.webp` | Listen Now — recently played, Made for You, the Now Playing bar |
+| `player.webp` | The expanded player: artwork, transport, lyrics |
+| `playlist.webp` | A playlist page: Play and Shuffle, tracks |
+| `albums.webp` | A Spotify playlist — the same shell on another source |
 
 ## Taking them
 
@@ -39,20 +38,6 @@ cp data/icons/hicolor/128x128/apps/dev.danielmiguelt.Vinilo.png docs/screenshots
 - Show what is *new*. A shot that could have been taken three versions ago is a
   wasted one.
 
-  This matters more than it sounds, and it has now happened twice. The 0.1 set
-  went stale in one release in a way that was actively misleading:
-  `albums.webp` was captioned "with the queue sidebar open", and by 0.2 the
-  queue had moved into the player and no sidebar existed. Then the 0.2 set did
-  it again — `playlist.webp` was captioned "the four-up cover **Apple** builds
-  from its tracks", and by 0.3 that was doubly wrong: Apple sends no artwork at
-  all for a playlist you made, and the mosaic in the picture is one Vinilo
-  composes itself.
-
-  A screenshot outlives the sentence next to it, so when the UI moves, **check
-  the captions as well as the images** — a wrong caption is worse than an old
-  picture, because a reader trusts it and it explains what they are looking
-  at.
-
 ## Processing
 
 Resize to 1600px wide, then pick a format **by what is in the picture**:
@@ -66,10 +51,6 @@ magick shot.png -resize 1600x -strip \
 magick shot.png -resize 1600x -strip \
   -quality 92 -define webp:method=6 docs/screenshots/albums.webp
 ```
-
-WebP rather than PNG throughout: the four shots here are **724 KB** together,
-where the same images as PNG were **2.2 MB**. A repository carries its blobs
-forever, so this is worth two minutes.
 
 Keep each one under ~500 KB. If one is stubborn, `-resize 1400x` first — nobody
 reads a README at full resolution.

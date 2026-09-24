@@ -32,58 +32,14 @@ use vinilo_core::player::protocol::RepeatMode;
 use crate::browser::{SECTIONS, Showing};
 use crate::ui::Pane;
 
-fn pick_language(term: &mut ratatui::DefaultTerminal) -> Result<()> {
-    use ratatui::layout::{Alignment, Constraint, Layout};
-    use ratatui::style::{Modifier, Style};
-    use ratatui::text::{Line, Span};
-    use ratatui::widgets::Paragraph;
-    use vinilo_core::i18n::{self, Language};
+fn apply_locale() {
+    use vinilo_core::i18n::{self, Locale};
 
-    if i18n::load().is_some() {
-        return Ok(());
-    }
-
-    loop {
-        term.draw(|frame| {
-            let area = frame.area();
-            let chunks = Layout::vertical([
-                Constraint::Min(1),
-                Constraint::Length(10),
-                Constraint::Min(1),
-            ])
-            .split(area);
-            let body = Paragraph::new(vec![
-                Line::from(Span::styled(
-                    "Vinilo",
-                    Style::default().add_modifier(Modifier::BOLD),
-                )),
-                Line::from(""),
-                Line::from("Choose your language / Elige tu idioma"),
-                Line::from(""),
-                Line::from("  1  English"),
-                Line::from("  2  Español"),
-            ])
-            .alignment(Alignment::Center);
-            frame.render_widget(body, chunks[1]);
-        })?;
-
-        if let TermEvent::Key(key) = crossterm::event::read()?
-            && key.kind == KeyEventKind::Press
-        {
-            let language = match key.code {
-                KeyCode::Char('1') | KeyCode::Char('e') | KeyCode::Char('E') => {
-                    Some(Language::English)
-                }
-                KeyCode::Char('2') | KeyCode::Char('s') | KeyCode::Char('S') => {
-                    Some(Language::Spanish)
-                }
-                _ => None,
-            };
-            if let Some(language) = language {
-                i18n::save(language);
-                i18n::set_current(language);
-                return Ok(());
-            }
+    match i18n::load() {
+        Some(locale) => i18n::set_current(locale),
+        None => {
+            i18n::save(Locale::System);
+            i18n::set_current(Locale::System);
         }
     }
 }
@@ -189,7 +145,7 @@ async fn run() -> Result<()> {
     // panic hook that gives it back. The teardown in `main` covers the one case
     // it does not: an error returned from here after this line.
     let mut term = ratatui::init();
-    pick_language(&mut term)?;
+    apply_locale();
     vinilo_core::i18n::set_current(vinilo_core::i18n::load().unwrap_or_default());
 
     let (link, mut events) = link::connect().await?;

@@ -4,27 +4,41 @@
 
 //! Runtime language for both clients.
 //!
-//! English and Spanish are selected in the app, not taken from `LANG`. A first
-//! run has no file yet; that is how the GNOME client knows to open the picker
-//! before Apple's sign-in. The choice lives in `~/.config/vinilo/locale` so
-//! Vinilo and Aguja stay in agreement without sharing a GTK settings parser.
+//! ## Shape
+//!
+//! - [`Locale`] is what Preferences stores: System, or a fixed language.
+//! - [`Language`] is the resolved string table `t()` reads.
+//!
+//! System follows `LC_MESSAGES` / `LANG` (primary tag only). An unsupported
+//! tag falls back to English. The choice lives in `~/.config/vinilo/locale` so
+//! Vinilo and Aguja agree without sharing a GTK settings parser.
+//!
+//! ## Adding a language
+//!
+//! 1. Add a variant to [`Language`].
+//! 2. Add a `xx(Key) -> &'static str` table beside `en` / `es`.
+//! 3. Wire it in [`t`], [`Locale::parse`], [`Locale::resolve`], and the
+//!    Preferences combo (native name + index).
+//! 4. Extend every `match current()` that builds a sentence, not only `t`.
 
 use std::cell::Cell;
 use std::path::PathBuf;
 
 use crate::paths;
 
-/// The two languages Vinilo ships.
+/// Preference shown in the language combo and written to disk.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum Language {
+pub enum Locale {
     #[default]
+    System,
     English,
     Spanish,
 }
 
-impl Language {
+impl Locale {
     pub fn as_str(self) -> &'static str {
         match self {
+            Self::System => "system",
             Self::English => "en",
             Self::Spanish => "es",
         }
@@ -32,6 +46,7 @@ impl Language {
 
     pub fn parse(s: &str) -> Option<Self> {
         match s.trim() {
+            "system" | "auto" => Some(Self::System),
             "en" | "english" => Some(Self::English),
             "es" | "spanish" | "español" | "espanol" => Some(Self::Spanish),
             _ => None,
@@ -41,24 +56,70 @@ impl Language {
     /// Index in the Preferences combo, and back.
     pub fn from_index(i: u32) -> Self {
         match i {
-            1 => Self::Spanish,
-            _ => Self::English,
+            1 => Self::English,
+            2 => Self::Spanish,
+            _ => Self::System,
         }
     }
 
     pub fn index(self) -> u32 {
         match self {
-            Self::English => 0,
-            Self::Spanish => 1,
+            Self::System => 0,
+            Self::English => 1,
+            Self::Spanish => 2,
         }
     }
 
+    /// Resolve System against the environment; fixed choices pass through.
+    pub fn resolve(self) -> Language {
+        match self {
+            Self::System => Language::from_environment(),
+            Self::English => Language::English,
+            Self::Spanish => Language::Spanish,
+        }
+    }
+}
+
+/// A language Vinilo ships translations for.
+///
+/// Add a variant here when teaching the app another language — see the module
+/// header.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Language {
+    #[default]
+    English,
+    Spanish,
+}
+
+impl Language {
     /// Always in the language itself, so the combo is readable before you pick.
     pub fn native_name(self) -> &'static str {
         match self {
             Self::English => "English",
             Self::Spanish => "Español",
         }
+    }
+
+    /// Primary tag of a locale string (`es_ES.UTF-8` → Spanish). Unknown → English.
+    pub fn from_locale_tag(raw: &str) -> Self {
+        let primary = raw
+            .split(['.', '_', '-'])
+            .next()
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        match primary.as_str() {
+            "es" => Self::Spanish,
+            _ => Self::English,
+        }
+    }
+
+    /// Primary tag of `LC_MESSAGES` / `LANG`. Unknown tags → English.
+    pub fn from_environment() -> Self {
+        let raw = std::env::var("LC_ALL")
+            .or_else(|_| std::env::var("LC_MESSAGES"))
+            .or_else(|_| std::env::var("LANG"))
+            .unwrap_or_default();
+        Self::from_locale_tag(&raw)
     }
 }
 
@@ -71,23 +132,23 @@ pub fn current() -> Language {
     CURRENT.with(Cell::get)
 }
 
-/// Point every later `t()` call at this language. GTK-thread only, like gettext.
-pub fn set_current(language: Language) {
-    CURRENT.with(|cell| cell.set(language));
+/// Point every later `t()` call at this preference. GTK-thread only, like gettext.
+pub fn set_current(locale: Locale) {
+    CURRENT.with(|cell| cell.set(locale.resolve()));
 }
 
 fn locale_path() -> Option<PathBuf> {
     Some(paths::config_dir()?.join("locale"))
 }
 
-/// `None` on a first run, or if the file is missing or unreadable.
-pub fn load() -> Option<Language> {
+/// `None` when the file is missing or unreadable — callers then use System.
+pub fn load() -> Option<Locale> {
     let text = std::fs::read_to_string(locale_path()?).ok()?;
-    Language::parse(&text)
+    Locale::parse(&text)
 }
 
 /// Persist the choice. Best-effort: failing to save must never block playback.
-pub fn save(language: Language) {
+pub fn save(locale: Locale) {
     let Some(path) = locale_path() else {
         return;
     };
@@ -97,7 +158,7 @@ pub fn save(language: Language) {
         tracing::warn!(?err, "could not create config directory");
         return;
     }
-    if let Err(err) = std::fs::write(&path, format!("{}\n", language.as_str())) {
+    if let Err(err) = std::fs::write(&path, format!("{}\n", locale.as_str())) {
         tracing::warn!(?err, "could not save language");
     }
 }
@@ -177,6 +238,7 @@ pub enum Key {
     SourceTintSub,
     Language,
     LanguageSub,
+    LanguageSystem,
     MusicSource,
     MusicSourceSub,
     ProviderTitle,
@@ -424,13 +486,12 @@ fn en(key: Key) -> &'static str {
         Key::SourceTintSub => "Apple Music red, Spotify green, YouTube red, Tidal cyan",
         Key::Language => "Language",
         Key::LanguageSub => "Interface language. Takes effect immediately.",
+        Key::LanguageSystem => "System",
         Key::MusicSource => "Music source",
-        Key::MusicSourceSub => {
-            "Where Vinilo searches and plays. Changing source restarts the player."
-        }
+        Key::MusicSourceSub => "Where Vinilo searches and plays.",
         Key::ProviderTitle => "Where is your music?",
         Key::ProviderBody => {
-            "Pick a catalogue. Apple Music is stable; Spotify and YouTube Music are Beta: they work, the Apple sidecar is still heavy. Tidal is Alpha. Files on this computer always play."
+            "Pick a catalogue. Apple Music and Spotify are ready; YouTube Music is Beta. Tidal is Alpha. Files on this computer always play."
         }
         Key::ProviderApple => "Apple Music",
         Key::ProviderAppleSub => {
@@ -438,7 +499,7 @@ fn en(key: Key) -> &'static str {
         }
         Key::ProviderLocal => "This computer",
         Key::ProviderLocalSub => "Files you open, and folders you drop on Vinilo",
-        Key::ProviderSpotify => "Spotify (Beta)",
+        Key::ProviderSpotify => "Spotify",
         Key::ProviderSpotifySub => {
             "Library and search after sign-in. Native audio needs Spotify Premium."
         }
@@ -574,7 +635,7 @@ fn en(key: Key) -> &'static str {
             "A native GNOME music player for Linux.\n\n\
              Apple Music plays through Apple's MusicKit player using \
              Google's Widevine CDM, in a hidden helper process. Files on this \
-             computer play natively. Spotify (Beta) plays through librespot \
+             computer play natively. Spotify plays through librespot \
              when you have Premium; YouTube Music (Beta) prefers InnerTube \
              audio; Tidal (Alpha) still uses yt-dlp. Each catalogue keeps a \
              cookie sign-in for library and search.\n\n\
@@ -701,13 +762,12 @@ fn es(key: Key) -> &'static str {
         }
         Key::Language => "Idioma",
         Key::LanguageSub => "Idioma de la interfaz. Se aplica al momento.",
+        Key::LanguageSystem => "Sistema",
         Key::MusicSource => "Fuente de música",
-        Key::MusicSourceSub => {
-            "De dónde busca y reproduce Vinilo. Cambiar de fuente reinicia el reproductor."
-        }
+        Key::MusicSourceSub => "De dónde busca y reproduce Vinilo.",
         Key::ProviderTitle => "¿Dónde está tu música?",
         Key::ProviderBody => {
-            "Elige un catálogo. Apple Music es estable; Spotify y YouTube Music son Beta: funcionan, el sidecar de Apple sigue siendo pesado. Tidal es Alpha. Los archivos de este equipo siempre suenan."
+            "Elige un catálogo. Apple Music y Spotify están listos; YouTube Music es Beta. Tidal es Alpha. Los archivos de este equipo siempre suenan."
         }
         Key::ProviderApple => "Apple Music",
         Key::ProviderAppleSub => {
@@ -715,7 +775,7 @@ fn es(key: Key) -> &'static str {
         }
         Key::ProviderLocal => "Este equipo",
         Key::ProviderLocalSub => "Archivos que abras y carpetas que sueltes en Vinilo",
-        Key::ProviderSpotify => "Spotify (Beta)",
+        Key::ProviderSpotify => "Spotify",
         Key::ProviderSpotifySub => {
             "Biblioteca y búsqueda tras iniciar sesión. El audio nativo pide Spotify Premium."
         }
@@ -858,7 +918,7 @@ fn es(key: Key) -> &'static str {
             "Un reproductor nativo de GNOME para Linux.\n\n\
              Apple Music pasa por el reproductor MusicKit de Apple con el CDM \
              Widevine de Google, en un proceso auxiliar oculto. Los archivos \
-             de este equipo se reproducen de forma nativa. Spotify (Beta) suena \
+             de este equipo se reproducen de forma nativa. Spotify suena \
              con librespot si tienes Premium; YouTube Music (Beta) prefiere \
              audio InnerTube; Tidal (Alpha) aún usa yt-dlp. Cada catálogo \
              guarda un inicio de sesión con cookies para biblioteca y búsqueda.\n\n\
@@ -1053,38 +1113,49 @@ mod tests {
     use super::*;
 
     #[test]
-    fn language_round_trips() {
-        for language in [Language::English, Language::Spanish] {
-            assert_eq!(Language::parse(language.as_str()), Some(language));
-            assert_eq!(Language::from_index(language.index()), language);
+    fn locale_round_trips() {
+        for locale in [Locale::System, Locale::English, Locale::Spanish] {
+            assert_eq!(Locale::parse(locale.as_str()), Some(locale));
+            assert_eq!(Locale::from_index(locale.index()), locale);
         }
     }
 
     #[test]
-    fn unknown_language_is_none() {
-        assert_eq!(Language::parse("fr"), None);
-        assert_eq!(Language::parse(""), None);
+    fn unknown_locale_is_none() {
+        assert_eq!(Locale::parse("fr"), None);
+        assert_eq!(Locale::parse(""), None);
     }
 
     #[test]
     fn spanish_welcome_is_spanish() {
-        set_current(Language::Spanish);
+        set_current(Locale::Spanish);
         assert_eq!(t(Key::WelcomeTitle), "Bienvenido a Vinilo");
         assert_eq!(t(Key::SignIn), "Iniciar sesión en Apple Music");
-        set_current(Language::English);
+        set_current(Locale::English);
         assert_eq!(t(Key::WelcomeTitle), "Welcome to Vinilo");
     }
 
     #[test]
     fn empty_states_are_complete_sentences() {
-        set_current(Language::English);
+        set_current(Locale::English);
         assert_eq!(empty_album(), "This album has no songs.");
         assert_eq!(empty_playlist(), "This playlist has no songs.");
         assert_eq!(empty_artist(), "This artist has no albums.");
-        set_current(Language::Spanish);
+        set_current(Locale::Spanish);
         assert_eq!(empty_album(), "Este álbum no tiene canciones.");
         assert_eq!(empty_playlist(), "Esta lista no tiene canciones.");
         assert_eq!(empty_artist(), "Este artista no tiene álbumes.");
-        set_current(Language::English);
+        set_current(Locale::English);
+    }
+
+    #[test]
+    fn system_locale_follows_lang_tag() {
+        assert_eq!(
+            Language::from_locale_tag("es_ES.UTF-8"),
+            Language::Spanish
+        );
+        assert_eq!(Language::from_locale_tag("en_GB.UTF-8"), Language::English);
+        assert_eq!(Language::from_locale_tag("fr_FR"), Language::English);
+        assert_eq!(Language::from_locale_tag(""), Language::English);
     }
 }

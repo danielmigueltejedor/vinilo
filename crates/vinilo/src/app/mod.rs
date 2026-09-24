@@ -59,7 +59,7 @@ use crate::daemon;
 use crate::mirror::Mirror;
 use crate::notify;
 use crate::settings::{Section, Settings, Theme};
-use vinilo_core::i18n::{self, Key, Language};
+use vinilo_core::i18n::{self, Key, Locale};
 use vinilo_core::ipc::{PlayMode, Request, Transport, WriteAction};
 use vinilo_core::music::types::{Album, Artist, Artwork, Playlist, Track};
 use vinilo_core::player::protocol::RepeatMode;
@@ -589,7 +589,7 @@ pub enum AppMsg {
     ReloadCurrentSection,
     ShowPreferences,
     ShowShortcuts,
-    ChooseLanguage(Language),
+    ChooseLanguage(Locale),
     ChooseProvider(vinilo_core::provider::Provider),
     SetLanguage(u32),
     SetProvider(u32),
@@ -2251,7 +2251,7 @@ impl AppModel {
             AppMsg::ChooseLanguage(language) => self.apply_language(language, true),
             AppMsg::ChooseProvider(provider) => self.apply_provider(provider, &sender, root),
             AppMsg::SetLanguage(index) => {
-                self.apply_language(Language::from_index(index), true);
+                self.apply_language(Locale::from_index(index), true);
             }
             AppMsg::SetProvider(index) => {
                 self.apply_provider(
@@ -3081,7 +3081,7 @@ impl AppModel {
         self.ask(Request::PlayFiles { paths, index: 0 });
     }
 
-    fn apply_language(&mut self, language: Language, persist: bool) {
+    fn apply_language(&mut self, language: Locale, persist: bool) {
         if persist && self.settings.language_chosen && self.settings.language == language {
             return;
         }
