@@ -724,10 +724,9 @@ pub enum CommandMsg {
     },
     /// The previous vinilod has been stopped; dial the one for this source.
     SourceSwitched,
-    /// Last.fm desktop auth: browser URL ready, or the exchange finished.
+    /// Last.fm desktop auth: browser opened, or the exchange finished.
     LastFmAuth {
         token: Option<String>,
-        url: Option<String>,
         error: Option<String>,
         connected: Option<vinilo_core::lastfm::Config>,
     },
@@ -2343,14 +2342,12 @@ impl AppModel {
                             let _ = std::process::Command::new("xdg-open").arg(&url).spawn();
                             CommandMsg::LastFmAuth {
                                 token: Some(token),
-                                url: Some(url),
                                 error: None,
                                 connected: None,
                             }
                         }
                         Err(err) => CommandMsg::LastFmAuth {
                             token: None,
-                            url: None,
                             error: Some(err),
                             connected: None,
                         },
@@ -2366,13 +2363,11 @@ impl AppModel {
                     match vinilo_core::lastfm::complete_auth(&cfg, &token).await {
                         Ok(connected) => CommandMsg::LastFmAuth {
                             token: None,
-                            url: None,
                             error: None,
                             connected: Some(connected),
                         },
                         Err(err) => CommandMsg::LastFmAuth {
                             token: None,
-                            url: None,
                             error: Some(err),
                             connected: None,
                         },
@@ -2918,7 +2913,6 @@ impl AppModel {
             }
             CommandMsg::LastFmAuth {
                 token,
-                url: _,
                 error,
                 connected,
             } => {
