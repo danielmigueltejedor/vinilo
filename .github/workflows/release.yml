@@ -217,8 +217,16 @@ jobs:
         run: |
           set -euxo pipefail
           VERSION="${GITHUB_REF_NAME#v}"
-          gh release create "$GITHUB_REF_NAME" release/* \
-            --repo "$GITHUB_REPOSITORY" \
-            --verify-tag \
-            --title "Vinilo $VERSION" \
-            --generate-notes
+          # Tag push may already have a notes-only release; attach bundles
+          # either way so a pre-created release does not fail the job.
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" release/* \
+              --repo "$GITHUB_REPOSITORY" \
+              --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" release/* \
+              --repo "$GITHUB_REPOSITORY" \
+              --verify-tag \
+              --title "Vinilo $VERSION" \
+              --generate-notes
+          fi
