@@ -1,5 +1,18 @@
 [
     {
+        "type": "archive",
+        "archive-type": "tar-gzip",
+        "url": "https://static.crates.io/crates/md-5/md-5-0.10.6.crate",
+        "sha256": "d89e7ee0cfbedfc4da3340218492196241d89eefb6dab27de5df917a6d2e78cf",
+        "dest": "cargo/vendor/md-5-0.10.6"
+    },
+    {
+        "type": "inline",
+        "contents": "{\"package\": \"d89e7ee0cfbedfc4da3340218492196241d89eefb6dab27de5df917a6d2e78cf\", \"files\": {}}",
+        "dest": "cargo/vendor/md-5-0.10.6",
+        "dest-filename": ".cargo-checksum.json"
+    },
+    {
         "type": "git",
         "url": "https://github.com/nolight132/librespot",
         "commit": "e7eb953d5848fd97bacd00e6c0e33500765eaa63",
