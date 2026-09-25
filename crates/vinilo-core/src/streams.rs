@@ -28,6 +28,9 @@ pub struct StreamHit {
     pub album: String,
     pub duration_ms: u64,
     pub artwork: Option<String>,
+    /// Public view/play count when the catalogue exposes one (YouTube views…).
+    #[serde(default)]
+    pub public_plays: Option<u64>,
     /// What `yt-dlp` should type to get audio when the id is not a YouTube id.
     pub play_query: String,
 }
@@ -87,6 +90,7 @@ impl StreamHit {
         Some(Self {
             play_query,
             artwork: track.artwork.as_ref().map(|art| art.url(300)),
+            public_plays: None,
             duration_ms: track.duration_ms,
             album: track.album.clone(),
             artist: track.artist.clone(),
@@ -276,6 +280,7 @@ pub fn youtube_hit_from_json(value: &Value) -> Option<StreamHit> {
         album: String::new(),
         duration_ms,
         artwork,
+        public_plays: None,
     })
 }
 
@@ -355,6 +360,7 @@ fn tidal_tracks(value: &Value) -> Vec<StreamHit> {
                 album,
                 duration_ms,
                 artwork,
+                public_plays: None,
             })
         })
         .collect()

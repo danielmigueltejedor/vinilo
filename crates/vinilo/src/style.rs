@@ -349,8 +349,10 @@ fn set_colors(colors: Option<(&'static str, &'static str)>) {
 
          /* Timed lyrics in the expanded player. Opacity only, and finite:
             an infinite animation here would pin the frame clock (#126). */
+         /* Large lyrics are the default — karaoke only recentres and dims. */
          .lyrics-lines .lyric-line {{
              padding: 8px 4px;
+             font-size: 1.45em;
              opacity: 0.86;
              transform: translateX(0px) scale(1);
              transform-origin: left center;
@@ -367,12 +369,13 @@ fn set_colors(colors: Option<(&'static str, &'static str)>) {
          .lyrics-synced .lyric-line.lyric-current {{
              opacity: 1;
              transform: translateX(6px) scale(1.02);
-             font-weight: 600;
+             font-size: 1.7em;
+             font-weight: 700;
          }}
          .lyrics-karaoke .lyric-line {{
-             font-size: 1.45em;
              text-align: center;
              xalign: 0.5;
+             transform-origin: center center;
          }}
          .lyrics-karaoke.lyrics-synced .lyric-line {{
              opacity: 0.18;
@@ -383,8 +386,6 @@ fn set_colors(colors: Option<(&'static str, &'static str)>) {
          }}
          .lyrics-karaoke.lyrics-synced .lyric-line.lyric-current {{
              opacity: 1;
-             font-size: 1.7em;
-             font-weight: 700;
              transform: none;
          }}
          {chrome}"

@@ -448,7 +448,7 @@ fn en(key: Key) -> &'static str {
         Key::CrossfadeSub => "Overlap catalogue tracks when skipping or advancing.",
         Key::Playback => "Playback",
         Key::Karaoke => "Karaoke",
-        Key::Voice => "Voice",
+        Key::Voice => "Voice (catalogue / local)",
         Key::LastFm => "Last.fm",
         Key::LastFmSub => {
             "Scrobble plays to Last.fm so your listening stats follow you online. \
@@ -744,7 +744,7 @@ fn es(key: Key) -> &'static str {
         Key::CrossfadeSub => "Solapa las pistas del catálogo al saltar o avanzar.",
         Key::Playback => "Reproducción",
         Key::Karaoke => "Karaoke",
-        Key::Voice => "Voz",
+        Key::Voice => "Voz (catálogo / local)",
         Key::LastFm => "Last.fm",
         Key::LastFmSub => {
             "Envía las reproducciones a Last.fm para tener estadísticas en línea. \

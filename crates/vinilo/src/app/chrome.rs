@@ -214,10 +214,11 @@ pub(super) fn show_about(parent: &adw::ApplicationWindow) {
         .version(env!("CARGO_PKG_VERSION"))
         .release_notes_version(env!("CARGO_PKG_VERSION"))
         .release_notes(
-            "<p>Vinilo 1.1.0</p><ul>\
-             <li>YouTube Music starts playing from the stream URL instead of waiting for a full download.</li>\
-             <li>Crossfade between catalogue tracks, adjustable in Preferences.</li>\
-             <li>Listening stats in the sidebar, optional Last.fm scrobbling, and karaoke with a voice level on catalogue tracks.</li>\
+            "<p>Vinilo 1.1.1</p><ul>\
+             <li>Crossfade overlaps the next track with a real fade-in / fade-out.</li>\
+             <li>YouTube Music starts sooner; karaoke lyrics are large by default.</li>\
+             <li>Karaoke voice control attenuates centre vocals on catalogue / local PCM.</li>\
+             <li>Listening stats show artwork, source, and public play counts when available.</li>\
              </ul>",
         )
         .license_type(gtk::License::Gpl30)

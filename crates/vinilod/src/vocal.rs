@@ -68,11 +68,14 @@ where
             self.pending_right = Some(right);
             return Some(left);
         }
-        // mid = centre (vocals), side = difference (stereo instruments)
+        // mid = centre (vocals), side = difference (stereo instruments).
+        // Boost the sides as the mid drops so the instrumental stays present
+        // while centre-panned vocals disappear.
         let mid = (left + right) * 0.5;
         let side = (left - right) * 0.5;
-        let out_l = side + mid * g;
-        let out_r = -side + mid * g;
+        let side_boost = 1.0 + (1.0 - g) * 1.25;
+        let out_l = (side * side_boost + mid * g).clamp(-1.0, 1.0);
+        let out_r = (-side * side_boost + mid * g).clamp(-1.0, 1.0);
         self.pending_right = Some(out_r);
         Some(out_l)
     }

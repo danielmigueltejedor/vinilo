@@ -73,8 +73,10 @@ pub fn open_url_source(url: &str, user_agent: &str) -> Result<(UrlPcm, Child), S
         })
         .map_err(|err| format!("pcm thread: {err}"))?;
     // Wait briefly for the first chunk so a dead URL fails before we claim play.
+    // Eight seconds is enough for a healthy googlevideo start; twelve was
+    // padding that made a dead resolve feel like a hang.
     let first = rx
-        .recv_timeout(Duration::from_secs(12))
+        .recv_timeout(Duration::from_secs(8))
         .map_err(|_| "ffmpeg produced no audio".to_string())?;
     Ok((
         UrlPcm {

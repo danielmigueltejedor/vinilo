@@ -6,6 +6,8 @@
 use relm4::adw;
 use relm4::adw::prelude::*;
 use relm4::gtk;
+use relm4::gtk::gdk::Texture;
+use relm4::gtk::gdk_pixbuf::Pixbuf;
 use vinilo_core::i18n::{self, Key};
 use vinilo_core::listen_stats;
 
@@ -54,12 +56,49 @@ pub fn refresh(root: &gtk::Box) {
         .selection_mode(gtk::SelectionMode::None)
         .css_classes(["boxed-list"])
         .build();
-    for (i, track) in top.iter().enumerate() {
+    for track in &top {
+        let mut subtitle = track.artist.clone();
+        if !track.album.is_empty() {
+            subtitle.push_str(" · ");
+            subtitle.push_str(&track.album);
+        }
+        if !track.year.is_empty() {
+            subtitle.push_str(" · ");
+            subtitle.push_str(&track.year);
+        }
+        subtitle.push_str(&format!(" · {} plays", track.play_count));
+        if !track.source.is_empty() {
+            subtitle.push_str(" · ");
+            subtitle.push_str(&track.source);
+        }
+        if let Some(views) = track.public_plays {
+            subtitle.push_str(" · ");
+            subtitle.push_str(&listen_stats::format_count(views));
+            if track.id.starts_with("yt:") {
+                subtitle.push_str(" views");
+            }
+        }
+
         let row = adw::ActionRow::builder()
             .title(&track.title)
-            .subtitle(format!("{} · {} plays", track.artist, track.play_count))
+            .subtitle(&subtitle)
             .build();
-        row.add_prefix(&gtk::Label::new(Some(&format!("{}.", i + 1))));
+
+        let cover = gtk::Image::builder()
+            .pixel_size(56)
+            .icon_name("audio-x-generic-symbolic")
+            .css_classes(["stats-cover"])
+            .build();
+        if let Some(url) = track.artwork.as_deref() {
+            // Local file:// or already-cached path; remote URLs stay as placeholder.
+            let path = url.strip_prefix("file://").unwrap_or(url);
+            if path.starts_with('/') {
+                if let Ok(pixbuf) = Pixbuf::from_file_at_scale(path, 56, 56, true) {
+                    cover.set_paintable(Some(&Texture::for_pixbuf(&pixbuf)));
+                }
+            }
+        }
+        row.add_prefix(&cover);
         list.append(&row);
     }
     root.append(&list);

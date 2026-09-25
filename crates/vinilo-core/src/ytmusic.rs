@@ -1230,6 +1230,13 @@ fn hit_from_player(video: &str, value: &Value) -> Option<StreamHit> {
     let artwork = thumbnail(details)
         .or_else(|| last_thumb(details.pointer("/thumbnail/thumbnails")))
         .or_else(|| Some(crate::streams::youtube_thumb(video)));
+    let public_plays = details
+        .get("viewCount")
+        .and_then(|v| {
+            v.as_u64()
+                .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+        })
+        .filter(|&n| n > 0);
     Some(StreamHit {
         id: format!("yt:{video}"),
         title: title.to_owned(),
@@ -1237,6 +1244,7 @@ fn hit_from_player(video: &str, value: &Value) -> Option<StreamHit> {
         album: String::new(),
         duration_ms,
         artwork,
+        public_plays,
         play_query: format!("https://www.youtube.com/watch?v={video}"),
     })
 }
@@ -1280,6 +1288,7 @@ fn tracks_from_browse(value: &Value) -> Vec<Track> {
             album,
             duration_ms: 0,
             artwork,
+            public_plays: None,
             play_query: format!("https://www.youtube.com/watch?v={video}"),
         };
         if let Some(mut song) = hit.into_entry().into_song() {

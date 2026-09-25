@@ -1609,6 +1609,7 @@ fn hit_from_gql_track(data: &Value) -> Option<StreamHit> {
     Some(StreamHit {
         play_query: format!("https://open.spotify.com/track/{id}"),
         artwork: gql_cover(data),
+        public_plays: None,
         duration_ms: gql_duration_ms(data),
         album: gql_album_name(data),
         artist: gql_artists_line(data),
@@ -2047,6 +2048,7 @@ fn hit_from_track(item: &Value) -> Option<StreamHit> {
     Some(StreamHit {
         play_query: format!("https://open.spotify.com/track/{id}"),
         artwork: image_url(item.pointer("/album/images")).or_else(|| image_url(item.get("images"))),
+        public_plays: None,
         duration_ms: item.get("duration_ms").and_then(Value::as_u64).unwrap_or(0),
         album: item
             .pointer("/album/name")

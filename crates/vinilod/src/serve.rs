@@ -197,6 +197,7 @@ impl Daemon {
         if self.last_listen.borrow().as_deref() == Some(id.as_str()) {
             return;
         }
+        let art_file = model.art_path.clone();
         let track = vinilo_core::music::types::Track {
             id: vinilo_core::music::types::TrackId(id.clone()),
             catalog_id: Some(id.clone()),
@@ -213,9 +214,17 @@ impl Daemon {
             artwork: item.artwork_template.clone().map(Artwork::new),
         };
         drop(model);
-        *self.last_listen.borrow_mut() = Some(id);
+        let public_plays = self
+            .stream_hits
+            .borrow()
+            .get(&id)
+            .and_then(|hit| hit.public_plays);
+        *self.last_listen.borrow_mut() = Some(id.clone());
         let heard = track.duration_ms.max(1);
-        vinilo_core::listen_stats::record(&track, heard);
+        vinilo_core::listen_stats::record_with_public(&track, heard, public_plays);
+        if let Some(path) = art_file {
+            vinilo_core::listen_stats::set_artwork_file(&id, &path);
+        }
         self.sync_lastfm(&track);
         vinilo_core::listen_history::record(track);
     }
@@ -375,10 +384,15 @@ pub async fn run() -> Result<()> {
     // fact, not something to extrapolate from.
     let ticking = daemon.clone();
     tokio::task::spawn_local(async move {
-        let mut tick = tokio::time::interval(std::time::Duration::from_millis(TICK_MS));
         let mut watch = watchdog::Watch::default();
         loop {
-            tick.tick().await;
+            // Crossfade needs finer steps than the half-second position tick.
+            let wait_ms = if ticking.local.borrow().crossfade_active() {
+                40
+            } else {
+                TICK_MS
+            };
+            tokio::time::sleep(std::time::Duration::from_millis(wait_ms)).await;
             // **Whoever moved it, everyone hears.** The desktop's audio panel
             // can change this without Vinilo being asked, and a client still
             // showing the old number is the disagreement this whole thing
@@ -426,13 +440,20 @@ pub async fn run() -> Result<()> {
                 continue;
             }
             if local_active {
-                if ticking.local.borrow().ended() {
-                    let _ = ticking.local.borrow_mut().advance_ended();
-                    publish_local(&ticking);
-                } else if ticking.local.borrow().is_playing() {
+                {
+                    let mut local = ticking.local.borrow_mut();
+                    local.tick_crossfade();
+                    if local.should_begin_crossfade() {
+                        let _ = local.next();
+                    } else if local.ended() {
+                        let _ = local.advance_ended();
+                    }
+                }
+                if ticking.local.borrow().is_playing() || ticking.local.borrow().crossfade_active()
+                {
                     let event = ticking.local.borrow().position_event();
                     ticking.model.borrow_mut().player.apply(&event);
-                    ticking.publish_snapshot();
+                    publish_local(&ticking);
                 } else if moved {
                     ticking.publish_snapshot();
                 }
@@ -2925,14 +2946,9 @@ fn play_streams(daemon: &Rc<Daemon>, ids: Vec<String>, index: usize, start: Star
             });
             return;
         };
+        // Start the first track before hydrating the rest — that was on the
+        // critical path and made every click wait on a second InnerTube round.
         let first = hydrate_hit(&daemon, first).await;
-        if daemon.stream_play_gen.get() != play_gen {
-            return;
-        }
-        let next = match rest.first().cloned() {
-            Some(hit) => Some(hydrate_hit(&daemon, hit).await),
-            None => None,
-        };
         if daemon.stream_play_gen.get() != play_gen {
             return;
         }
@@ -2989,12 +3005,20 @@ fn play_streams(daemon: &Rc<Daemon>, ids: Vec<String>, index: usize, start: Star
         if daemon.stream_play_gen.get() != play_gen {
             return;
         }
+        enrich_public_plays(&daemon, first.id.clone());
         // Preload URLs for the next few yt tracks while we also fetch files.
         let preload_ids: Vec<String> = rest.iter().take(4).map(|h| h.id.clone()).collect();
         let http = vinilo_core::streams::http();
         tokio::task::spawn_local(async move {
             vinilo_core::ytmusic::preload_audio_urls(&http, &preload_ids).await;
         });
+        let next = match rest.first().cloned() {
+            Some(hit) => Some(hydrate_hit(&daemon, hit).await),
+            None => None,
+        };
+        if daemon.stream_play_gen.get() != play_gen {
+            return;
+        }
         if let Some(hit) = next {
             if hit.id.starts_with("yt:") {
                 let http = vinilo_core::streams::http();
@@ -3237,9 +3261,48 @@ async fn hydrate_hit(
         if merged.artwork.is_none() {
             merged.artwork = fresh.artwork;
         }
+        if merged.public_plays.is_none() {
+            merged.public_plays = fresh.public_plays;
+        }
         return merged;
     }
+    let mut fresh = fresh;
+    if fresh.public_plays.is_none() {
+        fresh.public_plays = hit.public_plays;
+    }
     fresh
+}
+
+/// Fill in YouTube view counts off the play path so listening stats can show them.
+fn enrich_public_plays(daemon: &Rc<Daemon>, id: String) {
+    if !id.starts_with("yt:") {
+        return;
+    }
+    if daemon
+        .stream_hits
+        .borrow()
+        .get(&id)
+        .and_then(|h| h.public_plays)
+        .is_some()
+    {
+        return;
+    }
+    let daemon = daemon.clone();
+    tokio::task::spawn_local(async move {
+        let http = vinilo_core::streams::http();
+        let Ok(hit) = vinilo_core::ytmusic::video_hit(&http, &id).await else {
+            return;
+        };
+        let Some(plays) = hit.public_plays else {
+            return;
+        };
+        if let Some(cached) = daemon.stream_hits.borrow_mut().get_mut(&id) {
+            cached.public_plays = Some(plays);
+        } else {
+            remember_hits(&daemon, vec![hit]);
+        }
+        vinilo_core::listen_stats::set_public_plays(&id, plays);
+    });
 }
 
 async fn resolve_stream_hit(daemon: &Daemon, id: &str) -> Option<vinilo_core::streams::StreamHit> {
@@ -3287,6 +3350,7 @@ fn stream_hit(daemon: &Daemon, id: &str) -> Option<vinilo_core::streams::StreamH
             album: String::new(),
             duration_ms: 0,
             artwork: Some(vinilo_core::streams::youtube_thumb(video)),
+            public_plays: None,
             play_query: format!("https://www.youtube.com/watch?v={video}"),
         });
     }
@@ -3298,6 +3362,7 @@ fn stream_hit(daemon: &Daemon, id: &str) -> Option<vinilo_core::streams::StreamH
             album: String::new(),
             duration_ms: 0,
             artwork: None,
+            public_plays: None,
             play_query: format!("https://open.spotify.com/track/{track}"),
         });
     }
@@ -3309,6 +3374,7 @@ fn stream_hit(daemon: &Daemon, id: &str) -> Option<vinilo_core::streams::StreamH
             album: String::new(),
             duration_ms: 0,
             artwork: None,
+            public_plays: None,
             play_query: format!("https://tidal.com/browse/track/{track}"),
         });
     }

@@ -66,6 +66,8 @@ pub struct Player {
     fading: Option<Sink>,
     /// Keeps ffmpeg alive while a URL source is on the sink.
     ffmpeg: Option<crate::url_play::FfmpegGuard>,
+    /// ffmpeg for the sink in [`Self::fading`], so URL streams survive the overlap.
+    fading_ffmpeg: Option<crate::url_play::FfmpegGuard>,
     queue: Vec<Track>,
     index: usize,
     volume: f64,
@@ -73,12 +75,20 @@ pub struct Player {
     crossfade_ms: u64,
     /// Live mid/side vocal gain for karaoke (0 = instrumental, 1 = full).
     vocal_gain: crate::vocal::VocalGain,
+    /// Dual-sink volume ramp in progress (out on `fading`, in on `sink`).
+    crossfade: Option<CrossfadeAnim>,
     repeat: RepeatMode,
     shuffle: bool,
     /// Queue order before shuffle was turned on, so turning it off can restore.
     unshuffled: Option<Vec<Track>>,
     /// True while this, not MusicKit, owns the queue.
     active: bool,
+}
+
+struct CrossfadeAnim {
+    started: std::time::Instant,
+    duration: Duration,
+    target: f32,
 }
 
 impl Player {
@@ -89,11 +99,13 @@ impl Player {
             sink: None,
             fading: None,
             ffmpeg: None,
+            fading_ffmpeg: None,
             queue: Vec::new(),
             index: 0,
             volume: 1.0,
             crossfade_ms: 0,
             vocal_gain: crate::vocal::VocalGain::new(1.0),
+            crossfade: None,
             repeat: RepeatMode::None,
             shuffle: false,
             unshuffled: None,
@@ -131,6 +143,8 @@ impl Player {
             sink.stop();
         }
         self.ffmpeg = None;
+        self.fading_ffmpeg = None;
+        self.crossfade = None;
         self.active = false;
         self.queue.clear();
         self.unshuffled = None;
@@ -319,11 +333,62 @@ impl Player {
 
     /// True when the current decoder has run out, so the caller should advance.
     pub fn ended(&self) -> bool {
+        // Mid-crossfade the outgoing sink may empty first; do not advance again.
+        if self.crossfade.is_some() {
+            return false;
+        }
         self.active
             && self
                 .sink
                 .as_ref()
                 .is_some_and(|s| s.empty() && !s.is_paused())
+    }
+
+    /// Start the next track early so it overlaps the current one for `crossfade_ms`.
+    pub fn should_begin_crossfade(&self) -> bool {
+        if self.crossfade_ms == 0 || self.crossfade.is_some() || !self.is_playing() {
+            return false;
+        }
+        let dur = self.duration_ms();
+        let pos = self.position_ms();
+        if dur == 0 || dur <= self.crossfade_ms || pos + self.crossfade_ms < dur {
+            return false;
+        }
+        if self.index + 1 < self.queue.len() {
+            return true;
+        }
+        matches!(self.repeat, RepeatMode::All) && self.queue.len() > 1
+    }
+
+    pub fn crossfade_active(&self) -> bool {
+        self.crossfade.is_some()
+    }
+
+    /// Drive in/out volumes while a crossfade is running. Call often from the tick.
+    pub fn tick_crossfade(&mut self) {
+        let Some(anim) = self.crossfade.as_ref() else {
+            return;
+        };
+        let target = anim.target;
+        let t =
+            (anim.started.elapsed().as_secs_f32() / anim.duration.as_secs_f32()).clamp(0.0, 1.0);
+        if let Some(sink) = self.sink.as_ref() {
+            sink.set_volume(target * t);
+        }
+        if let Some(fading) = self.fading.as_ref() {
+            fading.set_volume(target * (1.0 - t));
+        }
+        if t < 1.0 {
+            return;
+        }
+        if let Some(fading) = self.fading.take() {
+            fading.stop();
+        }
+        self.fading_ffmpeg = None;
+        self.crossfade = None;
+        if let Some(sink) = self.sink.as_ref() {
+            sink.set_volume(target);
+        }
     }
 
     /// Queue still here, nothing on the decoder — Play must open the file again.
@@ -386,6 +451,7 @@ impl Player {
         } else {
             self.index -= 1;
         }
+        self.clear_fading();
         self.start_current()?;
         Ok(true)
     }
@@ -395,6 +461,7 @@ impl Player {
             return Err("That track is not on the local queue".into());
         }
         self.index = index;
+        self.clear_fading();
         self.start_current()
     }
 
@@ -425,6 +492,11 @@ impl Player {
 
     pub fn set_volume(&mut self, volume: f64) {
         self.volume = volume.clamp(0.0, 1.0);
+        if let Some(anim) = self.crossfade.as_mut() {
+            anim.target = self.volume as f32;
+            self.tick_crossfade();
+            return;
+        }
         if let Some(sink) = self.sink.as_ref() {
             sink.set_volume(self.volume as f32);
         }
@@ -547,33 +619,48 @@ impl Player {
         if self.crossfade_ms == 0 || self.sink.is_none() {
             return self.start_current();
         }
-        let old = self.sink.take();
-        let _old_ffmpeg = self.ffmpeg.take();
         if let Some(old_sink) = self.fading.take() {
             old_sink.stop();
         }
+        self.fading_ffmpeg = None;
+        // Keep the outgoing stream playing under `fading` while the next opens.
+        self.fading = self.sink.take();
+        self.fading_ffmpeg = self.ffmpeg.take();
         let target = self.volume as f32;
-        let ms = self.crossfade_ms;
+        let ms = self.crossfade_ms.max(1);
         self.start_current()?;
-        if let Some(fading) = old {
-            let steps = 20u32;
-            let step = Duration::from_millis((ms / u64::from(steps)).max(1));
-            std::thread::spawn(move || {
-                for i in 1..=steps {
-                    let t = i as f32 / steps as f32;
-                    fading.set_volume(target * (1.0 - t));
-                    std::thread::sleep(step);
-                }
-                fading.stop();
-            });
-        }
         if let Some(sink) = self.sink.as_ref() {
+            sink.set_volume(0.0);
+        }
+        if self.fading.is_some() {
+            self.crossfade = Some(CrossfadeAnim {
+                started: std::time::Instant::now(),
+                duration: Duration::from_millis(ms),
+                target,
+            });
+            self.tick_crossfade();
+        } else if let Some(sink) = self.sink.as_ref() {
             sink.set_volume(target);
         }
         Ok(())
     }
 
+    /// Stop a dual-sink overlap without touching the current `sink`.
+    fn clear_fading(&mut self) {
+        self.crossfade = None;
+        if let Some(sink) = self.fading.take() {
+            sink.stop();
+        }
+        self.fading_ffmpeg = None;
+    }
+
     fn start_current(&mut self) -> Result<(), String> {
+        // Hard cuts call this with no prior move into `fading`. A crossfade
+        // path moves the outgoing sink first, then opens here — so do not
+        // clear `fading` in that case.
+        if self.fading.is_none() {
+            self.crossfade = None;
+        }
         // Drop the previous sink before opening the next file — unless a
         // crossfade still holds it in `fading`.
         if let Some(sink) = self.sink.take() {
@@ -904,6 +991,7 @@ mod tests {
             album: "Alpha".into(),
             duration_ms: 180_000,
             artwork: Some("https://i.scdn.co/image/x".into()),
+            public_plays: None,
             play_query: "https://open.spotify.com/track/abc".into(),
         };
         streams::write_sidecar(&audio, &hit);
