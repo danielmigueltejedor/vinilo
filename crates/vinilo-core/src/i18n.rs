@@ -173,6 +173,27 @@ pub enum Key {
     Artists,
     Playlists,
     Discover,
+    Stats,
+    StatsEmpty,
+    StatsEmptyBody,
+    StatsTotal,
+    StatsTopTracks,
+    Crossfade,
+    CrossfadeSub,
+    Playback,
+    Karaoke,
+    /// Voice level in karaoke mode (0 = instrumental).
+    Voice,
+    LastFm,
+    LastFmSub,
+    LastFmApiKey,
+    LastFmSecret,
+    LastFmConnect,
+    LastFmConnected,
+    LastFmDisconnect,
+    LastFmFinish,
+    LastFmAuthOpened,
+    LastFmAuthFailed,
     RecentlyPlayed,
     MadeForYou,
     RecommendedSongs,
@@ -418,6 +439,30 @@ fn en(key: Key) -> &'static str {
         Key::Artists => "Artists",
         Key::Playlists => "Playlists",
         Key::Discover => "Listen Now",
+        Key::Stats => "Listening",
+        Key::StatsEmpty => "No listening history yet",
+        Key::StatsEmptyBody => "Play something and it will show up here.",
+        Key::StatsTotal => "Time listened",
+        Key::StatsTopTracks => "Most played",
+        Key::Crossfade => "Crossfade",
+        Key::CrossfadeSub => "Overlap catalogue tracks when skipping or advancing.",
+        Key::Playback => "Playback",
+        Key::Karaoke => "Karaoke",
+        Key::Voice => "Voice",
+        Key::LastFm => "Last.fm",
+        Key::LastFmSub => {
+            "Scrobble plays to Last.fm so your listening stats follow you online. \
+             Create an API account at last.fm/api/account/create, paste the key \
+             and shared secret, then connect."
+        }
+        Key::LastFmApiKey => "API key",
+        Key::LastFmSecret => "Shared secret",
+        Key::LastFmConnect => "Connect",
+        Key::LastFmConnected => "Connected as {}",
+        Key::LastFmDisconnect => "Disconnect",
+        Key::LastFmFinish => "I authorized Vinilo",
+        Key::LastFmAuthOpened => "Authorize Vinilo in the browser, then come back here.",
+        Key::LastFmAuthFailed => "Last.fm could not connect",
         Key::RecentlyPlayed => "Recently Played",
         Key::MadeForYou => "Made for You",
         Key::RecommendedSongs => "Songs for You",
@@ -690,6 +735,30 @@ fn es(key: Key) -> &'static str {
         Key::Artists => "Artistas",
         Key::Playlists => "Listas",
         Key::Discover => "Escuchar ahora",
+        Key::Stats => "Escucha",
+        Key::StatsEmpty => "Aún no hay historial de escucha",
+        Key::StatsEmptyBody => "Reproduce algo y aparecerá aquí.",
+        Key::StatsTotal => "Tiempo escuchado",
+        Key::StatsTopTracks => "Más reproducidas",
+        Key::Crossfade => "Fundido",
+        Key::CrossfadeSub => "Solapa las pistas del catálogo al saltar o avanzar.",
+        Key::Playback => "Reproducción",
+        Key::Karaoke => "Karaoke",
+        Key::Voice => "Voz",
+        Key::LastFm => "Last.fm",
+        Key::LastFmSub => {
+            "Envía las reproducciones a Last.fm para tener estadísticas en línea. \
+             Crea una cuenta de API en last.fm/api/account/create, pega la clave \
+             y el secreto compartido, y conéctate."
+        }
+        Key::LastFmApiKey => "Clave de API",
+        Key::LastFmSecret => "Secreto compartido",
+        Key::LastFmConnect => "Conectar",
+        Key::LastFmConnected => "Conectado como {}",
+        Key::LastFmDisconnect => "Desconectar",
+        Key::LastFmFinish => "Ya autoricé Vinilo",
+        Key::LastFmAuthOpened => "Autoriza Vinilo en el navegador y vuelve aquí.",
+        Key::LastFmAuthFailed => "No se pudo conectar con Last.fm",
         Key::RecentlyPlayed => "Reproducido recientemente",
         Key::MadeForYou => "Hecho para ti",
         Key::RecommendedSongs => "Canciones para ti",
@@ -1150,10 +1219,7 @@ mod tests {
 
     #[test]
     fn system_locale_follows_lang_tag() {
-        assert_eq!(
-            Language::from_locale_tag("es_ES.UTF-8"),
-            Language::Spanish
-        );
+        assert_eq!(Language::from_locale_tag("es_ES.UTF-8"), Language::Spanish);
         assert_eq!(Language::from_locale_tag("en_GB.UTF-8"), Language::English);
         assert_eq!(Language::from_locale_tag("fr_FR"), Language::English);
         assert_eq!(Language::from_locale_tag(""), Language::English);

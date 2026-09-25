@@ -82,6 +82,7 @@ mod playback;
 mod queue;
 mod row_menu;
 mod source_login;
+mod stats;
 mod status;
 mod supervise;
 mod view;
@@ -301,6 +302,10 @@ pub struct AppModel {
     artist_grid: TypedGridView<GridItem, gtk::NoSelection>,
     playlist_grid: TypedGridView<GridItem, gtk::NoSelection>,
     discover: DiscoverView,
+    /// Listening stats page root.
+    stats_root: gtk::Box,
+    /// Pending Last.fm auth token after the browser was opened.
+    lastfm_auth_token: Option<String>,
     loading_albums: bool,
     loading_artists: bool,
     loading_playlists: bool,
@@ -633,8 +638,16 @@ pub enum AppMsg {
     /// Files or folders this process was asked to play.
     PlayFiles(Vec<PathBuf>),
     SetNotifyTrackChange(bool),
+    SetCrossfadeMs(u32),
+    LastFmSetEnabled(bool),
+    LastFmSetApiKey(String),
+    LastFmSetApiSecret(String),
+    LastFmConnect,
+    LastFmFinishAuth,
+    LastFmDisconnect,
     ToggleQueue,
     SetLyricsShown(bool),
+    SetVocalLevel(f64),
     /// A library row was activated; the position is resolved immediately.
     LibraryActivated(u32),
     /// A row on a pushed page was clicked. Carries the page's id so it can be
@@ -711,6 +724,13 @@ pub enum CommandMsg {
     },
     /// The previous vinilod has been stopped; dial the one for this source.
     SourceSwitched,
+    /// Last.fm desktop auth: browser URL ready, or the exchange finished.
+    LastFmAuth {
+        token: Option<String>,
+        url: Option<String>,
+        error: Option<String>,
+        connected: Option<vinilo_core::lastfm::Config>,
+    },
 }
 
 /// The drawer emits the same outputs as the bar, so they map the same way.
@@ -727,6 +747,7 @@ fn map_player_output(out: NowPlayingOutput) -> AppMsg {
         NowPlayingOutput::ToggleQueue => AppMsg::ToggleQueue,
         NowPlayingOutput::ShowTrackMenu { at, over } => AppMsg::ShowNowPlayingMenu { at, over },
         NowPlayingOutput::SetLyricsShown(on) => AppMsg::SetLyricsShown(on),
+        NowPlayingOutput::SetVocalLevel(level) => AppMsg::SetVocalLevel(level),
     }
 }
 
@@ -1049,6 +1070,7 @@ impl Component for AppModel {
                                                     View::Albums => i18n::t(Key::SearchAlbums),
                                                     View::Artists => i18n::t(Key::SearchArtists),
                                                     View::Playlists => i18n::t(Key::SearchPlaylists),
+                                                    View::Stats => i18n::t(Key::Stats),
                                                     View::Search => i18n::catalog_search(
                                                         model.settings.provider,
                                                     ),
@@ -1325,6 +1347,15 @@ impl Component for AppModel {
                                             discover_stack -> gtk::Stack {},
                                         },
 
+                                        add_named[Some("stats")] = &gtk::ScrolledWindow {
+                                            set_vexpand: true,
+                                            set_hscrollbar_policy: gtk::PolicyType::Never,
+                                            add_css_class: "plain-scroller",
+
+                                            #[local_ref]
+                                            stats_root -> gtk::Box {},
+                                        },
+
                                         // An empty search box is not a failed
                                         // search. Telling someone that Apple
                                         // Music has nothing matching "" is
@@ -1382,6 +1413,7 @@ impl Component for AppModel {
                                                 View::Albums => i18n::no_library_albums(model.query()),
                                                 View::Artists => i18n::no_library_artists(model.query()),
                                                 View::Playlists => i18n::no_library_playlists(model.query()),
+                                                View::Stats => i18n::t(Key::StatsEmptyBody).to_owned(),
                                                 View::Search => i18n::no_catalog_for(
                                                     model.query(),
                                                     model.settings.provider,
@@ -1430,6 +1462,7 @@ impl Component for AppModel {
                     AppMsg::ShowNowPlayingMenu { at, over }
                 }
                 NowPlayingOutput::SetLyricsShown(on) => AppMsg::SetLyricsShown(on),
+                NowPlayingOutput::SetVocalLevel(level) => AppMsg::SetVocalLevel(level),
             });
 
         let library: TypedListView<LibraryItem, gtk::NoSelection> = TypedListView::new();
@@ -1600,6 +1633,8 @@ impl Component for AppModel {
             artist_grid,
             playlist_grid,
             discover,
+            stats_root: gtk::Box::new(gtk::Orientation::Vertical, 0),
+            lastfm_auth_token: None,
             loading_albums: false,
             loading_artists: false,
             loading_playlists: false,
@@ -1676,6 +1711,7 @@ impl Component for AppModel {
         let artist_grid = &model.artist_grid.view;
         let playlist_grid = &model.playlist_grid.view;
         let discover_stack = model.discover.stack.clone();
+        let stats_root = model.stats_root.clone();
         let player_sheet_content = model.player_view.widget();
         // Cloned rather than borrowed from the model: `view_output!` needs it
         // while the model already owns it.
@@ -2055,6 +2091,7 @@ impl AppModel {
                     View::Artists => self.rebuild_artists(),
                     View::Playlists => self.rebuild_playlists(),
                     View::Discover => {}
+                    View::Stats => {}
                     View::Search => {
                         self.search_gen = self.search_gen.wrapping_add(1);
                         let generation = self.search_gen;
@@ -2136,6 +2173,7 @@ impl AppModel {
                     View::Artists => self.rebuild_artists(),
                     View::Playlists => self.rebuild_playlists(),
                     View::Discover => self.refresh_discover(),
+                    View::Stats => stats::refresh(&self.stats_root),
                     View::Search => {
                         self.search_gen = self.search_gen.wrapping_add(1);
                         let generation = self.search_gen;
@@ -2275,6 +2313,80 @@ impl AppModel {
                 self.settings.notify_track_change = on;
                 self.settings.save();
             }
+            AppMsg::SetCrossfadeMs(ms) => {
+                self.settings.crossfade_ms = ms.min(12_000);
+                self.settings.save();
+                self.send(Request::Transport(Transport::SetCrossfade {
+                    ms: u64::from(self.settings.crossfade_ms),
+                }));
+            }
+            AppMsg::LastFmSetEnabled(on) => {
+                let mut cfg = vinilo_core::lastfm::load();
+                cfg.enabled = on && !cfg.session_key.is_empty();
+                vinilo_core::lastfm::save(&cfg);
+            }
+            AppMsg::LastFmSetApiKey(key) => {
+                let mut cfg = vinilo_core::lastfm::load();
+                cfg.api_key = key.trim().to_owned();
+                vinilo_core::lastfm::save(&cfg);
+            }
+            AppMsg::LastFmSetApiSecret(secret) => {
+                let mut cfg = vinilo_core::lastfm::load();
+                cfg.api_secret = secret.trim().to_owned();
+                vinilo_core::lastfm::save(&cfg);
+            }
+            AppMsg::LastFmConnect => {
+                let cfg = vinilo_core::lastfm::load();
+                sender.oneshot_command(async move {
+                    match vinilo_core::lastfm::begin_auth(&cfg).await {
+                        Ok((token, url)) => {
+                            let _ = std::process::Command::new("xdg-open").arg(&url).spawn();
+                            CommandMsg::LastFmAuth {
+                                token: Some(token),
+                                url: Some(url),
+                                error: None,
+                                connected: None,
+                            }
+                        }
+                        Err(err) => CommandMsg::LastFmAuth {
+                            token: None,
+                            url: None,
+                            error: Some(err),
+                            connected: None,
+                        },
+                    }
+                });
+            }
+            AppMsg::LastFmFinishAuth => {
+                let Some(token) = self.lastfm_auth_token.clone() else {
+                    return;
+                };
+                let cfg = vinilo_core::lastfm::load();
+                sender.oneshot_command(async move {
+                    match vinilo_core::lastfm::complete_auth(&cfg, &token).await {
+                        Ok(connected) => CommandMsg::LastFmAuth {
+                            token: None,
+                            url: None,
+                            error: None,
+                            connected: Some(connected),
+                        },
+                        Err(err) => CommandMsg::LastFmAuth {
+                            token: None,
+                            url: None,
+                            error: Some(err),
+                            connected: None,
+                        },
+                    }
+                });
+            }
+            AppMsg::LastFmDisconnect => {
+                let mut cfg = vinilo_core::lastfm::load();
+                cfg.session_key.clear();
+                cfg.username.clear();
+                cfg.enabled = false;
+                vinilo_core::lastfm::save(&cfg);
+                self.lastfm_auth_token = None;
+            }
             AppMsg::SidebarShown(shown) => {
                 if self.show_sidebar == shown {
                     return; // our own write coming back
@@ -2385,6 +2497,11 @@ impl AppModel {
                 if on {
                     self.ask_lyrics();
                 }
+            }
+            AppMsg::SetVocalLevel(level) => {
+                self.transport(Transport::SetVocalLevel {
+                    level: level.clamp(0.0, 1.0),
+                });
             }
             AppMsg::LibraryActivated(position) => {
                 // Catalog results mix songs with albums, artists and playlists.
@@ -2799,6 +2916,37 @@ impl AppModel {
                 tracing::info!("music source daemon stopped — connecting");
                 self.dial(&sender, std::time::Duration::ZERO);
             }
+            CommandMsg::LastFmAuth {
+                token,
+                url: _,
+                error,
+                connected,
+            } => {
+                if let Some(err) = error {
+                    tracing::warn!(%err, "last.fm auth");
+                    self.toast(vinilo_core::i18n::t(
+                        vinilo_core::i18n::Key::LastFmAuthFailed,
+                    ));
+                    return;
+                }
+                if let Some(token) = token {
+                    self.lastfm_auth_token = Some(token);
+                    self.toast(vinilo_core::i18n::t(
+                        vinilo_core::i18n::Key::LastFmAuthOpened,
+                    ));
+                }
+                if let Some(cfg) = connected {
+                    self.lastfm_auth_token = None;
+                    let name = if cfg.username.is_empty() {
+                        "Last.fm".to_owned()
+                    } else {
+                        cfg.username
+                    };
+                    let msg = vinilo_core::i18n::t(vinilo_core::i18n::Key::LastFmConnected)
+                        .replace("{}", &name);
+                    self.toast(&msg);
+                }
+            }
         }
     }
 }
@@ -2839,6 +2987,7 @@ impl AppModel {
             View::Playlists => {
                 self.tried_playlists = false;
             }
+            View::Stats => {}
         }
     }
 

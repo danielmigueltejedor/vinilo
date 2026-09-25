@@ -125,6 +125,31 @@ pub(super) fn build_transport(into: &gtk::Box, sender: &ComponentSender<PlayerVi
         .tooltip_text(vinilo_core::i18n::t(vinilo_core::i18n::Key::Lyrics))
         .css_classes(["flat", "circular"])
         .build();
+    let karaoke = gtk::ToggleButton::builder()
+        .icon_name("microphone-sensitivity-high-symbolic")
+        .tooltip_text(vinilo_core::i18n::t(vinilo_core::i18n::Key::Karaoke))
+        .css_classes(["flat", "circular"])
+        .build();
+    // Mid/side vocal level for catalogue / local PCM. Hidden until karaoke
+    // is on — MusicKit never sees samples, so this only helps there.
+    let voice = gtk::ScaleButton::builder()
+        .icons([
+            "microphone-sensitivity-muted-symbolic",
+            "microphone-sensitivity-low-symbolic",
+            "microphone-sensitivity-medium-symbolic",
+            "microphone-sensitivity-high-symbolic",
+        ])
+        .tooltip_text(vinilo_core::i18n::t(vinilo_core::i18n::Key::Voice))
+        .css_classes(["flat", "circular", "nodalix-scale"])
+        .adjustment(&gtk::Adjustment::new(0.0, 0.0, 1.0, VOLUME_STEP, 0.1, 0.0))
+        .build();
+    voice.set_visible(false);
+    let voice_handler = {
+        let sender = sender.clone();
+        voice.connect_value_changed(move |_, v| {
+            sender.input(PlayerViewInput::VocalLevelChanged(v));
+        })
+    };
 
     // **Volume lives here now.** The bar drops its own below the narrow
     // breakpoint, and shuffle and repeat were already down here to fall back
@@ -156,6 +181,12 @@ pub(super) fn build_transport(into: &gtk::Box, sender: &ComponentSender<PlayerVi
         let sender = sender.clone();
         lyrics.connect_toggled(move |b| {
             sender.input(PlayerViewInput::SetLyricsShown(b.is_active()));
+        });
+    }
+    {
+        let sender = sender.clone();
+        karaoke.connect_toggled(move |b| {
+            sender.input(PlayerViewInput::SetKaraoke(b.is_active()));
         });
     }
 
@@ -191,6 +222,8 @@ pub(super) fn build_transport(into: &gtk::Box, sender: &ComponentSender<PlayerVi
         .build();
     queue_row.append(&queue);
     queue_row.append(&lyrics);
+    queue_row.append(&karaoke);
+    queue_row.append(&voice);
     queue_row.append(&volume);
     into.append(&queue_row);
 
@@ -203,6 +236,9 @@ pub(super) fn build_transport(into: &gtk::Box, sender: &ComponentSender<PlayerVi
         next,
         queue,
         lyrics,
+        karaoke,
+        voice,
+        voice_handler,
         volume,
         volume_handler,
         shuffle,
@@ -220,6 +256,9 @@ pub(super) struct Bits {
     next: gtk::Button,
     queue: gtk::ToggleButton,
     lyrics: gtk::ToggleButton,
+    karaoke: gtk::ToggleButton,
+    voice: gtk::ScaleButton,
+    voice_handler: relm4::gtk::glib::SignalHandlerId,
     volume: gtk::ScaleButton,
     volume_handler: relm4::gtk::glib::SignalHandlerId,
     shuffle: gtk::Button,
@@ -279,6 +318,10 @@ impl PlayerView {
             .set_tooltip_text(Some(vinilo_core::i18n::t(vinilo_core::i18n::Key::Queue)));
         bits.lyrics
             .set_tooltip_text(Some(vinilo_core::i18n::t(vinilo_core::i18n::Key::Lyrics)));
+        bits.karaoke
+            .set_tooltip_text(Some(vinilo_core::i18n::t(vinilo_core::i18n::Key::Karaoke)));
+        bits.voice
+            .set_tooltip_text(Some(vinilo_core::i18n::t(vinilo_core::i18n::Key::Voice)));
         bits.volume
             .set_tooltip_text(Some(vinilo_core::i18n::t(vinilo_core::i18n::Key::Volume)));
         // **Silenced while we write.** GTK cannot tell a programmatic write
@@ -292,6 +335,12 @@ impl PlayerView {
             bits.volume.set_value(self.snap.volume);
             bits.volume.unblock_signal(&bits.volume_handler);
         }
+        if volume_is_new(bits.voice.value(), self.vocal_level) {
+            bits.voice.block_signal(&bits.voice_handler);
+            bits.voice.set_value(self.vocal_level);
+            bits.voice.unblock_signal(&bits.voice_handler);
+        }
+        bits.voice.set_visible(self.karaoke);
     }
 }
 
@@ -314,5 +363,18 @@ impl Bits {
     pub(super) fn set_pane_toggles(&self, queue: bool, lyrics: bool) {
         self.queue.set_active(queue);
         self.lyrics.set_active(lyrics);
+    }
+
+    pub(super) fn set_karaoke(&self, on: bool) {
+        self.karaoke.set_active(on);
+        self.voice.set_visible(on);
+    }
+
+    pub(super) fn set_vocal_level(&self, level: f64) {
+        if volume_is_new(self.voice.value(), level) {
+            self.voice.block_signal(&self.voice_handler);
+            self.voice.set_value(level);
+            self.voice.unblock_signal(&self.voice_handler);
+        }
     }
 }

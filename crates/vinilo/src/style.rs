@@ -369,6 +369,24 @@ fn set_colors(colors: Option<(&'static str, &'static str)>) {
              transform: translateX(6px) scale(1.02);
              font-weight: 600;
          }}
+         .lyrics-karaoke .lyric-line {{
+             font-size: 1.45em;
+             text-align: center;
+             xalign: 0.5;
+         }}
+         .lyrics-karaoke.lyrics-synced .lyric-line {{
+             opacity: 0.18;
+             transform: none;
+         }}
+         .lyrics-karaoke.lyrics-synced .lyric-line.lyric-near {{
+             opacity: 0.40;
+         }}
+         .lyrics-karaoke.lyrics-synced .lyric-line.lyric-current {{
+             opacity: 1;
+             font-size: 1.7em;
+             font-weight: 700;
+             transform: none;
+         }}
          {chrome}"
     );
 

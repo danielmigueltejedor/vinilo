@@ -21,3 +21,4 @@ tokio.workspace = true
 tracing.workspace = true
 hmac = "0.12"
 sha1 = "0.10"
+md-5 = "0.10"

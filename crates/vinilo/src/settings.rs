@@ -72,6 +72,7 @@ pub enum Section {
     Artists,
     Playlists,
     Catalog,
+    Stats,
 }
 
 impl Section {
@@ -83,6 +84,7 @@ impl Section {
             Self::Artists => "artists",
             Self::Playlists => "playlists",
             Self::Catalog => "catalog",
+            Self::Stats => "stats",
         }
     }
 
@@ -93,6 +95,7 @@ impl Section {
             "artists" => Self::Artists,
             "playlists" => Self::Playlists,
             "library" => Self::Library,
+            "stats" => Self::Stats,
             _ => Self::Discover,
         }
     }
@@ -129,6 +132,8 @@ pub struct Settings {
     pub source_tint: bool,
     /// Notify when the track changes. Off by default (`bool`'s default).
     pub notify_track_change: bool,
+    /// Crossfade between catalogue / local tracks, in milliseconds. Zero is off.
+    pub crossfade_ms: u32,
     /// Playlists pinned to the sidebar, in the order they were put there.
     ///
     /// Library ids (`p.…`, `sp:playlist:…`) and catalogue ones (Spotify
@@ -244,6 +249,7 @@ impl Default for Settings {
             player_backdrop: true,
             source_tint: true,
             notify_track_change: false,
+            crossfade_ms: 0,
             // Nothing pinned until somebody pins something. An app that
             // guesses which playlists matter to you gets it wrong.
             pinned_playlists: Vec::new(),
@@ -281,6 +287,9 @@ impl Settings {
         }
         if let Ok(notify) = file.boolean(GROUP, "notify-track-change") {
             settings.notify_track_change = notify;
+        }
+        if let Ok(ms) = file.uint64(GROUP, "crossfade-ms") {
+            settings.crossfade_ms = ms.min(12_000) as u32;
         }
         if let Ok(section) = file.string(GROUP, "section") {
             settings.section = Section::parse(&section);
@@ -379,6 +388,7 @@ impl Settings {
         let file = KeyFile::new();
         file.set_string(GROUP, "theme", self.theme.as_str());
         file.set_boolean(GROUP, "notify-track-change", self.notify_track_change);
+        file.set_uint64(GROUP, "crossfade-ms", u64::from(self.crossfade_ms));
         file.set_string(GROUP, "section", self.section.as_str());
         file.set_boolean(GROUP, "show-sidebar", self.show_sidebar);
         file.set_boolean(GROUP, "player-backdrop", self.player_backdrop);

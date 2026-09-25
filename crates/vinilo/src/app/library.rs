@@ -553,7 +553,7 @@ impl AppModel {
             View::Albums => self.rebuild_albums(),
             View::Artists => self.rebuild_artists(),
             View::Playlists => self.rebuild_playlists(),
-            View::Discover => {}
+            View::Discover | View::Stats => {}
             View::Songs | View::Search => self.rebuild_rows(),
         }
     }

@@ -732,6 +732,83 @@ fn lyrics_from_browse(value: &Value) -> Option<crate::ipc::Lyrics> {
     })
 }
 
+/// A plaintext googlevideo audio URL from InnerTube, ready to stream.
+#[derive(Debug, Clone)]
+pub struct DirectStream {
+    pub url: String,
+    pub ext: &'static str,
+    pub user_agent: &'static str,
+    pub client: &'static str,
+}
+
+static URL_CACHE: Mutex<Option<std::collections::HashMap<String, (DirectStream, u64)>>> =
+    Mutex::new(None);
+
+fn url_cache_ttl_secs() -> u64 {
+    90 * 60
+}
+
+fn now_secs() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+fn cache_get(video: &str) -> Option<DirectStream> {
+    let Ok(guard) = URL_CACHE.lock() else {
+        return None;
+    };
+    let map = guard.as_ref()?;
+    let (stream, expires) = map.get(video)?;
+    if *expires <= now_secs() {
+        return None;
+    }
+    Some(stream.clone())
+}
+
+fn cache_put(video: &str, stream: DirectStream) {
+    let Ok(mut guard) = URL_CACHE.lock() else {
+        return;
+    };
+    let map = guard.get_or_insert_with(std::collections::HashMap::new);
+    map.insert(
+        video.to_owned(),
+        (stream, now_secs() + url_cache_ttl_secs()),
+    );
+}
+
+/// Resolve a `yt:` id to a streamable googlevideo URL without downloading.
+pub async fn resolve_audio_url(http: &reqwest::Client, id: &str) -> Result<DirectStream> {
+    let video = video_id(id)?;
+    if let Some(cached) = cache_get(&video) {
+        return Ok(cached);
+    }
+    let stream = direct_stream(http, &video).await?;
+    cache_put(&video, stream.clone());
+    Ok(stream)
+}
+
+/// Warm the URL cache for nearby queue ids. Failures are silent — preload is
+/// best-effort so a cold Next is not worse than today.
+pub async fn preload_audio_urls(http: &reqwest::Client, ids: &[String]) {
+    for id in ids {
+        if !id.starts_with("yt:") {
+            continue;
+        }
+        let Ok(video) = video_id(id) else {
+            continue;
+        };
+        if cache_get(&video).is_some() {
+            continue;
+        }
+        match direct_stream(http, &video).await {
+            Ok(stream) => cache_put(&video, stream),
+            Err(err) => tracing::debug!(%id, ?err, "yt url preload missed"),
+        }
+    }
+}
+
 /// Fetch audio bytes for a `yt:` id into `dir`, without shelling out to yt-dlp.
 ///
 /// Tries signed ANDROID_MUSIC, ANDROID, then VisionOS. Ciphered and webm
@@ -747,7 +824,7 @@ pub async fn download_audio(http: &reqwest::Client, id: &str, dir: &Path) -> Res
         return Ok(existing);
     }
 
-    let stream = match direct_stream(http, &video).await {
+    let stream = match resolve_audio_url(http, id).await {
         Ok(stream) => stream,
         Err(err) => {
             tracing::debug!(%video, ?err, "innertube had no direct audio url");
@@ -795,13 +872,6 @@ pub async fn download_audio(http: &reqwest::Client, id: &str, dir: &Path) -> Res
     }
     std::fs::rename(&tmp, &path).context("rename youtube audio")?;
     Ok(path)
-}
-
-struct DirectStream {
-    url: String,
-    ext: &'static str,
-    user_agent: &'static str,
-    client: &'static str,
 }
 
 async fn direct_stream(http: &reqwest::Client, video: &str) -> Result<DirectStream> {

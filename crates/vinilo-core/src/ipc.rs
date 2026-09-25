@@ -648,6 +648,14 @@ pub enum Transport {
     SetVolume {
         volume: f64,
     },
+    SetCrossfade {
+        ms: u64,
+    },
+    /// Vocal level for karaoke mid/side attenuation on catalogue / local PCM.
+    /// `0.0` is instrumental (centre muted); `1.0` is the full mix.
+    SetVocalLevel {
+        level: f64,
+    },
     SetShuffle {
         shuffle: bool,
     },

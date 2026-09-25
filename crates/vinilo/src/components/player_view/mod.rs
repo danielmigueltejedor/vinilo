@@ -43,6 +43,10 @@ pub struct PlayerView {
     queue_shown: bool,
     /// Whether the lyrics pane is showing instead of the queue.
     lyrics_shown: bool,
+    /// Large centred lyrics focus mode (synced tracks only).
+    karaoke: bool,
+    /// Mid/side vocal gain while karaoke is on: 0 = instrumental, 1 = full.
+    vocal_level: f64,
     /// Start times of the lines currently in `lyrics_lines`, for highlighting.
     lyric_times: Vec<u64>,
     /// False for plain (YouTube) lyrics: times are all zero, so they must not
@@ -260,6 +264,9 @@ pub enum PlayerViewInput {
     Wide(bool),
     SetQueueShown(bool),
     SetLyricsShown(bool),
+    SetKaraoke(bool),
+    /// Karaoke mid/side vocal level (catalogue / local PCM only).
+    VocalLevelChanged(f64),
     /// Lines from the daemon, or an error string if this track has none.
     Lyrics {
         lyrics: Option<vinilo_core::ipc::Lyrics>,
@@ -630,6 +637,8 @@ impl SimpleComponent for PlayerView {
             room_for: SHEET_MIN_H,
             queue_shown: false,
             lyrics_shown: false,
+            karaoke: false,
+            vocal_level: 0.0,
             lyric_times: Vec::new(),
             lyric_synced: false,
             lyric_current: None,
@@ -886,6 +895,42 @@ impl SimpleComponent for PlayerView {
                     self.scroll_current_lyric();
                 }
             }
+            PlayerViewInput::SetKaraoke(on) => {
+                if self.karaoke == on {
+                    return;
+                }
+                self.karaoke = on;
+                if on && !self.lyrics_shown {
+                    sender.input(PlayerViewInput::SetLyricsShown(true));
+                }
+                if let Some(slots) = self.slots.as_ref() {
+                    if on {
+                        slots.lyrics_lines.add_css_class("lyrics-karaoke");
+                    } else {
+                        slots.lyrics_lines.remove_css_class("lyrics-karaoke");
+                    }
+                }
+                if let Some(bits) = self.bits.as_ref() {
+                    bits.set_karaoke(on);
+                    if on {
+                        bits.set_vocal_level(self.vocal_level);
+                    }
+                }
+                // On: attenuate vocals for singing. Off: restore the full mix.
+                let level = if on { self.vocal_level } else { 1.0 };
+                let _ = sender.output(NowPlayingOutput::SetVocalLevel(level));
+                self.relayout();
+            }
+            PlayerViewInput::VocalLevelChanged(level) => {
+                let level = level.clamp(0.0, 1.0);
+                if (self.vocal_level - level).abs() < 1e-4 {
+                    return;
+                }
+                self.vocal_level = level;
+                if self.karaoke {
+                    let _ = sender.output(NowPlayingOutput::SetVocalLevel(level));
+                }
+            }
             PlayerViewInput::Lyrics { lyrics, error } => {
                 self.show_lyrics(lyrics, error, &sender);
             }
@@ -1099,11 +1144,16 @@ impl PlayerView {
                     } else {
                         slots.lyrics_lines.remove_css_class("lyrics-synced");
                     }
+                    if self.karaoke {
+                        slots.lyrics_lines.add_css_class("lyrics-karaoke");
+                    } else {
+                        slots.lyrics_lines.remove_css_class("lyrics-karaoke");
+                    }
                     for line in &lyrics.lines {
                         let label = gtk::Label::builder()
                             .label(&line.text)
                             .wrap(true)
-                            .xalign(0.0)
+                            .xalign(if self.karaoke { 0.5 } else { 0.0 })
                             .hexpand(true)
                             .css_classes(["lyric-line"])
                             .build();

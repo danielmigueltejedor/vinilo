@@ -14,7 +14,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use rodio::{Decoder, OutputStream, OutputStreamHandle, Sink};
+use rodio::{Decoder, OutputStream, OutputStreamHandle, Sink, Source};
 use vinilo_core::local_files::expand_audio_paths;
 use vinilo_core::player::protocol::Event as PlayerEvent;
 use vinilo_core::player::protocol::{Item, PlaybackState, Queue, RepeatMode};
@@ -33,6 +33,9 @@ pub struct Track {
     pub art_path: Option<PathBuf>,
     pub catalog_id: Option<String>,
     pub artwork_template: Option<String>,
+    /// When set, playback goes through ffmpeg on this URL instead of the path.
+    pub stream_url: Option<String>,
+    pub stream_ua: Option<String>,
 }
 
 impl Track {
@@ -59,9 +62,17 @@ pub struct Player {
     stream: Option<OutputStream>,
     handle: Option<OutputStreamHandle>,
     sink: Option<Sink>,
+    /// Previous sink during a crossfade; dropped when the fade finishes.
+    fading: Option<Sink>,
+    /// Keeps ffmpeg alive while a URL source is on the sink.
+    ffmpeg: Option<crate::url_play::FfmpegGuard>,
     queue: Vec<Track>,
     index: usize,
     volume: f64,
+    /// Milliseconds of overlap when advancing. Zero means cut.
+    crossfade_ms: u64,
+    /// Live mid/side vocal gain for karaoke (0 = instrumental, 1 = full).
+    vocal_gain: crate::vocal::VocalGain,
     repeat: RepeatMode,
     shuffle: bool,
     /// Queue order before shuffle was turned on, so turning it off can restore.
@@ -76,9 +87,13 @@ impl Player {
             stream: None,
             handle: None,
             sink: None,
+            fading: None,
+            ffmpeg: None,
             queue: Vec::new(),
             index: 0,
             volume: 1.0,
+            crossfade_ms: 0,
+            vocal_gain: crate::vocal::VocalGain::new(1.0),
             repeat: RepeatMode::None,
             shuffle: false,
             unshuffled: None,
@@ -102,6 +117,8 @@ impl Player {
             art_path: art,
             catalog_id: None,
             artwork_template: None,
+            stream_url: None,
+            stream_ua: None,
         }];
         self.index = 0;
     }
@@ -110,10 +127,22 @@ impl Player {
         if let Some(sink) = self.sink.take() {
             sink.stop();
         }
+        if let Some(sink) = self.fading.take() {
+            sink.stop();
+        }
+        self.ffmpeg = None;
         self.active = false;
         self.queue.clear();
         self.unshuffled = None;
         self.index = 0;
+    }
+
+    pub fn set_crossfade_ms(&mut self, ms: u64) {
+        self.crossfade_ms = ms.min(12_000);
+    }
+
+    pub fn set_vocal_level(&mut self, level: f64) {
+        self.vocal_gain.set(level as f32);
     }
 
     /// Replace the queue with these paths and start at `index`.
@@ -147,6 +176,47 @@ impl Player {
         self.ensure_output()?;
         self.take_queue(queue, index)?;
         Ok(())
+    }
+
+    /// Play catalogue audio that already has a streamable URL (YouTube Music).
+    pub fn play_stream_hits(
+        &mut self,
+        hits: Vec<(StreamHit, vinilo_core::ytmusic::DirectStream)>,
+        index: usize,
+    ) -> Result<(), String> {
+        if hits.is_empty() {
+            return Err("Nothing here can be streamed".into());
+        }
+        let queue: Vec<Track> = hits
+            .iter()
+            .map(|(hit, stream)| track_from_stream(hit, stream))
+            .collect();
+        let index = index.min(queue.len().saturating_sub(1));
+        self.ensure_output()?;
+        self.take_queue(queue, index)?;
+        Ok(())
+    }
+
+    pub fn append_stream_hit(
+        &mut self,
+        hit: StreamHit,
+        stream: vinilo_core::ytmusic::DirectStream,
+    ) {
+        if !self.active {
+            return;
+        }
+        if self
+            .queue
+            .iter()
+            .any(|t| t.catalog_id.as_deref() == Some(hit.id.as_str()))
+        {
+            return;
+        }
+        let track = track_from_stream(&hit, &stream);
+        if let Some(original) = self.unshuffled.as_mut() {
+            original.push(track.clone());
+        }
+        self.queue.push(track);
     }
 
     fn take_queue(&mut self, mut queue: Vec<Track>, index: usize) -> Result<(), String> {
@@ -273,12 +343,12 @@ impl Player {
         }
         if self.index + 1 < self.queue.len() {
             self.index += 1;
-            self.start_current()?;
+            self.start_current_maybe_fade()?;
             return Ok(true);
         }
         if self.repeat == RepeatMode::All {
             self.index = 0;
-            self.start_current()?;
+            self.start_current_maybe_fade()?;
             return Ok(true);
         }
         self.pause();
@@ -473,28 +543,75 @@ impl Player {
         Ok(())
     }
 
+    fn start_current_maybe_fade(&mut self) -> Result<(), String> {
+        if self.crossfade_ms == 0 || self.sink.is_none() {
+            return self.start_current();
+        }
+        let old = self.sink.take();
+        let _old_ffmpeg = self.ffmpeg.take();
+        if let Some(old_sink) = self.fading.take() {
+            old_sink.stop();
+        }
+        let target = self.volume as f32;
+        let ms = self.crossfade_ms;
+        self.start_current()?;
+        if let Some(fading) = old {
+            let steps = 20u32;
+            let step = Duration::from_millis((ms / u64::from(steps)).max(1));
+            std::thread::spawn(move || {
+                for i in 1..=steps {
+                    let t = i as f32 / steps as f32;
+                    fading.set_volume(target * (1.0 - t));
+                    std::thread::sleep(step);
+                }
+                fading.stop();
+            });
+        }
+        if let Some(sink) = self.sink.as_ref() {
+            sink.set_volume(target);
+        }
+        Ok(())
+    }
+
     fn start_current(&mut self) -> Result<(), String> {
-        // Drop the previous sink before opening the next file. Creating a
-        // second Sink on the same OutputStreamHandle while the last one is
-        // still live is how the bar named a new track and the speakers kept
-        // playing the old one.
+        // Drop the previous sink before opening the next file — unless a
+        // crossfade still holds it in `fading`.
         if let Some(sink) = self.sink.take() {
             sink.stop();
         }
-        let Some(track) = self.queue.get(self.index) else {
+        self.ffmpeg = None;
+        let Some(track) = self.queue.get(self.index).cloned() else {
             return Err("the local queue is empty".into());
         };
-        let mut path = track.path.clone();
         let handle = self
             .handle
             .as_ref()
             .ok_or_else(|| "no audio output".to_string())?;
+
+        if let (Some(url), Some(ua)) = (track.stream_url.as_ref(), track.stream_ua.as_ref()) {
+            match crate::url_play::open_url_source(url, ua) {
+                Ok((source, child)) => {
+                    let sink = Sink::try_new(handle).map_err(|err| format!("audio sink: {err}"))?;
+                    sink.set_volume(self.volume as f32);
+                    sink.append(crate::vocal::maybe_vocal(source, self.vocal_gain.clone()));
+                    sink.play();
+                    self.ffmpeg = Some(child.into());
+                    self.sink = Some(sink);
+                    return Ok(());
+                }
+                Err(err) => {
+                    tracing::warn!(%err, "url stream failed; trying file path");
+                    if track.path.as_os_str().is_empty() || !track.path.exists() {
+                        return Err(err);
+                    }
+                }
+            }
+        }
+
+        let mut path = track.path.clone();
         let decoder = match open_decoder(&path) {
             Ok(decoder) => decoder,
             Err(first) => {
-                // rodio 0.19 panics on some YouTube dash m4a / webm instead of
-                // returning Err. The extension is not enough: m4a is "native"
-                // and still needs ffmpeg.
                 tracing::warn!(
                     path = %path.display(),
                     err = %first,
@@ -516,7 +633,8 @@ impl Player {
         }
         let sink = Sink::try_new(handle).map_err(|err| format!("audio sink: {err}"))?;
         sink.set_volume(self.volume as f32);
-        sink.append(decoder);
+        let pcm = decoder.convert_samples::<f32>();
+        sink.append(crate::vocal::maybe_vocal(pcm, self.vocal_gain.clone()));
         sink.play();
         self.sink = Some(sink);
         Ok(())
@@ -560,6 +678,21 @@ fn read_track(path: &Path) -> Track {
     read_track_labeled(path, None)
 }
 
+fn track_from_stream(hit: &StreamHit, stream: &vinilo_core::ytmusic::DirectStream) -> Track {
+    Track {
+        path: PathBuf::new(),
+        title: hit.title.clone(),
+        artist: hit.artist.clone(),
+        album: hit.album.clone(),
+        duration_ms: hit.duration_ms,
+        art_path: None,
+        catalog_id: Some(hit.id.clone()),
+        artwork_template: hit.artwork.clone(),
+        stream_url: Some(stream.url.clone()),
+        stream_ua: Some(stream.user_agent.to_owned()),
+    }
+}
+
 fn read_track_labeled(path: &Path, hit: Option<&StreamHit>) -> Track {
     let filename = path
         .file_stem()
@@ -595,6 +728,8 @@ fn read_track_labeled(path: &Path, hit: Option<&StreamHit>) -> Track {
                 art_path,
                 catalog_id: None,
                 artwork_template: None,
+                stream_url: None,
+                stream_ua: None,
             }
         }
         Err(_) => Track {
@@ -606,6 +741,8 @@ fn read_track_labeled(path: &Path, hit: Option<&StreamHit>) -> Track {
             art_path: folder_art,
             catalog_id: None,
             artwork_template: None,
+            stream_url: None,
+            stream_ua: None,
         },
     };
     if let Some(meta) = sidecar.as_ref() {
@@ -807,6 +944,8 @@ mod tests {
             art_path: None,
             catalog_id: Some(name.to_owned()),
             artwork_template: None,
+            stream_url: None,
+            stream_ua: None,
         }
     }
 

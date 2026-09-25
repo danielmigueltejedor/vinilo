@@ -21,7 +21,7 @@ dependencies = [
 
 [[package]]
 name = "aguja"
-version = "1.0.1"
+version = "1.1.0"
 dependencies = [
  "anyhow",
  "crossterm",
@@ -2303,6 +2303,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d1525a2a28c7f4fa0fc98bb91ae755d1e2d1505079e05539e35bc876b5d65ae9"
 dependencies = [
  "regex-automata",
+]
+
+[[package]]
+name = "md-5"
+version = "0.10.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d89e7ee0cfbedfc4da3340218492196241d89eefb6dab27de5df917a6d2e78cf"
+dependencies = [
+ "cfg-if",
+ "digest",
 ]
 
 [[package]]
@@ -4654,7 +4664,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "vinilo"
-version = "1.0.1"
+version = "1.1.0"
 dependencies = [
  "anyhow",
  "ashpd",
@@ -4671,11 +4681,12 @@ dependencies = [
 
 [[package]]
 name = "vinilo-core"
-version = "1.0.1"
+version = "1.1.0"
 dependencies = [
  "anyhow",
  "hmac",
  "libc",
+ "md-5",
  "mpris-server",
  "reqwest",
  "serde",
@@ -4688,7 +4699,7 @@ dependencies = [
 
 [[package]]
 name = "vinilod"
-version = "1.0.1"
+version = "1.1.0"
 dependencies = [
  "anyhow",
  "libpulse-binding",

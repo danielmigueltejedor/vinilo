@@ -21,6 +21,8 @@ mod mixer;
 mod serve;
 mod spotify_play;
 mod state;
+mod url_play;
+mod vocal;
 mod watchdog;
 mod ytdlp;
 

@@ -208,6 +208,8 @@ pub enum NowPlayingOutput {
         over: gtk::Widget,
     },
     SetLyricsShown(bool),
+    /// Karaoke mid/side vocal level on catalogue / local PCM (0–1).
+    SetVocalLevel(f64),
 }
 
 #[relm4::component(pub)]

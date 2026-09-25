@@ -204,7 +204,12 @@ impl AppModel {
                 }
                 self.stage = match stage {
                     DaemonStage::Connecting => Stage::Connecting,
-                    DaemonStage::Ready => Stage::Ready,
+                    DaemonStage::Ready => {
+                        self.send(Request::Transport(Transport::SetCrossfade {
+                            ms: u64::from(self.settings.crossfade_ms),
+                        }));
+                        Stage::Ready
+                    }
                     DaemonStage::SignedOut => Stage::SignedOut,
                     // The loud failure rule 4 demands.
                     DaemonStage::Broken { detail } => Stage::Broken(detail),

@@ -10,7 +10,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
   <p><strong>A native GNOME music player for Linux.</strong></p>
 
   <p>
-    <img src="https://img.shields.io/badge/version-1.0.1-4a86cf" alt="Version 1.0.1">
+    <img src="https://img.shields.io/badge/version-1.1.0-4a86cf" alt="Version 1.1.0">
     <img src="https://img.shields.io/badge/platform-Linux%20x86__64-fcc624?logo=linux&logoColor=black" alt="Linux x86_64">
     <img src="https://img.shields.io/badge/GTK4%20%2F%20libadwaita-4a86cf" alt="GTK4 and libadwaita">
     <img src="https://img.shields.io/badge/Rust-dea584?logo=rust&logoColor=black" alt="Written in Rust">
@@ -24,7 +24,9 @@ SPDX-License-Identifier: GPL-3.0-or-later
     <a href="#preview">Preview</a> ·
     <a href="#why-vinilo">Why Vinilo</a> ·
     <a href="#first-launch">First launch</a> ·
-    <a href="#support-and-contributions">Support</a>
+    <a href="#contributing">Contributing</a> ·
+    <a href="#translations">Translations</a> ·
+    <a href="#support">Support</a>
   </p>
 </div>
 
@@ -64,9 +66,9 @@ the window does not stop the music.
 
 | Interface | Playback | Desktop |
 | --- | --- | --- |
-| A GNOME app, not a website in a frame | A player worth the name: gapless, with artwork and a queue | Play, pause and skip from the top bar, lock screen or media keys |
+| A GNOME app, not a website in a frame | Gapless playback, queue, lyrics and karaoke with a voice level on catalogue tracks | Play, pause and skip from the top bar, lock screen or media keys |
 | Your library: songs, albums, artists and playlists | The catalogues you already use, searchable from one place | Music keeps going when you close the window |
-| English or Spanish, or the system language | A terminal client (`aguja`) on the same engine | Quick, and out of the way |
+| English or Spanish, or the system language | Crossfade, local listening stats, optional Last.fm scrobbling | A terminal client (`aguja`) on the same engine |
 
 Vinilo is built for daily listening: one queue, two faces, and a small hidden
 web layer only where DRM requires it.
@@ -84,6 +86,19 @@ web layer only where DRM requires it.
 Favourites, library saves and new playlists are available from the row menu
 where the source allows it. Change language or source later in
 **Preferences** (`Ctrl`+`,`).
+
+### Listening stats and Last.fm
+
+Vinilo keeps play counts and time listened on this machine (sidebar →
+**Listening**). To mirror that online, open **Preferences → Last.fm**:
+
+1. Create an API account at [last.fm/api/account/create](https://www.last.fm/api/account/create).
+2. Paste the **API key** and **shared secret**.
+3. Click **Connect**, authorize Vinilo in the browser, then **I authorized Vinilo**.
+
+Scrobbles and now-playing updates go out from the engine for every source.
+Credentials live in `~/.config/vinilo/lastfm.json` and are never written to
+logs.
 
 ## Installation
 
@@ -178,11 +193,12 @@ tokens are never written to disk.
 ┌─────────────────────────────▼─────────────────────────────────┐
 │  vinilod — the engine                         no window      │
 │  queue · desktop controls · artwork · local files · cache    │
+│  listen stats · Last.fm scrobbles                             │
 └──────────────┬──────────────────────────────┬────────────────┘
-               │ Apple Music                  │ files
+               │ Apple Music                  │ files / catalogues
 ┌──────────────▼──────────────┐    ┌──────────▼────────────────┐
 │  sidecar  castLabs Electron │    │  rodio in the engine      │
-│  MusicKit + Widevine CDM    │    │  MP3, FLAC, Ogg, WAV…     │
+│  MusicKit + Widevine CDM    │    │  MP3, FLAC, streams…      │
 └─────────────────────────────┘    └───────────────────────────┘
 ```
 
@@ -197,15 +213,70 @@ Vinilo does not strip DRM, cache decrypted audio, or offer downloads.
 | ~200 MB Chromium sidecar | Only if you use Apple Music |
 | x86_64 only for Apple Music | Linux ARM Widevine is not a stable target |
 | Spotify and Apple Music are ready; YouTube Music is **Beta**; Tidal is **Alpha** | Catalogue clients are still settling |
+| Karaoke voice attenuation is catalogue / local only | MusicKit never hands Vinilo samples |
 | `aguja` needs a desktop session for Chromium sources | The decoder still needs a display server |
 
-## Support and contributions
+## Contributing
+
+Patches, bug reports and translations are welcome.
+
+1. **Fork** and branch from `main` (`feat/…`, `fix/…`, `docs/…`).
+2. Keep changes focused. The engine lives in `crates/vinilo-core` and
+   `crates/vinilod`; drawing belongs in `crates/vinilo`. A terminal client that
+   draws nothing should still be able to use anything you add to the engine.
+3. Before opening a pull request:
+
+   ```bash
+   make check    # rustfmt + clippy -D warnings + tests
+   ```
+
+4. Use [conventional commits](https://www.conventionalcommits.org/)
+   (`feat:`, `fix:`, `docs:`, `refactor:`, `chore:`).
+5. Do not paste tokens, cookies, `settings.ini` or `lastfm.json` into issues or
+   PRs.
+6. Read [`CLAUDE.md`](./CLAUDE.md) / [`AGENTS.md`](./AGENTS.md) before large
+   changes — especially the DRM line we do not cross, and MusicKit owning the
+   queue.
+
+Licensing: every new source file needs the two-line SPDX header
+(`GPL-3.0-or-later`).
+
+## Translations
+
+Strings are runtime tables in
+[`crates/vinilo-core/src/i18n.rs`](./crates/vinilo-core/src/i18n.rs), not
+gettext. Both Vinilo and Aguja call `t(Key::…)`, so one edit covers both
+clients.
+
+### Add a language
+
+1. Add a variant to `Language` (and usually to `Locale`).
+2. Add an `xx(Key) -> &'static str` table beside `en` / `es` — **every** `Key`
+   must be covered; the compiler will tell you if one is missing.
+3. Wire it in `t()`, `Locale::parse`, `Locale::resolve`, and the Preferences
+   language combo (native name + index).
+4. Search for other `match current()` arms that build sentences outside `t`
+   (plurals, shortcuts) and extend those too.
+
+### Rules of thumb
+
+- Prefer short, GNOME-flavoured wording over marketing copy.
+- Keep placeholders (`{}`) identical across languages when a string is filled
+  with `replace`.
+- Re-run `make check` after editing the tables; `rustfmt` is picky about long
+  string literals.
+
+The user's choice is stored in `~/.config/vinilo/locale` (`system`, `en`, or
+`es`). System follows `LC_MESSAGES` / `LANG` and falls back to English when the
+tag is unsupported.
+
+## Support
 
 - Use [GitHub Issues](https://github.com/danielmigueltejedor/vinilo/issues) for
   reproducible bugs and focused feature requests.
-- Include the Vinilo version (`1.0.1`), distribution, GTK/libadwaita versions
+- Include the Vinilo version (`1.1.0`), distribution, GTK/libadwaita versions
   and the source (Apple Music, local, Spotify, YouTube Music or Tidal).
-- Never paste tokens, cookies or `settings.ini` into an issue.
+- Never paste tokens, cookies, `settings.ini` or `lastfm.json` into an issue.
 
 ## Credits
 

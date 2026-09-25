@@ -38,6 +38,16 @@ const BACKLOG: usize = 64;
 /// Position ticks while playing. The same cadence the GTK client uses.
 const TICK_MS: u64 = 500;
 
+/// A track announced to Last.fm, waiting for a scrobble when the next one starts.
+pub struct LastFmPending {
+    artist: String,
+    title: String,
+    album: String,
+    duration_ms: u64,
+    started_unix: u64,
+    started_at: std::time::Instant,
+}
+
 /// How long with nobody listening and nothing playing before the sidecar goes.
 ///
 /// It costs **393 MB of the daemon's 404** and near-zero CPU, so this is about
@@ -108,6 +118,8 @@ pub struct Daemon {
     /// Last catalog id written to the listen history, so a 500ms tick does not
     /// rewrite the same song.
     pub last_listen: RefCell<Option<String>>,
+    /// Track we announced to Last.fm as now-playing, with when it started.
+    pub lastfm_pending: RefCell<Option<LastFmPending>>,
     /// Search hits for Spotify / YouTube Music / Tidal, keyed by the id we
     /// minted (`yt:`, `sp:`, `td:`), so a later Play can fetch audio.
     pub stream_hits: RefCell<HashMap<String, vinilo_core::streams::StreamHit>>,
@@ -202,7 +214,57 @@ impl Daemon {
         };
         drop(model);
         *self.last_listen.borrow_mut() = Some(id);
+        let heard = track.duration_ms.max(1);
+        vinilo_core::listen_stats::record(&track, heard);
+        self.sync_lastfm(&track);
         vinilo_core::listen_history::record(track);
+    }
+
+    fn sync_lastfm(&self, track: &vinilo_core::music::types::Track) {
+        let cfg = vinilo_core::lastfm::load();
+        if !cfg.ready() {
+            *self.lastfm_pending.borrow_mut() = None;
+            return;
+        }
+        if let Some(prev) = self.lastfm_pending.borrow_mut().take() {
+            let heard_ms = prev.started_at.elapsed().as_millis() as u64;
+            if vinilo_core::lastfm::is_scrobble_eligible(heard_ms, prev.duration_ms) {
+                let cfg = cfg.clone();
+                tokio::spawn(async move {
+                    if let Err(err) = vinilo_core::lastfm::scrobble(
+                        &cfg,
+                        &prev.artist,
+                        &prev.title,
+                        &prev.album,
+                        prev.started_unix,
+                    )
+                    .await
+                    {
+                        tracing::warn!(%err, "last.fm scrobble failed");
+                    }
+                });
+            }
+        }
+        let artist = track.artist.clone();
+        let title = track.title.clone();
+        let album = track.album.clone();
+        let started_unix = vinilo_core::lastfm::unix_now();
+        *self.lastfm_pending.borrow_mut() = Some(LastFmPending {
+            artist: artist.clone(),
+            title: title.clone(),
+            album: album.clone(),
+            duration_ms: track.duration_ms,
+            started_unix,
+            started_at: std::time::Instant::now(),
+        });
+        let cfg = cfg.clone();
+        tokio::spawn(async move {
+            if let Err(err) =
+                vinilo_core::lastfm::update_now_playing(&cfg, &artist, &title, &album).await
+            {
+                tracing::warn!(%err, "last.fm now-playing failed");
+            }
+        });
     }
 }
 
@@ -263,6 +325,7 @@ pub async fn run() -> Result<()> {
         quitting: tokio::sync::Notify::new(),
         mixer: crate::mixer::Mixer::start(),
         last_listen: RefCell::new(None),
+        lastfm_pending: RefCell::new(None),
         stream_hits: RefCell::new(vinilo_core::streams::load_hits()),
         catalog_rest: RefCell::new(Vec::new()),
         stream_play_gen: std::cell::Cell::new(0),
@@ -842,6 +905,7 @@ fn clear_account_state(daemon: &Daemon) {
     vinilo_core::page_cache::clear();
     vinilo_core::discover::clear();
     vinilo_core::listen_history::clear();
+    vinilo_core::listen_stats::clear();
     vinilo_core::session::clear();
 
     daemon.publish(Event::Stage(Stage::SignedOut));
@@ -1512,6 +1576,12 @@ fn route_local_transport(daemon: &Rc<Daemon>, transport: Transport) {
                 }
                 daemon.model.borrow_mut().volume = volume;
             }
+            Transport::SetCrossfade { ms } => {
+                daemon.local.borrow_mut().set_crossfade_ms(ms);
+            }
+            Transport::SetVocalLevel { level } => {
+                daemon.local.borrow_mut().set_vocal_level(level);
+            }
             Transport::SetShuffle { shuffle } => {
                 daemon.model.borrow_mut().player.shuffle = shuffle;
             }
@@ -1557,6 +1627,12 @@ fn route_local_transport(daemon: &Rc<Daemon>, transport: Transport) {
             // still the paused sidecar, so driving it leaves the file loud.
             daemon.local.borrow_mut().set_volume(volume);
             daemon.model.borrow_mut().volume = volume;
+        }
+        Transport::SetCrossfade { ms } => {
+            daemon.local.borrow_mut().set_crossfade_ms(ms);
+        }
+        Transport::SetVocalLevel { level } => {
+            daemon.local.borrow_mut().set_vocal_level(level);
         }
         Transport::SetShuffle { shuffle } => {
             daemon.local.borrow_mut().set_shuffle(shuffle);
@@ -1616,6 +1692,12 @@ pub(crate) fn route_transport(daemon: &Rc<Daemon>, transport: Transport) {
             // at once so paused clients can step from the new value.
             daemon.model.borrow_mut().volume = volume;
             daemon.publish_snapshot();
+        }
+        Transport::SetCrossfade { ms } => {
+            daemon.local.borrow_mut().set_crossfade_ms(ms);
+        }
+        Transport::SetVocalLevel { level } => {
+            daemon.local.borrow_mut().set_vocal_level(level);
         }
         // Adopt a seek before MusicKit confirms it so the next position tick
         // cannot pull a client's slider back to the old position.
@@ -2855,54 +2937,112 @@ fn play_streams(daemon: &Rc<Daemon>, ids: Vec<String>, index: usize, start: Star
             return;
         }
         *daemon.catalog_rest.borrow_mut() = rest.clone();
-        let path = match fetch_stream_audio(&first, &dir).await {
-            Ok(path) => path,
-            Err(detail) => {
-                if daemon.stream_play_gen.get() == play_gen {
-                    daemon.publish(Event::Error { detail });
+        daemon.model.borrow_mut().player.shuffle = shuffled;
+        let played = if first.id.starts_with("yt:") {
+            match play_yt_stream(&daemon, &first, &dir, play_gen).await {
+                Ok(()) => true,
+                Err(detail) => {
+                    tracing::debug!(%detail, "yt url play missed; downloading");
+                    false
                 }
+            }
+        } else {
+            false
+        };
+        if !played {
+            let path = match fetch_stream_audio(&first, &dir).await {
+                Ok(path) => path,
+                Err(detail) => {
+                    if daemon.stream_play_gen.get() == play_gen {
+                        daemon.publish(Event::Error { detail });
+                    }
+                    return;
+                }
+            };
+            if daemon.stream_play_gen.get() != play_gen {
                 return;
             }
-        };
-        if daemon.stream_play_gen.get() != play_gen {
-            return;
-        }
-        if daemon.sidecar.borrow().is_some() {
-            daemon.send(Command::Pause);
-        }
-        stop_spotify(&daemon);
-        *daemon.art_for.borrow_mut() = None;
-        let volume = daemon.model.borrow().volume;
-        let repeat = daemon.model.borrow().player.repeat;
-        {
-            let mut local = daemon.local.borrow_mut();
-            local.set_volume(volume);
-            local.set_repeat(repeat);
-            local.set_shuffle(shuffled);
-        }
-        daemon.model.borrow_mut().player.shuffle = shuffled;
-        if let Err(detail) = daemon.local.borrow_mut().play_hits(vec![(path, first)], 0) {
-            daemon.publish(Event::Error { detail });
-            return;
+            if daemon.sidecar.borrow().is_some() {
+                daemon.send(Command::Pause);
+            }
+            stop_spotify(&daemon);
+            *daemon.art_for.borrow_mut() = None;
+            let volume = daemon.model.borrow().volume;
+            let repeat = daemon.model.borrow().player.repeat;
+            {
+                let mut local = daemon.local.borrow_mut();
+                local.set_volume(volume);
+                local.set_repeat(repeat);
+                local.set_shuffle(shuffled);
+            }
+            daemon.model.borrow_mut().player.shuffle = shuffled;
+            if let Err(detail) = daemon
+                .local
+                .borrow_mut()
+                .play_hits(vec![(path, first.clone())], 0)
+            {
+                daemon.publish(Event::Error { detail });
+                return;
+            }
         }
         publish_local(&daemon);
         if daemon.stream_play_gen.get() != play_gen {
             return;
         }
+        // Preload URLs for the next few yt tracks while we also fetch files.
+        let preload_ids: Vec<String> = rest.iter().take(4).map(|h| h.id.clone()).collect();
+        let http = vinilo_core::streams::http();
+        tokio::task::spawn_local(async move {
+            vinilo_core::ytmusic::preload_audio_urls(&http, &preload_ids).await;
+        });
         if let Some(hit) = next {
-            match fetch_stream_audio(&hit, &dir).await {
-                Ok(path) => {
-                    if daemon.stream_play_gen.get() != play_gen {
-                        return;
+            if hit.id.starts_with("yt:") {
+                let http = vinilo_core::streams::http();
+                match vinilo_core::ytmusic::resolve_audio_url(&http, &hit.id).await {
+                    Ok(stream) => {
+                        if daemon.stream_play_gen.get() != play_gen {
+                            return;
+                        }
+                        daemon
+                            .local
+                            .borrow_mut()
+                            .append_stream_hit(hit.clone(), stream);
+                        take_catalog(&daemon, &hit.id);
+                        if !rest.is_empty() && rest[0].id == hit.id {
+                            rest.remove(0);
+                        }
+                        publish_local(&daemon);
                     }
-                    daemon.local.borrow_mut().append_hit(path, hit.clone());
-                    take_catalog(&daemon, &hit.id);
-                    if !rest.is_empty() && rest[0].id == hit.id {
-                        rest.remove(0);
-                    }
-                    publish_local(&daemon);
+                    Err(_) => match fetch_stream_audio(&hit, &dir).await {
+                        Ok(path) => {
+                            if daemon.stream_play_gen.get() != play_gen {
+                                return;
+                            }
+                            daemon.local.borrow_mut().append_hit(path, hit.clone());
+                            take_catalog(&daemon, &hit.id);
+                            if !rest.is_empty() && rest[0].id == hit.id {
+                                rest.remove(0);
+                            }
+                            publish_local(&daemon);
+                        }
+                        Err(err) => tracing::warn!(%err, "skipping a catalogue track"),
+                    },
                 }
-                Err(err) => tracing::warn!(%err, "skipping a catalogue track"),
+            } else {
+                match fetch_stream_audio(&hit, &dir).await {
+                    Ok(path) => {
+                        if daemon.stream_play_gen.get() != play_gen {
+                            return;
+                        }
+                        daemon.local.borrow_mut().append_hit(path, hit.clone());
+                        take_catalog(&daemon, &hit.id);
+                        if !rest.is_empty() && rest[0].id == hit.id {
+                            rest.remove(0);
+                        }
+                        publish_local(&daemon);
+                    }
+                    Err(err) => tracing::warn!(%err, "skipping a catalogue track"),
+                }
             }
         }
         if daemon.stream_play_gen.get() != play_gen {
@@ -2911,6 +3051,45 @@ fn play_streams(daemon: &Rc<Daemon>, ids: Vec<String>, index: usize, start: Star
         prefetch_stream_hits(&daemon, dir, rest).await;
         publish_local(&daemon);
     });
+}
+
+async fn play_yt_stream(
+    daemon: &Rc<Daemon>,
+    hit: &vinilo_core::streams::StreamHit,
+    dir: &std::path::Path,
+    play_gen: u64,
+) -> Result<(), String> {
+    let http = vinilo_core::streams::http();
+    let stream = vinilo_core::ytmusic::resolve_audio_url(&http, &hit.id)
+        .await
+        .map_err(|err| err.to_string())?;
+    if daemon.stream_play_gen.get() != play_gen {
+        return Err("superseded".into());
+    }
+    if daemon.sidecar.borrow().is_some() {
+        daemon.send(Command::Pause);
+    }
+    stop_spotify(daemon);
+    *daemon.art_for.borrow_mut() = None;
+    daemon
+        .local
+        .borrow_mut()
+        .play_stream_hits(vec![(hit.clone(), stream.clone())], 0)?;
+    // Warm the disk cache without blocking playback.
+    let stem = hit
+        .id
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+        .collect::<String>();
+    let path = dir.join(format!("{stem}.{}", stream.ext));
+    if !path.exists() {
+        crate::url_play::cache_url_in_background(
+            stream.url.clone(),
+            stream.user_agent.to_owned(),
+            path,
+        );
+    }
+    Ok(())
 }
 
 async fn fetch_stream_audio(
@@ -3472,6 +3651,8 @@ fn command_for(transport: Transport) -> Option<Command> {
         Transport::Previous => Command::Previous,
         Transport::Seek { position_ms } => Command::Seek { position_ms },
         Transport::SetVolume { .. } => return None,
+        Transport::SetCrossfade { .. } => return None,
+        Transport::SetVocalLevel { .. } => return None,
         Transport::SetShuffle { shuffle } => Command::SetShuffle { shuffle },
         Transport::SetRepeat { mode } => Command::SetRepeat { mode },
     })
@@ -3508,6 +3689,7 @@ mod tests {
             local: RefCell::new(crate::local::Player::new()),
             spotify: RefCell::new(None),
             last_listen: RefCell::new(None),
+            lastfm_pending: RefCell::new(None),
             quitting: tokio::sync::Notify::new(),
             stream_hits: RefCell::new(HashMap::new()),
             catalog_rest: RefCell::new(Vec::new()),
@@ -3834,6 +4016,8 @@ mod tests {
             Transport::Previous,
             Transport::Seek { position_ms: 1 },
             Transport::SetVolume { volume: 0.5 },
+            Transport::SetCrossfade { ms: 2_000 },
+            Transport::SetVocalLevel { level: 0.0 },
             Transport::SetShuffle { shuffle: true },
             Transport::SetRepeat {
                 mode: vinilo_core::player::protocol::RepeatMode::All,
@@ -3847,7 +4031,12 @@ mod tests {
             let sent = command_for(verb);
             assert_eq!(
                 sent.is_none(),
-                matches!(verb, Transport::SetVolume { .. }),
+                matches!(
+                    verb,
+                    Transport::SetVolume { .. }
+                        | Transport::SetCrossfade { .. }
+                        | Transport::SetVocalLevel { .. }
+                ),
                 "{verb:?} mapped to {sent:?}"
             );
         }

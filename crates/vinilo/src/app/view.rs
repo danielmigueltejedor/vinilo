@@ -31,6 +31,7 @@ pub enum View {
     Albums,
     Artists,
     Playlists,
+    Stats,
 }
 
 /// One sidebar row: which section, its icon, and what it is called.
@@ -95,7 +96,7 @@ impl View {
     ///
     /// The label is not [`View::title`]: the row says "Search" under a heading
     /// that says "Apple Music", and the narrow header has no heading to lean on.
-    pub(super) const SIDEBAR: [Row; 6] = [
+    pub(super) const SIDEBAR: [Row; 7] = [
         Row {
             view: Self::Discover,
             icon: "starred-symbolic",
@@ -129,6 +130,10 @@ impl View {
             // below it are the rest of that group. On its own the row would
             // read as a section; in place it reads as "all of them".
         },
+        Row {
+            view: Self::Stats,
+            icon: "preferences-system-time-symbolic",
+        },
     ];
 
     pub(super) fn sidebar_label(self) -> &'static str {
@@ -139,6 +144,7 @@ impl View {
             Self::Songs => Key::Songs,
             Self::Albums => Key::Albums,
             Self::Artists => Key::Artists,
+            Self::Stats => Key::Stats,
             Self::Playlists => Key::All,
         })
     }
@@ -164,6 +170,7 @@ impl View {
             Self::Albums => Key::Albums,
             Self::Artists => Key::Artists,
             Self::Playlists => Key::Playlists,
+            Self::Stats => Key::Stats,
         })
     }
 }
@@ -177,6 +184,7 @@ impl From<Section> for View {
             Section::Artists => Self::Artists,
             Section::Playlists => Self::Playlists,
             Section::Catalog => Self::Search,
+            Section::Stats => Self::Stats,
         }
     }
 }
@@ -190,6 +198,7 @@ impl From<View> for Section {
             View::Artists => Self::Artists,
             View::Playlists => Self::Playlists,
             View::Search => Self::Catalog,
+            View::Stats => Self::Stats,
         }
     }
 }
@@ -290,7 +299,9 @@ impl View {
             Self::Albums => vinilo_core::ipc::View::Albums,
             Self::Artists => vinilo_core::ipc::View::Artists,
             Self::Playlists => vinilo_core::ipc::View::Playlists,
-            Self::Songs | Self::Search | Self::Discover => vinilo_core::ipc::View::Songs,
+            Self::Songs | Self::Search | Self::Discover | Self::Stats => {
+                vinilo_core::ipc::View::Songs
+            }
         }
     }
 }
@@ -337,6 +348,7 @@ impl AppModel {
                 self.built_rows = None;
                 self.rebuild_rows();
             }
+            View::Stats => {}
         }
     }
 }
@@ -378,6 +390,7 @@ impl Sorts {
             View::Albums => self.albums,
             View::Artists => self.artists,
             View::Playlists => self.playlists,
+            View::Stats => self.playlists,
             View::Songs | View::Search | View::Discover => self.songs,
         }
     }
@@ -387,6 +400,7 @@ impl Sorts {
             View::Albums => &mut self.albums,
             View::Artists => &mut self.artists,
             View::Playlists => &mut self.playlists,
+            View::Stats => &mut self.playlists,
             View::Songs | View::Search | View::Discover => &mut self.songs,
         };
         *slot = sort;

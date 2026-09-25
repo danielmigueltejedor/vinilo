@@ -214,10 +214,10 @@ pub(super) fn show_about(parent: &adw::ApplicationWindow) {
         .version(env!("CARGO_PKG_VERSION"))
         .release_notes_version(env!("CARGO_PKG_VERSION"))
         .release_notes(
-            "<p>Vinilo 1.0.1</p><ul>\
-             <li>Language follows the system by default; English and Spanish stay in Preferences.</li>\
-             <li>Spotify no longer shows as Beta.</li>\
-             <li>Music source preference no longer warns that changing it restarts the player.</li>\
+            "<p>Vinilo 1.1.0</p><ul>\
+             <li>YouTube Music starts playing from the stream URL instead of waiting for a full download.</li>\
+             <li>Crossfade between catalogue tracks, adjustable in Preferences.</li>\
+             <li>Listening stats in the sidebar, optional Last.fm scrobbling, and karaoke with a voice level on catalogue tracks.</li>\
              </ul>",
         )
         .license_type(gtk::License::Gpl30)
@@ -674,9 +674,117 @@ impl AppModel {
         }
         notifications.add(&notify);
 
+        let playback = adw::PreferencesGroup::builder()
+            .title(t(Key::Playback))
+            .build();
+        let crossfade = adw::SpinRow::with_range(0.0, 12.0, 0.5);
+        crossfade.set_title(t(Key::Crossfade));
+        crossfade.set_subtitle(t(Key::CrossfadeSub));
+        crossfade.set_value(f64::from(self.settings.crossfade_ms) / 1000.0);
+        {
+            let sender = sender.clone();
+            crossfade.connect_value_notify(move |row| {
+                let ms = (row.value() * 1000.0).round().clamp(0.0, 12_000.0) as u32;
+                sender.input(AppMsg::SetCrossfadeMs(ms));
+            });
+        }
+        playback.add(&crossfade);
+
+        let lastfm_cfg = vinilo_core::lastfm::load();
+        let lastfm = adw::PreferencesGroup::builder()
+            .title(t(Key::LastFm))
+            .description(t(Key::LastFmSub))
+            .build();
+        let lastfm_on = adw::SwitchRow::builder()
+            .title(t(Key::LastFm))
+            .active(lastfm_cfg.enabled && !lastfm_cfg.session_key.is_empty())
+            .sensitive(!lastfm_cfg.session_key.is_empty())
+            .build();
+        {
+            let sender = sender.clone();
+            lastfm_on.connect_active_notify(move |row| {
+                sender.input(AppMsg::LastFmSetEnabled(row.is_active()));
+            });
+        }
+        lastfm.add(&lastfm_on);
+
+        let api_key = adw::EntryRow::builder()
+            .title(t(Key::LastFmApiKey))
+            .text(&lastfm_cfg.api_key)
+            .build();
+        {
+            let sender = sender.clone();
+            api_key.connect_changed(move |row| {
+                sender.input(AppMsg::LastFmSetApiKey(row.text().to_string()));
+            });
+        }
+        lastfm.add(&api_key);
+
+        let api_secret = adw::PasswordEntryRow::builder()
+            .title(t(Key::LastFmSecret))
+            .text(&lastfm_cfg.api_secret)
+            .build();
+        {
+            let sender = sender.clone();
+            api_secret.connect_changed(move |row| {
+                sender.input(AppMsg::LastFmSetApiSecret(row.text().to_string()));
+            });
+        }
+        lastfm.add(&api_secret);
+
+        if !lastfm_cfg.session_key.is_empty() {
+            let connected_title = t(Key::LastFmConnected).replace(
+                "{}",
+                if lastfm_cfg.username.is_empty() {
+                    "Last.fm"
+                } else {
+                    &lastfm_cfg.username
+                },
+            );
+            let status = adw::ActionRow::builder()
+                .title(connected_title.as_str())
+                .build();
+            let disconnect = gtk::Button::builder()
+                .label(t(Key::LastFmDisconnect))
+                .valign(gtk::Align::Center)
+                .css_classes(["destructive-action"])
+                .build();
+            {
+                let sender = sender.clone();
+                disconnect.connect_clicked(move |_| {
+                    sender.input(AppMsg::LastFmDisconnect);
+                });
+            }
+            status.add_suffix(&disconnect);
+            lastfm.add(&status);
+        } else {
+            let connect = adw::ButtonRow::builder()
+                .title(t(Key::LastFmConnect))
+                .build();
+            {
+                let sender = sender.clone();
+                connect.connect_activated(move |_| {
+                    sender.input(AppMsg::LastFmConnect);
+                });
+            }
+            lastfm.add(&connect);
+            let finish = adw::ButtonRow::builder()
+                .title(t(Key::LastFmFinish))
+                .build();
+            {
+                let sender = sender.clone();
+                finish.connect_activated(move |_| {
+                    sender.input(AppMsg::LastFmFinishAuth);
+                });
+            }
+            lastfm.add(&finish);
+        }
+
         page.add(&language);
         page.add(&source);
         page.add(&appearance);
+        page.add(&playback);
+        page.add(&lastfm);
         page.add(&notifications);
         dialog.add(&page);
         dialog.present(Some(parent));

@@ -59,6 +59,7 @@ impl AppModel {
             View::Albums => !self.albums.is_empty() || self.loading_albums,
             View::Artists => !self.artists.is_empty() || self.loading_artists,
             View::Playlists => !self.playlists.is_empty() || self.loading_playlists,
+            View::Stats => true,
             View::Discover => !self.discover.is_empty() || self.loading_discover,
             View::Songs | View::Search => !self.all_tracks.is_empty() || self.loading_library,
         }
@@ -90,6 +91,7 @@ impl AppModel {
             View::Artists => self.loading_artists,
             View::Playlists => self.loading_playlists,
             View::Discover => self.loading_discover,
+            View::Stats => false,
             View::Songs | View::Search => self.loading_library,
         }
     }
@@ -127,6 +129,7 @@ impl AppModel {
             View::Albums => i18n::t(Key::LoadingAlbums).into(),
             View::Artists => i18n::t(Key::LoadingArtists).into(),
             View::Playlists => i18n::t(Key::LoadingPlaylists).into(),
+            View::Stats => i18n::t(Key::Stats).into(),
             View::Songs => i18n::t(Key::LoadingLibrary).into(),
         }
     }
@@ -204,6 +207,7 @@ impl AppModel {
                     "playlists"
                 }
             }
+            View::Stats => "stats",
             View::Search => {
                 if self.searching_catalog && self.catalog.is_empty() {
                     "loading"
