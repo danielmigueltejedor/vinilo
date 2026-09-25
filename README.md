@@ -10,7 +10,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
   <p><strong>A native GNOME music player for Linux.</strong></p>
 
   <p>
-    <img src="https://img.shields.io/badge/version-1.1.0-4a86cf" alt="Version 1.1.0">
+    <img src="https://img.shields.io/badge/version-1.1.1--dev-4a86cf" alt="Version 1.1.1-dev">
     <img src="https://img.shields.io/badge/platform-Linux%20x86__64-fcc624?logo=linux&logoColor=black" alt="Linux x86_64">
     <img src="https://img.shields.io/badge/GTK4%20%2F%20libadwaita-4a86cf" alt="GTK4 and libadwaita">
     <img src="https://img.shields.io/badge/Rust-dea584?logo=rust&logoColor=black" alt="Written in Rust">
@@ -274,7 +274,7 @@ tag is unsupported.
 
 - Use [GitHub Issues](https://github.com/danielmigueltejedor/vinilo/issues) for
   reproducible bugs and focused feature requests.
-- Include the Vinilo version (`1.1.0`), distribution, GTK/libadwaita versions
+- Include the Vinilo version (`1.1.1-dev`), distribution, GTK/libadwaita versions
   and the source (Apple Music, local, Spotify, YouTube Music or Tidal).
 - Never paste tokens, cookies, `settings.ini` or `lastfm.json` into an issue.
 
