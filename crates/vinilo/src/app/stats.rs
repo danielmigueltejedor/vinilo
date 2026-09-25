@@ -3,7 +3,6 @@
 
 //! Listening stats page: totals and top tracks from the local cache.
 
-use gtk::prelude::*;
 use relm4::adw;
 use relm4::adw::prelude::*;
 use relm4::gtk;

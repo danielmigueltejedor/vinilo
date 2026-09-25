@@ -2316,9 +2316,9 @@ impl AppModel {
             AppMsg::SetCrossfadeMs(ms) => {
                 self.settings.crossfade_ms = ms.min(12_000);
                 self.settings.save();
-                self.send(Request::Transport(Transport::SetCrossfade {
+                self.transport(Transport::SetCrossfade {
                     ms: u64::from(self.settings.crossfade_ms),
-                }));
+                });
             }
             AppMsg::LastFmSetEnabled(on) => {
                 let mut cfg = vinilo_core::lastfm::load();

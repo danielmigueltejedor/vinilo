@@ -205,9 +205,9 @@ impl AppModel {
                 self.stage = match stage {
                     DaemonStage::Connecting => Stage::Connecting,
                     DaemonStage::Ready => {
-                        self.send(Request::Transport(Transport::SetCrossfade {
+                        self.transport(Transport::SetCrossfade {
                             ms: u64::from(self.settings.crossfade_ms),
-                        }));
+                        });
                         Stage::Ready
                     }
                     DaemonStage::SignedOut => Stage::SignedOut,
