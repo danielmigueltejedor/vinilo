@@ -30,6 +30,15 @@ pub(crate) const CHROME: &str = r#"
     border-radius: var(--nodalix-radius-row);
     margin: 2px 4px;
     min-height: 38px;
+    transition: background-color 160ms ease-out;
+}
+
+/* The whole tile lifts. Scaling the cover alone clips inside its radius. */
+.tile {
+    transition: transform 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.tile:hover {
+    transform: translateY(-3px);
 }
 
 .nodalix-cover,

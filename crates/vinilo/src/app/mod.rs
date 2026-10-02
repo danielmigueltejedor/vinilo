@@ -1030,6 +1030,8 @@ impl Component for AppModel {
                                         set_title_widget = &gtk::Stack {
                                             set_hhomogeneous: false,
                                             set_hexpand: true,
+                                            set_transition_type: gtk::StackTransitionType::Crossfade,
+                                            set_transition_duration: 180,
 
                                             add_named[Some("title")] = &adw::WindowTitle {
                                                 #[watch]
@@ -1127,6 +1129,8 @@ impl Component for AppModel {
                                         // the narrower spinner re-centre the
                                         // header's search entry.
                                         pack_end = &gtk::Stack {
+                                            set_transition_type: gtk::StackTransitionType::Crossfade,
+                                            set_transition_duration: 140,
                                             // Children first. `view!` assigns in
                                             // the order written, so naming a
                                             // child above the `add_named` that
@@ -1227,6 +1231,8 @@ impl Component for AppModel {
 
                                     #[wrap(Some)]
                                     set_content = &gtk::Stack {
+                                        set_transition_type: gtk::StackTransitionType::Crossfade,
+                                        set_transition_duration: 200,
                                         add_named[Some("status")] = &adw::StatusPage {
                                             #[watch]
                                             set_icon_name: Some(model.icon()),

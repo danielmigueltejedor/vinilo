@@ -296,6 +296,7 @@ impl RelmGridItem for GridItem {
                 set_spacing: 6,
                 set_margin_all: 6,
                 set_width_request: TILE_PX,
+                add_css_class: "tile",
 
                 // `halign: Fill` — the default — is load-bearing, and centring
                 // is done with `xalign` instead. A centred label is allocated
