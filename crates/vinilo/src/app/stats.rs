@@ -7,7 +7,6 @@ use relm4::adw;
 use relm4::adw::prelude::*;
 use relm4::gtk;
 use relm4::gtk::gdk::Texture;
-use relm4::gtk::gdk_pixbuf::Pixbuf;
 use vinilo_core::i18n::{self, Key};
 use vinilo_core::listen_stats::{self, TrackStat};
 
@@ -66,7 +65,7 @@ pub fn refresh(root: &gtk::Box) {
 
     // Cover strip for the top handful — the visual weight issue #5 asked for.
     let covers = top.iter().take(8).collect::<Vec<_>>();
-    if covers.iter().any(|t| load_cover(t, 120).is_some()) {
+    if covers.iter().any(|t| load_cover(t).is_some()) {
         let heading = gtk::Label::builder()
             .label(i18n::t(Key::StatsTopTracks))
             .css_classes(["title-2"])
@@ -93,10 +92,13 @@ pub fn refresh(root: &gtk::Box) {
                 .build();
             let image = gtk::Image::builder()
                 .pixel_size(120)
+                .width_request(120)
+                .height_request(120)
+                .overflow(gtk::Overflow::Hidden)
                 .icon_name("audio-x-generic-symbolic")
-                .css_classes(["stats-cover"])
+                .css_classes(["nodalix-cover", "stats-cover"])
                 .build();
-            if let Some(texture) = load_cover(track, 120) {
+            if let Some(texture) = load_cover(track) {
                 image.set_paintable(Some(&texture));
             }
             tile.append(&image);
@@ -157,11 +159,14 @@ pub fn refresh(root: &gtk::Box) {
             .build();
 
         let cover = gtk::Image::builder()
-            .pixel_size(64)
+            .pixel_size(48)
+            .width_request(48)
+            .height_request(48)
+            .overflow(gtk::Overflow::Hidden)
             .icon_name("audio-x-generic-symbolic")
-            .css_classes(["stats-cover"])
+            .css_classes(["nodalix-cover", "stats-cover"])
             .build();
-        if let Some(texture) = load_cover(track, 64) {
+        if let Some(texture) = load_cover(track) {
             cover.set_paintable(Some(&texture));
         }
         row.add_prefix(&cover);
@@ -204,12 +209,13 @@ pub fn refresh(root: &gtk::Box) {
     root.append(&list);
 }
 
-fn load_cover(track: &TrackStat, size: i32) -> Option<Texture> {
+fn load_cover(track: &TrackStat) -> Option<Texture> {
     let url = track.artwork.as_deref()?;
     let path = url.strip_prefix("file://").unwrap_or(url);
     if !path.starts_with('/') {
         return None;
     }
-    let pixbuf = Pixbuf::from_file_at_scale(path, size, size, true).ok()?;
-    Some(Texture::for_pixbuf(&pixbuf))
+    // `from_filename` scales through the image's pixel size. `for_pixbuf`
+    // has been deprecated since GTK 4.20, and that is an error under clippy.
+    Texture::from_filename(path).ok()
 }
