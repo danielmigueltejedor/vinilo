@@ -82,6 +82,8 @@ pub struct Snapshot {
     /// unreachable, it just stops being reachable from a strip with no room
     /// for it.
     pub narrow: bool,
+    /// Karaoke voice control. False for Apple Music, which never hands us samples.
+    pub voice: bool,
 }
 
 impl Default for Snapshot {
@@ -107,6 +109,7 @@ impl Default for Snapshot {
             queue_open: false,
             repeat: RepeatMode::default(),
             volume: 1.0,
+            voice: false,
         }
     }
 }

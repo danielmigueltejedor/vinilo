@@ -131,6 +131,7 @@ impl AppModel {
             // paused by design, and greying the transport out would mean you
             // could not press play on it.
             active: item.is_some(),
+            voice: self.settings.provider != vinilo_core::provider::Provider::AppleMusic,
         };
         // Both shapes of the same player get the same snapshot. Deriving the
         // drawer's state separately is how two views of one thing come to

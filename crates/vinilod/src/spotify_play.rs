@@ -162,12 +162,18 @@ pub struct Engine {
     ended: Arc<AtomicBool>,
     active: bool,
     gain: Gain,
+    vocal: crate::vocal::VocalGain,
     repeat: RepeatMode,
 }
 
 impl Engine {
     /// Restore or open OAuth, then start the first track.
-    pub async fn start(queue: Vec<StreamHit>, index: usize, volume: f64) -> Result<Self> {
+    pub async fn start(
+        queue: Vec<StreamHit>,
+        index: usize,
+        volume: f64,
+        vocal: f64,
+    ) -> Result<Self> {
         if queue.is_empty() {
             bail!("empty Spotify queue");
         }
@@ -188,9 +194,11 @@ impl Engine {
             position_update_interval: Some(Duration::from_millis(500)),
             ..Default::default()
         };
+        let vocal = crate::vocal::VocalGain::new(vocal as f32);
         let sink_gain = gain.clone();
+        let sink_vocal = vocal.clone();
         let player = Player::new(player_config, session, Box::new(NoOpVolume), move || {
-            RodioBackend::boxed(sink_gain.clone())
+            RodioBackend::boxed(sink_gain.clone(), sink_vocal.clone())
         });
         let events = player.get_player_event_channel();
         let index = index.min(queue.len().saturating_sub(1));
@@ -204,6 +212,7 @@ impl Engine {
             ended,
             active: true,
             gain,
+            vocal,
             repeat: RepeatMode::None,
         };
         engine.load_current(true)?;
@@ -259,6 +268,10 @@ impl Engine {
 
     pub fn set_volume(&mut self, volume: f64) {
         self.gain.set(volume);
+    }
+
+    pub fn set_vocal_level(&mut self, level: f64) {
+        self.vocal.set(level as f32);
     }
 
     pub fn repeat(&self) -> RepeatMode {
@@ -422,10 +435,11 @@ struct RodioBackend {
     _stream: OutputStream,
     sink: RodioSink,
     gain: Gain,
+    vocal: crate::vocal::VocalGain,
 }
 
 impl RodioBackend {
-    fn open(gain: Gain) -> Result<Self, SinkError> {
+    fn open(gain: Gain, vocal: crate::vocal::VocalGain) -> Result<Self, SinkError> {
         unsafe {
             std::env::set_var("PULSE_PROP_application.name", "Vinilo");
             std::env::set_var("PULSE_PROP_application.icon_name", vinilo_core::APP_ID);
@@ -441,11 +455,12 @@ impl RodioBackend {
             _stream: stream,
             sink,
             gain,
+            vocal,
         })
     }
 
-    fn boxed(gain: Gain) -> Box<dyn Sink> {
-        match Self::open(gain) {
+    fn boxed(gain: Gain, vocal: crate::vocal::VocalGain) -> Box<dyn Sink> {
+        match Self::open(gain, vocal) {
             Ok(sink) => Box::new(sink),
             Err(err) => {
                 tracing::error!(%err, "spotify: cannot open audio output");
@@ -472,7 +487,8 @@ impl Sink for RodioBackend {
         let samples = packet
             .samples()
             .map_err(|err| SinkError::OnWrite(err.to_string()))?;
-        let samples = converter.f64_to_f32(samples);
+        let mut samples = converter.f64_to_f32(samples);
+        crate::vocal::apply_interleaved(samples.as_mut(), self.vocal.get());
         self.sink.append(rodio::buffer::SamplesBuffer::new(
             NUM_CHANNELS as u16,
             SAMPLE_RATE,

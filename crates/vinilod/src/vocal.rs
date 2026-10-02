@@ -1,11 +1,12 @@
 // SPDX-FileCopyrightText: 2026 Daniel Miguel Tejedor
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Mid/side vocal attenuation for karaoke on catalogue / local PCM.
+//! Vocal attenuation for karaoke on catalogue / local PCM.
 //!
-//! Vocals usually sit in the stereo centre. Attenuating the mid channel
-//! leaves the sides (instrumental-ish). Not perfect — and useless for
-//! MusicKit, which never hands us samples — but enough to sing over.
+//! Centre-panned vocals cancel when left and right are subtracted. The
+//! slider crossfades between that instrumental and the original mix. Not
+//! stem separation — and useless for MusicKit, which never hands us
+//! samples — but loud enough to sing over on stereo catalogue audio.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -34,7 +35,7 @@ impl VocalGain {
     }
 }
 
-/// Wrap a stereo source and attenuate the mid (L+R) by [`VocalGain`].
+/// Wrap a stereo source and blend the original with an L−R instrumental.
 pub struct MidSide<S> {
     inner: S,
     gain: VocalGain,
@@ -63,19 +64,7 @@ where
         }
         let left = self.inner.next()?;
         let right = self.inner.next().unwrap_or(left);
-        let g = self.gain.get();
-        if (g - 1.0).abs() < 0.001 {
-            self.pending_right = Some(right);
-            return Some(left);
-        }
-        // mid = centre (vocals), side = difference (stereo instruments).
-        // Boost the sides as the mid drops so the instrumental stays present
-        // while centre-panned vocals disappear.
-        let mid = (left + right) * 0.5;
-        let side = (left - right) * 0.5;
-        let side_boost = 1.0 + (1.0 - g) * 1.25;
-        let out_l = (side * side_boost + mid * g).clamp(-1.0, 1.0);
-        let out_r = (-side * side_boost + mid * g).clamp(-1.0, 1.0);
+        let (out_l, out_r) = blend(left, right, self.gain.get());
         self.pending_right = Some(out_r);
         Some(out_l)
     }
@@ -102,7 +91,35 @@ where
     }
 }
 
-/// Apply mid/side only when the source is stereo; mono passes through.
+/// Blend one stereo pair. `voice` is 0 (instrumental) … 1 (full mix).
+pub fn blend(left: f32, right: f32, voice: f32) -> (f32, f32) {
+    if voice >= 0.999 {
+        return (left, right);
+    }
+    // Power curve: the bottom half of the slider is strongly instrumental.
+    let voice = voice.powf(2.2);
+    let instrumental = 1.0 - voice;
+    let diff = left - right;
+    let out_l = (left * voice + diff * instrumental * 0.85).clamp(-1.0, 1.0);
+    let out_r = (right * voice + (-diff) * instrumental * 0.85).clamp(-1.0, 1.0);
+    (out_l, out_r)
+}
+
+/// In-place L−R blend for an interleaved stereo buffer (Spotify / librespot).
+pub fn apply_interleaved(samples: &mut [f32], voice: f32) {
+    if voice >= 0.999 {
+        return;
+    }
+    let mut i = 0;
+    while i + 1 < samples.len() {
+        let (l, r) = blend(samples[i], samples[i + 1], voice);
+        samples[i] = l;
+        samples[i + 1] = r;
+        i += 2;
+    }
+}
+
+/// Apply vocal blend only when the source is stereo; mono passes through.
 pub fn maybe_vocal<S>(source: S, gain: VocalGain) -> Box<dyn Source<Item = f32> + Send>
 where
     S: Source<Item = f32> + Send + 'static,
@@ -120,7 +137,6 @@ mod tests {
 
     #[test]
     fn zero_gain_cancels_identical_centre_vocals() {
-        // L=R=1 is pure mid; with g=0 both outs should be ~0.
         let samples = vec![1.0f32, 1.0, 0.5, 0.5];
         let gain = VocalGain::new(0.0);
         let mut filtered = MidSide {
@@ -137,6 +153,22 @@ mod tests {
     }
 
     #[test]
+    fn zero_gain_keeps_side_content() {
+        // Pure side: L=1, R=-1 → L−R = 2.
+        let samples = vec![1.0f32, -1.0];
+        let gain = VocalGain::new(0.0);
+        let mut filtered = MidSide {
+            inner: samples.into_iter(),
+            gain,
+            pending_right: None,
+        };
+        let l = filtered.next().unwrap();
+        let r = filtered.next().unwrap();
+        assert!(l > 0.5, "instrumental left should stay audible, got {l}");
+        assert!(r < -0.5, "instrumental right should stay audible, got {r}");
+    }
+
+    #[test]
     fn full_gain_preserves_the_mix() {
         let samples = vec![0.8f32, -0.2];
         let gain = VocalGain::new(1.0);
@@ -147,5 +179,22 @@ mod tests {
         };
         assert!((filtered.next().unwrap() - 0.8).abs() < 1e-5);
         assert!((filtered.next().unwrap() - (-0.2)).abs() < 1e-5);
+    }
+
+    #[test]
+    fn mid_slider_reduces_centre_more_than_linear() {
+        let samples = vec![0.9f32, 0.9];
+        let gain = VocalGain::new(0.5);
+        let mut filtered = MidSide {
+            inner: samples.into_iter(),
+            gain,
+            pending_right: None,
+        };
+        let l = filtered.next().unwrap();
+        // At 0.5 linear mid would keep ~0.45; power 2.2 keeps ~0.9 * 0.5^2.2 ≈ 0.2.
+        assert!(
+            l < 0.35,
+            "halfway slider should heavily cut centre, got {l}"
+        );
     }
 }

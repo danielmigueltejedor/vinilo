@@ -289,11 +289,19 @@ pub async fn search_spotify(http: &reqwest::Client, query: &str) -> Result<Vec<S
 }
 
 pub async fn search_tidal(http: &reqwest::Client, query: &str) -> Result<Vec<StreamHit>> {
+    let (cookie, country) = crate::tidal::locale(http).await;
     let url = format!(
-        "https://listen.tidal.com/v1/search/top-hits?query={}&limit=20&offset=0&types=TRACKS&countryCode=US",
+        "https://listen.tidal.com/v1/search/top-hits?query={}&limit=20&offset=0&types=TRACKS&countryCode={country}",
         urlencoding(query)
     );
-    let res = http.get(url).send().await.context("tidal search")?;
+    let res = http
+        .get(url)
+        .header("Origin", "https://listen.tidal.com")
+        .header("Referer", "https://listen.tidal.com/")
+        .header("Cookie", cookie)
+        .send()
+        .await
+        .context("tidal search")?;
     if !res.status().is_success() {
         anyhow::bail!("Tidal search {}", res.status());
     }

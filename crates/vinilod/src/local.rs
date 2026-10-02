@@ -68,6 +68,9 @@ pub struct Player {
     ffmpeg: Option<crate::url_play::FfmpegGuard>,
     /// ffmpeg for the sink in [`Self::fading`], so URL streams survive the overlap.
     fading_ffmpeg: Option<crate::url_play::FfmpegGuard>,
+    /// Next URL opened off the tick thread so a crossfade does not wait on ffmpeg.
+    warm_job: Option<std::sync::mpsc::Receiver<Result<WarmStream, String>>>,
+    warm_ready: Option<WarmStream>,
     queue: Vec<Track>,
     index: usize,
     volume: f64,
@@ -91,6 +94,12 @@ struct CrossfadeAnim {
     target: f32,
 }
 
+struct WarmStream {
+    url: String,
+    pcm: crate::url_play::UrlPcm,
+    ffmpeg: crate::url_play::FfmpegGuard,
+}
+
 impl Player {
     pub fn new() -> Self {
         Self {
@@ -100,6 +109,8 @@ impl Player {
             fading: None,
             ffmpeg: None,
             fading_ffmpeg: None,
+            warm_job: None,
+            warm_ready: None,
             queue: Vec::new(),
             index: 0,
             volume: 1.0,
@@ -144,6 +155,8 @@ impl Player {
         }
         self.ffmpeg = None;
         self.fading_ffmpeg = None;
+        self.warm_job = None;
+        self.warm_ready = None;
         self.crossfade = None;
         self.active = false;
         self.queue.clear();
@@ -157,6 +170,45 @@ impl Player {
 
     pub fn set_vocal_level(&mut self, level: f64) {
         self.vocal_gain.set(level as f32);
+    }
+
+    pub fn vocal_level(&self) -> f64 {
+        f64::from(self.vocal_gain.get())
+    }
+
+    /// Player JSON often knows the length when browse did not — crossfade needs it.
+    pub fn set_current_duration_ms(&mut self, duration_ms: u64) {
+        if duration_ms == 0 {
+            return;
+        }
+        if let Some(track) = self.queue.get_mut(self.index) {
+            track.duration_ms = duration_ms;
+        }
+    }
+
+    /// Background hydrate for title/art after audio already started.
+    pub fn patch_current_meta(&mut self, hit: &StreamHit) {
+        let Some(track) = self.queue.get_mut(self.index) else {
+            return;
+        };
+        if track.catalog_id.as_deref() != Some(hit.id.as_str()) {
+            return;
+        }
+        if !hit.title.is_empty() && !hit.title_is_placeholder() {
+            track.title = hit.title.clone();
+        }
+        if !hit.artist.is_empty() {
+            track.artist = hit.artist.clone();
+        }
+        if !hit.album.is_empty() {
+            track.album = hit.album.clone();
+        }
+        if hit.duration_ms > 0 {
+            track.duration_ms = hit.duration_ms;
+        }
+        if hit.artwork.is_some() {
+            track.artwork_template = hit.artwork.clone();
+        }
     }
 
     /// Replace the queue with these paths and start at `index`.
@@ -209,6 +261,24 @@ impl Player {
         self.ensure_output()?;
         self.take_queue(queue, index)?;
         Ok(())
+    }
+
+    /// Play one catalogue hit from a URL the source already resolved.
+    pub fn play_remote(&mut self, hit: StreamHit, url: String, ua: &str) -> Result<(), String> {
+        let track = Track {
+            path: PathBuf::new(),
+            title: hit.title,
+            artist: hit.artist,
+            album: hit.album,
+            duration_ms: hit.duration_ms,
+            art_path: None,
+            catalog_id: Some(hit.id),
+            artwork_template: hit.artwork,
+            stream_url: Some(url),
+            stream_ua: Some(ua.to_owned()),
+        };
+        self.ensure_output()?;
+        self.take_queue(vec![track], 0)
     }
 
     pub fn append_stream_hit(
@@ -349,15 +419,97 @@ impl Player {
         if self.crossfade_ms == 0 || self.crossfade.is_some() || !self.is_playing() {
             return false;
         }
-        let dur = self.duration_ms();
-        let pos = self.position_ms();
-        if dur == 0 || dur <= self.crossfade_ms || pos + self.crossfade_ms < dur {
+        let has_next = self.index + 1 < self.queue.len()
+            || (matches!(self.repeat, RepeatMode::All) && self.queue.len() > 1);
+        if !has_next {
             return false;
         }
-        if self.index + 1 < self.queue.len() {
-            return true;
+        let dur = self.duration_ms();
+        if dur == 0 || dur <= self.crossfade_ms {
+            return false;
         }
-        matches!(self.repeat, RepeatMode::All) && self.queue.len() > 1
+        let next_url = self
+            .queue
+            .get(self.next_index())
+            .and_then(|t| t.stream_url.as_deref());
+        if let Some(url) = next_url {
+            // Wait until ffmpeg has already produced samples, or the overlap
+            // is spent opening the next stream.
+            let ready = self.warm_ready.as_ref().is_some_and(|w| w.url == url);
+            if !ready {
+                return false;
+            }
+        }
+        let pos = self.position_ms();
+        pos + self.crossfade_ms >= dur
+    }
+
+    /// Open the following URL stream before the fade window, off this thread.
+    pub fn poll_warm(&mut self) {
+        if let Some(rx) = self.warm_job.as_ref() {
+            match rx.try_recv() {
+                Ok(Ok(warm)) => {
+                    self.warm_ready = Some(warm);
+                    self.warm_job = None;
+                }
+                Ok(Err(err)) => {
+                    tracing::debug!(%err, "crossfade warm missed");
+                    self.warm_job = None;
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    self.warm_job = None;
+                }
+            }
+        }
+        if self.warm_job.is_some() || self.crossfade_ms == 0 || !self.is_playing() {
+            return;
+        }
+        let has_next = self.index + 1 < self.queue.len()
+            || (matches!(self.repeat, RepeatMode::All) && self.queue.len() > 1);
+        if !has_next {
+            return;
+        }
+        let Some(next) = self.queue.get(self.next_index()) else {
+            return;
+        };
+        let (Some(url), Some(ua)) = (next.stream_url.clone(), next.stream_ua.clone()) else {
+            return;
+        };
+        if self.warm_ready.as_ref().is_some_and(|w| w.url == url) {
+            return;
+        }
+        self.warm_ready = None;
+        let dur = self.duration_ms();
+        if dur == 0 {
+            return;
+        }
+        let lead = self.crossfade_ms.saturating_add(8_000);
+        if self.position_ms() + lead < dur {
+            return;
+        }
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::Builder::new()
+            .name("xfade-warm".into())
+            .spawn(move || {
+                let result =
+                    crate::url_play::open_url_source(&url, &ua).map(|(pcm, child)| WarmStream {
+                        url,
+                        pcm,
+                        ffmpeg: child.into(),
+                    });
+                let _ = tx.send(result);
+            })
+            .ok();
+        self.warm_job = Some(rx);
+    }
+
+    fn next_index(&self) -> usize {
+        if self.index + 1 < self.queue.len() {
+            self.index + 1
+        } else {
+            0
+        }
     }
 
     pub fn crossfade_active(&self) -> bool {
@@ -675,14 +827,24 @@ impl Player {
             .as_ref()
             .ok_or_else(|| "no audio output".to_string())?;
 
-        if let (Some(url), Some(ua)) = (track.stream_url.as_ref(), track.stream_ua.as_ref()) {
-            match crate::url_play::open_url_source(url, ua) {
+        if let (Some(url), Some(ua)) = (track.stream_url.clone(), track.stream_ua.clone()) {
+            let opened = if self.warm_ready.as_ref().is_some_and(|w| w.url == url) {
+                self.warm_ready.take().map(|w| (w.pcm, w.ffmpeg))
+            } else {
+                None
+            };
+            let opened = match opened {
+                Some(pair) => Ok(pair),
+                None => crate::url_play::open_url_source(&url, &ua)
+                    .map(|(pcm, child)| (pcm, child.into())),
+            };
+            match opened {
                 Ok((source, child)) => {
                     let sink = Sink::try_new(handle).map_err(|err| format!("audio sink: {err}"))?;
                     sink.set_volume(self.volume as f32);
                     sink.append(crate::vocal::maybe_vocal(source, self.vocal_gain.clone()));
                     sink.play();
-                    self.ffmpeg = Some(child.into());
+                    self.ffmpeg = Some(child);
                     self.sink = Some(sink);
                     return Ok(());
                 }
@@ -771,7 +933,7 @@ fn track_from_stream(hit: &StreamHit, stream: &vinilo_core::ytmusic::DirectStrea
         title: hit.title.clone(),
         artist: hit.artist.clone(),
         album: hit.album.clone(),
-        duration_ms: hit.duration_ms,
+        duration_ms: hit.duration_ms.max(stream.duration_ms),
         art_path: None,
         catalog_id: Some(hit.id.clone()),
         artwork_template: hit.artwork.clone(),

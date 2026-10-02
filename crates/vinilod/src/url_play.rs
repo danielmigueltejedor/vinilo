@@ -76,7 +76,7 @@ pub fn open_url_source(url: &str, user_agent: &str) -> Result<(UrlPcm, Child), S
     // Eight seconds is enough for a healthy googlevideo start; twelve was
     // padding that made a dead resolve feel like a hang.
     let first = rx
-        .recv_timeout(Duration::from_secs(8))
+        .recv_timeout(Duration::from_secs(4))
         .map_err(|_| "ffmpeg produced no audio".to_string())?;
     Ok((
         UrlPcm {

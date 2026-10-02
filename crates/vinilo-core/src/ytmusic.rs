@@ -739,6 +739,8 @@ pub struct DirectStream {
     pub ext: &'static str,
     pub user_agent: &'static str,
     pub client: &'static str,
+    /// From `videoDetails.lengthSeconds` on the same player response.
+    pub duration_ms: u64,
 }
 
 static URL_CACHE: Mutex<Option<std::collections::HashMap<String, (DirectStream, u64)>>> =
@@ -875,17 +877,17 @@ pub async fn download_audio(http: &reqwest::Client, id: &str, dir: &Path) -> Res
 }
 
 async fn direct_stream(http: &reqwest::Client, video: &str) -> Result<DirectStream> {
-    // ANDROID / IOS still sometimes hand back a plain googlevideo URL.
-    // WEB_REMIX last: it is the one that ciphers. A miss is not fatal —
-    // the daemon falls through to yt-dlp, which already knows nsig.
-    if let Some(stream) = take_player(
-        "ANDROID_MUSIC",
-        player_android_music(http, video).await,
-        ANDROID_MUSIC_UA,
-    ) {
+    // Race the two clients that most often hand back a plain googlevideo URL.
+    // Serial awaits stacked three extra RTTs onto every cold play.
+    let android_music = player_android_music(http, video);
+    let ios = player_ios(http, video);
+    tokio::pin!(android_music);
+    tokio::pin!(ios);
+    let (first, second) = tokio::join!(android_music, ios);
+    if let Some(stream) = take_player("ANDROID_MUSIC", first, ANDROID_MUSIC_UA) {
         return Ok(stream);
     }
-    if let Some(stream) = take_player("IOS", player_ios(http, video).await, IOS_UA) {
+    if let Some(stream) = take_player("IOS", second, IOS_UA) {
         return Ok(stream);
     }
     if let Some(stream) = take_player("ANDROID", player_android(http, video).await, ANDROID_UA) {
@@ -905,6 +907,17 @@ async fn direct_stream(http: &reqwest::Client, video: &str) -> Result<DirectStre
     )
     .await?;
     take_player("WEB_REMIX", Ok(value), USER_AGENT).context("player had only ciphered audio")
+}
+
+fn player_duration_ms(value: &Value) -> u64 {
+    value
+        .pointer("/videoDetails/lengthSeconds")
+        .and_then(|v| {
+            v.as_u64()
+                .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+        })
+        .unwrap_or(0)
+        .saturating_mul(1000)
 }
 
 fn take_player(
@@ -1150,6 +1163,7 @@ fn pick_direct_audio(
             ext,
             user_agent,
             client,
+            duration_ms: player_duration_ms(value),
         };
         let rank = audio_rank(mime, bitrate);
         if best.as_ref().is_none_or(|(b, _)| rank > *b) {
@@ -1280,13 +1294,14 @@ fn tracks_from_browse(value: &Value) -> Vec<Track> {
             .filter(|s| s != video && !crate::streams::title_is_raw_id(&id, s))
             .unwrap_or_default();
         let album = flex_column_text(node, 2).unwrap_or_default();
+        let duration_ms = fixed_column_duration_ms(node);
         let artwork = thumbnail(node).or_else(|| Some(crate::streams::youtube_thumb(video)));
         let hit = StreamHit {
             id: id.clone(),
             title,
             artist,
             album,
-            duration_ms: 0,
+            duration_ms,
             artwork,
             public_plays: None,
             play_query: format!("https://www.youtube.com/watch?v={video}"),
@@ -1648,6 +1663,42 @@ fn flex_column_text(value: &Value, index: usize) -> Option<String> {
         .map(str::to_owned)
 }
 
+/// Browse rows put `3:42` (or `1:03:42`) in a fixed column — needed for crossfade.
+fn fixed_column_duration_ms(value: &Value) -> u64 {
+    for index in 0..4 {
+        let Some(text) = value
+            .pointer(&format!(
+                "/fixedColumns/{index}/musicResponsiveListItemFixedColumnRenderer/text/runs/0/text"
+            ))
+            .and_then(Value::as_str)
+        else {
+            continue;
+        };
+        if let Some(ms) = parse_clock_ms(text) {
+            return ms;
+        }
+    }
+    0
+}
+
+fn parse_clock_ms(text: &str) -> Option<u64> {
+    let text = text.trim();
+    let parts: Vec<u64> = text
+        .split(':')
+        .map(|p| p.parse::<u64>().ok())
+        .collect::<Option<Vec<_>>>()?;
+    match parts.as_slice() {
+        [m, s] => Some(m.saturating_mul(60).saturating_add(*s).saturating_mul(1000)),
+        [h, m, s] => Some(
+            h.saturating_mul(3600)
+                .saturating_add(m.saturating_mul(60))
+                .saturating_add(*s)
+                .saturating_mul(1000),
+        ),
+        _ => None,
+    }
+}
+
 fn subtitle_text(value: &Value, index: usize) -> Option<String> {
     value
         .pointer(&format!("/subtitle/runs/{index}/text"))
@@ -1717,6 +1768,13 @@ mod tests {
         assert_eq!(video_id("yt:dQw4w9WgXcQ").unwrap(), "dQw4w9WgXcQ");
         assert!(video_id("sp:abc").is_err());
         assert!(video_id("yt:playlist:PLabc").is_err());
+    }
+
+    #[test]
+    fn clock_strings_become_milliseconds() {
+        assert_eq!(parse_clock_ms("3:42"), Some(222_000));
+        assert_eq!(parse_clock_ms("1:03:42"), Some(3_822_000));
+        assert_eq!(parse_clock_ms("bad"), None);
     }
 
     #[test]

@@ -194,10 +194,16 @@ impl Daemon {
         let Some(id) = item.catalog_id.clone().or_else(|| item.id.clone()) else {
             return;
         };
+        let art_file = model.art_path.clone();
+        // Artwork often lands after the first snapshot. Always upgrade the
+        // cover path even when this listen was already counted.
         if self.last_listen.borrow().as_deref() == Some(id.as_str()) {
+            drop(model);
+            if let Some(path) = art_file {
+                vinilo_core::listen_stats::set_artwork_file(&id, &path);
+            }
             return;
         }
-        let art_file = model.art_path.clone();
         let track = vinilo_core::music::types::Track {
             id: vinilo_core::music::types::TrackId(id.clone()),
             catalog_id: Some(id.clone()),
@@ -224,6 +230,13 @@ impl Daemon {
         vinilo_core::listen_stats::record_with_public(&track, heard, public_plays);
         if let Some(path) = art_file {
             vinilo_core::listen_stats::set_artwork_file(&id, &path);
+        } else if let Some(url) = track.artwork.as_ref().map(|a| a.url(300))
+            && url.starts_with("http")
+        {
+            let id = id.clone();
+            tokio::spawn(async move {
+                vinilo_core::listen_stats::cache_remote_cover(&id, &url).await;
+            });
         }
         self.sync_lastfm(&track);
         vinilo_core::listen_history::record(track);
@@ -442,6 +455,7 @@ pub async fn run() -> Result<()> {
             if local_active {
                 {
                     let mut local = ticking.local.borrow_mut();
+                    local.poll_warm();
                     local.tick_crossfade();
                     if local.should_begin_crossfade() {
                         let _ = local.next();
@@ -1602,6 +1616,9 @@ fn route_local_transport(daemon: &Rc<Daemon>, transport: Transport) {
             }
             Transport::SetVocalLevel { level } => {
                 daemon.local.borrow_mut().set_vocal_level(level);
+                if let Some(engine) = daemon.spotify.borrow_mut().as_mut() {
+                    engine.set_vocal_level(level);
+                }
             }
             Transport::SetShuffle { shuffle } => {
                 daemon.model.borrow_mut().player.shuffle = shuffle;
@@ -2919,7 +2936,8 @@ fn play_streams(daemon: &Rc<Daemon>, ids: Vec<String>, index: usize, start: Star
             daemon.local.borrow_mut().stop();
             stop_spotify(&daemon);
             let volume = daemon.model.borrow().volume;
-            match crate::spotify_play::Engine::start(queue, 0, volume).await {
+            let vocal = daemon.local.borrow().vocal_level();
+            match crate::spotify_play::Engine::start(queue, 0, volume, vocal).await {
                 Ok(mut engine) => {
                     engine.set_repeat(daemon.model.borrow().player.repeat);
                     *daemon.spotify.borrow_mut() = Some(engine);
@@ -2946,26 +2964,77 @@ fn play_streams(daemon: &Rc<Daemon>, ids: Vec<String>, index: usize, start: Star
             });
             return;
         };
-        // Start the first track before hydrating the rest — that was on the
-        // critical path and made every click wait on a second InnerTube round.
-        let first = hydrate_hit(&daemon, first).await;
-        if daemon.stream_play_gen.get() != play_gen {
-            return;
-        }
+        // Start audio from the id alone. Title/art hydrate was on the critical
+        // path and added a full InnerTube round before the first sample.
         *daemon.catalog_rest.borrow_mut() = rest.clone();
         daemon.model.borrow_mut().player.shuffle = shuffled;
+        let mut first = first;
         let played = if first.id.starts_with("yt:") {
             match play_yt_stream(&daemon, &first, &dir, play_gen).await {
-                Ok(()) => true,
+                Ok(stream_duration) => {
+                    if first.duration_ms == 0 && stream_duration > 0 {
+                        first.duration_ms = stream_duration;
+                        daemon
+                            .local
+                            .borrow_mut()
+                            .set_current_duration_ms(stream_duration);
+                    }
+                    true
+                }
                 Err(detail) => {
                     tracing::debug!(%detail, "yt url play missed; downloading");
+                    false
+                }
+            }
+        } else if first.id.starts_with("td:") {
+            let http = vinilo_core::streams::http();
+            match vinilo_core::tidal::stream_url(&http, &first.id).await {
+                Ok(url) => {
+                    if daemon.stream_play_gen.get() != play_gen {
+                        return;
+                    }
+                    if let Err(detail) =
+                        daemon
+                            .local
+                            .borrow_mut()
+                            .play_remote(first.clone(), url, "Mozilla/5.0")
+                    {
+                        tracing::debug!(%detail, "tidal url play missed");
+                        false
+                    } else {
+                        true
+                    }
+                }
+                Err(detail) => {
+                    tracing::debug!(%detail, "tidal playback info missed; downloading");
                     false
                 }
             }
         } else {
             false
         };
+        // Patch title/art in the background — never ahead of first audio.
+        {
+            let daemon = daemon.clone();
+            let id = first.id.clone();
+            tokio::task::spawn_local(async move {
+                let Some(hit) = peek_stream_hit(&daemon, &id) else {
+                    return;
+                };
+                let hydrated = hydrate_hit(&daemon, hit).await;
+                remember_hits(&daemon, vec![hydrated.clone()]);
+                daemon.local.borrow_mut().patch_current_meta(&hydrated);
+                if daemon.local.borrow().is_active() {
+                    publish_local(&daemon);
+                }
+            });
+        }
         if !played {
+            // Non-YT catalogue still needs a title before yt-dlp names the file.
+            first = hydrate_hit(&daemon, first).await;
+            if daemon.stream_play_gen.get() != play_gen {
+                return;
+            }
             let path = match fetch_stream_audio(&first, &dir).await {
                 Ok(path) => path,
                 Err(detail) => {
@@ -3082,11 +3151,12 @@ async fn play_yt_stream(
     hit: &vinilo_core::streams::StreamHit,
     dir: &std::path::Path,
     play_gen: u64,
-) -> Result<(), String> {
+) -> Result<u64, String> {
     let http = vinilo_core::streams::http();
     let stream = vinilo_core::ytmusic::resolve_audio_url(&http, &hit.id)
         .await
         .map_err(|err| err.to_string())?;
+    let duration_ms = stream.duration_ms.max(hit.duration_ms);
     if daemon.stream_play_gen.get() != play_gen {
         return Err("superseded".into());
     }
@@ -3095,6 +3165,10 @@ async fn play_yt_stream(
     }
     stop_spotify(daemon);
     *daemon.art_for.borrow_mut() = None;
+    let mut hit = hit.clone();
+    if hit.duration_ms == 0 {
+        hit.duration_ms = duration_ms;
+    }
     daemon
         .local
         .borrow_mut()
@@ -3113,7 +3187,7 @@ async fn play_yt_stream(
             path,
         );
     }
-    Ok(())
+    Ok(duration_ms)
 }
 
 async fn fetch_stream_audio(

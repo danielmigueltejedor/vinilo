@@ -340,7 +340,7 @@ impl PlayerView {
             bits.voice.set_value(self.vocal_level);
             bits.voice.unblock_signal(&bits.voice_handler);
         }
-        bits.voice.set_visible(self.karaoke);
+        bits.voice.set_visible(self.karaoke && self.snap.voice);
     }
 }
 
@@ -367,7 +367,6 @@ impl Bits {
 
     pub(super) fn set_karaoke(&self, on: bool) {
         self.karaoke.set_active(on);
-        self.voice.set_visible(on);
     }
 
     pub(super) fn set_vocal_level(&self, level: f64) {

@@ -214,11 +214,11 @@ pub(super) fn show_about(parent: &adw::ApplicationWindow) {
         .version(env!("CARGO_PKG_VERSION"))
         .release_notes_version(env!("CARGO_PKG_VERSION"))
         .release_notes(
-            "<p>Vinilo 1.1.1</p><ul>\
-             <li>Crossfade overlaps the next track with a real fade-in / fade-out.</li>\
-             <li>YouTube Music starts sooner; karaoke lyrics are large by default.</li>\
-             <li>Karaoke voice control attenuates centre vocals on catalogue / local PCM.</li>\
-             <li>Listening stats show artwork, source, and public play counts when available.</li>\
+            "<p>Vinilo 1.1.2</p><ul>\
+             <li>Karaoke voice control cancels the singer on catalogue, local, and Spotify audio.</li>\
+             <li>YouTube Music starts from the stream URL. Crossfade opens the next track ahead of time.</li>\
+             <li>Tidal loads the full library and plays a direct stream when the session provides one.</li>\
+             <li>Listening stats show covers, including ones fetched from the catalogue.</li>\
              </ul>",
         )
         .license_type(gtk::License::Gpl30)

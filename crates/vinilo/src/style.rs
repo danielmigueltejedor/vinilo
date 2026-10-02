@@ -384,10 +384,19 @@ fn set_colors(colors: Option<(&'static str, &'static str)>) {
          .lyrics-karaoke.lyrics-synced .lyric-line.lyric-near {{
              opacity: 0.40;
          }}
-         .lyrics-karaoke.lyrics-synced .lyric-line.lyric-current {{
-             opacity: 1;
-             transform: none;
-         }}
+        .lyrics-karaoke.lyrics-synced .lyric-line.lyric-current {{
+            opacity: 1;
+            transform: scale(1.06);
+            font-weight: 700;
+        }}
+        .tile-grid picture,
+        .tile-grid image {{
+            transition: transform 180ms ease-out;
+        }}
+        .tile-grid picture:hover,
+        .tile-grid image:hover {{
+            transform: scale(1.03);
+        }}
          {chrome}"
     );
 

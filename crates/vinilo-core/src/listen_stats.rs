@@ -131,6 +131,25 @@ pub fn format_count(n: u64) -> String {
     }
 }
 
+/// Human listen time: `2h 14m`, `45m`, `32s`.
+pub fn format_listen_ms(ms: u64) -> String {
+    let secs = ms / 1000;
+    let hours = secs / 3600;
+    let mins = (secs % 3600) / 60;
+    let rem = secs % 60;
+    if hours > 0 {
+        format!("{hours}h {mins}m")
+    } else if mins > 0 {
+        format!("{mins}m")
+    } else {
+        format!("{rem}s")
+    }
+}
+
+pub fn unique_track_count() -> usize {
+    load_file().tracks.len()
+}
+
 /// Record one listen. `heard_ms` is how long this play counted (track length
 /// when we only know the song changed).
 pub fn record(track: &Track, heard_ms: u64) {
@@ -211,6 +230,34 @@ pub fn set_artwork_file(id: &str, file: &std::path::Path) {
     save_file(&file_store);
 }
 
+/// Download a remote cover into the artwork cache and point the stat at it.
+pub async fn cache_remote_cover(id: &str, url: &str) {
+    if id.is_empty() || !url.starts_with("http") {
+        return;
+    }
+    let Some(dir) = crate::paths::artwork_dir() else {
+        return;
+    };
+    let _ = std::fs::create_dir_all(&dir);
+    let safe: String = id
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+        .collect();
+    let path = dir.join(format!("stat-{safe}.jpg"));
+    if !path.is_file() {
+        let Ok(bytes) = reqwest::Client::new().get(url).send().await else {
+            return;
+        };
+        let Ok(bytes) = bytes.bytes().await else {
+            return;
+        };
+        if bytes.len() < 32 || std::fs::write(&path, &bytes).is_err() {
+            return;
+        }
+    }
+    set_artwork_file(id, &path);
+}
+
 /// Attach a catalogue play/view count once a background hydrate finds one.
 pub fn set_public_plays(id: &str, plays: u64) {
     if id.is_empty() || plays == 0 {
@@ -286,5 +333,12 @@ mod tests {
         assert_eq!(format_count(12_400), "12.4K");
         assert_eq!(format_count(1_200_000), "1.2M");
         assert_eq!(format_count(2_100_000_000), "2.1B");
+    }
+
+    #[test]
+    fn listen_time_labels() {
+        assert_eq!(format_listen_ms(32_000), "32s");
+        assert_eq!(format_listen_ms(45 * 60_000), "45m");
+        assert_eq!(format_listen_ms(2 * 3_600_000 + 14 * 60_000), "2h 14m");
     }
 }
