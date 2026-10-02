@@ -219,6 +219,7 @@ pub(super) fn show_about(parent: &adw::ApplicationWindow) {
              <li>YouTube Music starts from the stream URL. Crossfade opens the next track ahead of time.</li>\
              <li>Tidal loads the full library and plays a direct stream when the session provides one.</li>\
              <li>Listening stats show covers, including ones fetched from the catalogue.</li>\
+             <li>Sections, search, and lyrics ease between states.</li>\
              </ul>",
         )
         .license_type(gtk::License::Gpl30)
