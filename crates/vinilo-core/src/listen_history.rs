@@ -6,6 +6,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::artwork::write_atomically;
 use crate::music::types::Track;
 
 const VERSION: u32 = 1;
@@ -40,7 +41,6 @@ pub fn load() -> Vec<Track> {
 /// song does not fill the shelf with itself.
 pub fn record(track: Track) {
     let Some(path) = path() else { return };
-    let Some(dir) = path.parent() else { return };
     let id = track
         .catalog_id
         .clone()
@@ -56,7 +56,7 @@ pub fn record(track: Track) {
     let Ok(json) = serde_json::to_string(&file) else {
         return;
     };
-    let _ = std::fs::create_dir_all(dir).and_then(|_| std::fs::write(path, json));
+    let _ = write_atomically(&path, json.as_bytes());
 }
 
 pub fn clear() {
