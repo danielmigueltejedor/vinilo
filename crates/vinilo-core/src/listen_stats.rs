@@ -6,6 +6,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+use crate::artwork::write_atomically;
 use crate::music::types::Track;
 
 const VERSION: u32 = 1;
@@ -69,13 +70,12 @@ fn save_file(file: &File) {
     let Some(path) = path() else {
         return;
     };
-    let Some(dir) = path.parent() else {
-        return;
-    };
     let Ok(json) = serde_json::to_string(file) else {
         return;
     };
-    let _ = std::fs::create_dir_all(dir).and_then(|_| std::fs::write(path, json));
+    // A torn write fails to parse, and the next save would persist that empty
+    // file over the real totals. Rename in the same directory is atomic.
+    let _ = write_atomically(&path, json.as_bytes());
 }
 
 fn now_secs() -> u64 {
@@ -101,34 +101,34 @@ fn source_label(id: &str) -> String {
 
 /// Compact public counts: 950, 12.4K, 1.2M, 2.1B.
 pub fn format_count(n: u64) -> String {
-    const K: f64 = 1_000.0;
-    const M: f64 = 1_000_000.0;
-    const B: f64 = 1_000_000_000.0;
-    let x = n as f64;
-    if x < K {
-        format!("{n}")
-    } else if x < M {
-        let v = x / K;
-        if v >= 100.0 {
-            format!("{v:.0}K")
-        } else {
-            format!("{v:.1}K")
-        }
-    } else if x < B {
-        let v = x / M;
-        if v >= 100.0 {
-            format!("{v:.0}M")
-        } else {
-            format!("{v:.1}M")
-        }
-    } else {
-        let v = x / B;
-        if v >= 100.0 {
-            format!("{v:.0}B")
-        } else {
-            format!("{v:.1}B")
+    const UNITS: [(f64, &str); 3] = [(1_000.0, "K"), (1_000_000.0, "M"), (1_000_000_000.0, "B")];
+    if n < 1_000 {
+        return format!("{n}");
+    }
+    // Branch on the rounded text. 999_950 is still under a million, but it
+    // prints as 1000K, and 99_950 prints as 100.0K.
+    for (div, suffix) in UNITS {
+        if let Some(text) = format_in_unit(n as f64 / div, suffix) {
+            return text;
         }
     }
+    format!("{:.0}B", n as f64 / UNITS[2].0)
+}
+
+/// `None` when rounding reaches 1000 of this unit, so the next one up is used.
+fn format_in_unit(v: f64, suffix: &str) -> Option<String> {
+    let whole = format!("{v:.0}");
+    if whole.parse::<u64>().is_ok_and(|n| n >= 1000) {
+        return None;
+    }
+    let tenths = format!("{v:.1}");
+    // "100.0" has already crossed into the no-decimal rule.
+    let body = if tenths.parse::<f64>().is_ok_and(|n| n >= 100.0) {
+        whole
+    } else {
+        tenths
+    };
+    Some(format!("{body}{suffix}"))
 }
 
 /// Human listen time: `2h 14m`, `45m`, `32s`.
@@ -333,6 +333,20 @@ mod tests {
         assert_eq!(format_count(12_400), "12.4K");
         assert_eq!(format_count(1_200_000), "1.2M");
         assert_eq!(format_count(2_100_000_000), "2.1B");
+    }
+
+    #[test]
+    fn compact_counts_round_into_the_next_unit() {
+        assert_eq!(format_count(10_000), "10.0K");
+        assert_eq!(format_count(99_949), "99.9K");
+        assert_eq!(format_count(99_950), "100K");
+        assert_eq!(format_count(100_000), "100K");
+        assert_eq!(format_count(999_499), "999K");
+        assert_eq!(format_count(999_500), "1.0M");
+        assert_eq!(format_count(999_950), "1.0M");
+        assert_eq!(format_count(99_950_000), "100M");
+        assert_eq!(format_count(999_950_000), "1.0B");
+        assert_eq!(format_count(99_950_000_000), "100B");
     }
 
     #[test]
