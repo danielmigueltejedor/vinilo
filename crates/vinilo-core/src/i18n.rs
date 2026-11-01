@@ -1050,6 +1050,23 @@ pub fn tracks_n(n: usize) -> String {
     }
 }
 
+pub fn plays_n(n: u64) -> String {
+    match current() {
+        Language::English => format!("{n} plays"),
+        Language::Spanish => format!("{n} reproducciones"),
+    }
+}
+
+/// Compact public count with a unit — `12.4K views` / `1.2M reproducciones`.
+pub fn public_count_label(compact: &str, youtube: bool) -> String {
+    match current() {
+        Language::English if youtube => format!("{compact} views"),
+        Language::English => format!("{compact} plays"),
+        Language::Spanish if youtube => format!("{compact} vistas"),
+        Language::Spanish => format!("{compact} reproducciones"),
+    }
+}
+
 pub fn catalog_search(provider: crate::provider::Provider) -> &'static str {
     t(match provider {
         crate::provider::Provider::Spotify => Key::SearchSpotify,

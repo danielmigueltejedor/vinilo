@@ -96,6 +96,7 @@ impl Cover {
             .transition_duration(SWAP_MS)
             .halign(gtk::Align::Center)
             .valign(gtk::Align::Center)
+            .css_classes(["nodalix-cover-frame"])
             .build();
         stack.add_named(&image, Some("image"));
         stack.add_named(&avatar, Some("avatar"));

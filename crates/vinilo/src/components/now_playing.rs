@@ -243,7 +243,7 @@ impl SimpleComponent for NowPlaying {
 
             gtk::Box {
                 set_orientation: gtk::Orientation::Horizontal,
-                set_spacing: 12,
+                set_spacing: 14,
                 // Padding, not margin — the spacing is in `.np-row`'s CSS.
                 //
                 // A margin sits *outside* the widget's background, so a 10px
@@ -267,6 +267,7 @@ impl SimpleComponent for NowPlaying {
                 set_transition_type: gtk::StackTransitionType::Crossfade,
                 set_transition_duration: SWAP_MS,
                 set_valign: gtk::Align::Center,
+                add_css_class: "nodalix-cover-frame",
 
                 #[name = "cover"]
                 add_named[Some("cover")] = &gtk::Image {

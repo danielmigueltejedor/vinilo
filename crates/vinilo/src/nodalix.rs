@@ -17,28 +17,56 @@ use relm4::gtk;
 /// reads them — one file, one look.
 pub(crate) const CHROME: &str = r#"
 :root {
-    --nodalix-radius: 16px;
-    --nodalix-radius-cover: 22%;
+    --nodalix-radius: 18px;
+    --nodalix-radius-cover: 18%;
     --nodalix-radius-row: 14px;
-    --nodalix-pad: 12px;
+    --nodalix-pad: 14px;
+    --nodalix-shadow: 0 10px 28px alpha(#000000, 0.28), 0 2px 6px alpha(#000000, 0.18);
+    --nodalix-shadow-soft: 0 4px 14px alpha(#000000, 0.18), 0 1px 3px alpha(#000000, 0.12);
+    --nodalix-shadow-hover: 0 16px 36px alpha(#000000, 0.34), 0 4px 10px alpha(#000000, 0.20);
 }
 
 .nodalix .navigation-sidebar {
-    padding: 6px 8px 12px;
+    padding: 8px 10px 14px;
 }
 .nodalix .navigation-sidebar > row {
     border-radius: var(--nodalix-radius-row);
     margin: 2px 4px;
-    min-height: 38px;
+    min-height: 40px;
     transition: background-color 160ms ease-out;
+}
+.nodalix .navigation-sidebar > row:hover {
+    background-color: alpha(@window_fg_color, 0.06);
+}
+.nodalix .navigation-sidebar > row:selected {
+    background-color: alpha(@accent_bg_color, 0.16);
+    color: @window_fg_color;
+}
+.nodalix .navigation-sidebar > row:selected:hover {
+    background-color: alpha(@accent_bg_color, 0.22);
 }
 
 /* The whole tile lifts. Scaling the cover alone clips inside its radius. */
 .tile {
-    transition: transform 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
+    transition: transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 .tile:hover {
-    transform: translateY(-3px);
+    transform: translateY(-4px);
+}
+.tile:hover .nodalix-cover-frame {
+    box-shadow: var(--nodalix-shadow-hover);
+}
+
+/* Shadow lives on the frame, not the clipped image — overflow:hidden on the
+   picture would eat a box-shadow painted on the same widget. */
+.nodalix-cover-frame {
+    border-radius: var(--nodalix-radius-cover);
+    box-shadow: var(--nodalix-shadow);
+    transition: box-shadow 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.np-bar .nodalix-cover-frame,
+.stats-cover-frame {
+    box-shadow: var(--nodalix-shadow-soft);
 }
 
 .nodalix-cover,
@@ -50,31 +78,57 @@ pub(crate) const CHROME: &str = r#"
     border-radius: 0;
 }
 .nodalix .np-row {
-    padding: 12px 14px;
+    padding: 12px 16px;
 }
 .nodalix .np-row button.suggested-action {
-    min-width: 36px;
-    min-height: 36px;
+    min-width: 40px;
+    min-height: 40px;
+    box-shadow: 0 4px 14px alpha(@accent_bg_color, 0.38);
+}
+.nodalix .np-sheet button.suggested-action.circular {
+    box-shadow: 0 8px 24px alpha(@accent_bg_color, 0.42);
+}
+.nodalix button.page-play {
+    min-width: 128px;
+    min-height: 40px;
+    box-shadow: 0 6px 18px alpha(@accent_bg_color, 0.36);
 }
 
 .nodalix .heading {
     letter-spacing: -0.02em;
 }
+.nodalix .title-1,
+.nodalix .title-2 {
+    letter-spacing: -0.03em;
+    font-weight: 700;
+}
 .nodalix .tile-grid {
-    padding: 16px;
+    padding: 18px;
+}
+
+.nodalix .np-sheet {
+    padding: 4px 0 0;
+}
+
+/* Shelf headings on Listen Now — more presence than a plain sidebar heading. */
+.nodalix .shelf-heading {
+    letter-spacing: -0.025em;
+    font-weight: 700;
+    opacity: 0.92;
+    margin-bottom: 2px;
 }
 
 /* Not under .nodalix: GtkScaleButton's popover is its own window. */
 scale.horizontal > trough,
 scale.vertical > trough {
     border-radius: 9999px;
-    background-color: alpha(@window_fg_color, 0.16);
+    background-color: alpha(@window_fg_color, 0.14);
 }
 scale.horizontal > trough {
-    min-height: 12px;
+    min-height: 6px;
 }
 scale.vertical > trough {
-    min-width: 12px;
+    min-width: 6px;
 }
 scale.horizontal > trough > highlight,
 scale.vertical > trough > highlight {
@@ -82,18 +136,18 @@ scale.vertical > trough > highlight {
     background-color: @accent_bg_color;
 }
 scale.horizontal > trough > highlight {
-    min-height: 12px;
+    min-height: 6px;
 }
 scale.vertical > trough > highlight {
-    min-width: 12px;
+    min-width: 6px;
 }
 scale > trough > slider {
-    min-width: 22px;
-    min-height: 22px;
-    margin: -5px;
+    min-width: 18px;
+    min-height: 18px;
+    margin: -6px;
     border-radius: 9999px;
     background-color: @view_bg_color;
-    box-shadow: 0 1px 3px alpha(#000000, 0.28);
+    box-shadow: 0 1px 4px alpha(#000000, 0.32);
 }
 .scale-popup {
     padding: 8px 4px;

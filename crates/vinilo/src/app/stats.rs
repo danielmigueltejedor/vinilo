@@ -16,11 +16,11 @@ pub fn refresh(root: &gtk::Box) {
         root.remove(&child);
     }
     root.set_orientation(gtk::Orientation::Vertical);
-    root.set_spacing(18);
-    root.set_margin_top(24);
-    root.set_margin_bottom(24);
-    root.set_margin_start(24);
-    root.set_margin_end(24);
+    root.set_spacing(22);
+    root.set_margin_top(28);
+    root.set_margin_bottom(32);
+    root.set_margin_start(28);
+    root.set_margin_end(28);
 
     let total = listen_stats::total_ms();
     let top = listen_stats::top_tracks(24);
@@ -36,7 +36,7 @@ pub fn refresh(root: &gtk::Box) {
 
     let summary = gtk::Box::builder()
         .orientation(gtk::Orientation::Vertical)
-        .spacing(4)
+        .spacing(6)
         .halign(gtk::Align::Start)
         .build();
     summary.append(
@@ -56,39 +56,37 @@ pub fn refresh(root: &gtk::Box) {
     let unique = listen_stats::unique_track_count();
     summary.append(
         &gtk::Label::builder()
-            .label(format!("{} · {}", i18n::t(Key::StatsTopTracks), unique))
+            .label(i18n::tracks_n(unique))
             .css_classes(["dim-label"])
             .halign(gtk::Align::Start)
             .build(),
     );
     root.append(&summary);
 
-    // Cover strip for the top handful — the visual weight issue #5 asked for.
+    // Cover strip first — visual weight without a second "Most played" heading.
     let covers = top.iter().take(8).collect::<Vec<_>>();
     if covers.iter().any(|t| load_cover(t).is_some()) {
-        let heading = gtk::Label::builder()
-            .label(i18n::t(Key::StatsTopTracks))
-            .css_classes(["title-2"])
-            .halign(gtk::Align::Start)
-            .margin_top(8)
-            .build();
-        root.append(&heading);
-
         let scroller = gtk::ScrolledWindow::builder()
             .hexpand(true)
             .vscrollbar_policy(gtk::PolicyType::Never)
             .hscrollbar_policy(gtk::PolicyType::Automatic)
-            .height_request(168)
+            .height_request(176)
+            .margin_top(4)
             .build();
         let row = gtk::Box::builder()
             .orientation(gtk::Orientation::Horizontal)
-            .spacing(12)
+            .spacing(14)
             .build();
         for track in &covers {
             let tile = gtk::Box::builder()
                 .orientation(gtk::Orientation::Vertical)
-                .spacing(6)
+                .spacing(8)
                 .width_request(120)
+                .css_classes(["tile"])
+                .build();
+            let frame = gtk::Box::builder()
+                .halign(gtk::Align::Center)
+                .css_classes(["nodalix-cover-frame", "stats-cover-frame"])
                 .build();
             let image = gtk::Image::builder()
                 .pixel_size(120)
@@ -101,7 +99,8 @@ pub fn refresh(root: &gtk::Box) {
             if let Some(texture) = load_cover(track) {
                 image.set_paintable(Some(&texture));
             }
-            tile.append(&image);
+            frame.append(&image);
+            tile.append(&frame);
             tile.append(
                 &gtk::Label::builder()
                     .label(&track.title)
@@ -126,9 +125,9 @@ pub fn refresh(root: &gtk::Box) {
 
     let list_heading = gtk::Label::builder()
         .label(i18n::t(Key::StatsTopTracks))
-        .css_classes(["title-2"])
+        .css_classes(["title-2", "shelf-heading"])
         .halign(gtk::Align::Start)
-        .margin_top(8)
+        .margin_top(4)
         .build();
     root.append(&list_heading);
 
@@ -158,6 +157,10 @@ pub fn refresh(root: &gtk::Box) {
             .subtitle(&subtitle)
             .build();
 
+        let frame = gtk::Box::builder()
+            .valign(gtk::Align::Center)
+            .css_classes(["nodalix-cover-frame", "stats-cover-frame"])
+            .build();
         let cover = gtk::Image::builder()
             .pixel_size(48)
             .width_request(48)
@@ -169,7 +172,8 @@ pub fn refresh(root: &gtk::Box) {
         if let Some(texture) = load_cover(track) {
             cover.set_paintable(Some(&texture));
         }
-        row.add_prefix(&cover);
+        frame.append(&cover);
+        row.add_prefix(&frame);
 
         let meta = gtk::Box::builder()
             .orientation(gtk::Orientation::Vertical)
@@ -185,16 +189,14 @@ pub fn refresh(root: &gtk::Box) {
         );
         meta.append(
             &gtk::Label::builder()
-                .label(format!("{} plays", track.play_count))
+                .label(i18n::plays_n(track.play_count))
                 .css_classes(["caption", "dim-label"])
                 .halign(gtk::Align::End)
                 .build(),
         );
         if let Some(views) = track.public_plays {
-            let mut label = listen_stats::format_count(views);
-            if track.id.starts_with("yt:") {
-                label.push_str(" views");
-            }
+            let compact = listen_stats::format_count(views);
+            let label = i18n::public_count_label(&compact, track.id.starts_with("yt:"));
             meta.append(
                 &gtk::Label::builder()
                     .label(label)

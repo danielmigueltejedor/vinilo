@@ -74,7 +74,7 @@ pub(super) fn build_transport(into: &gtk::Box, sender: &ComponentSender<PlayerVi
     );
 
     let buttons = gtk::Box::builder()
-        .spacing(10)
+        .spacing(12)
         .halign(gtk::Align::Center)
         .build();
 
@@ -105,8 +105,8 @@ pub(super) fn build_transport(into: &gtk::Box, sender: &ComponentSender<PlayerVi
         crate::nodalix::icon("media-playback-start-symbolic"),
         ["suggested-action", "circular"],
     );
-    play.set_width_request(56);
-    play.set_height_request(56);
+    play.set_width_request(60);
+    play.set_height_request(60);
     let next = button(
         crate::nodalix::icon("media-skip-forward-symbolic"),
         ["flat", "circular"],

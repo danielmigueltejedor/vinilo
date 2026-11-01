@@ -250,12 +250,16 @@ fn set_colors(colors: Option<(&'static str, &'static str)>) {
          .np-progress,
          .np-progress > trough,
          .np-progress > trough > progress {{
-             min-height: 3px;
+             min-height: 4px;
              border-radius: 0;
              margin: 0;
              padding: 0;
          }}
-         .np-progress > trough {{ background-color: alpha(currentColor, 0.13); }}
+         .np-progress > trough {{ background-color: alpha(currentColor, 0.12); }}
+         .np-progress > trough > progress {{
+             background-color: @accent_bg_color;
+             box-shadow: 0 0 10px alpha(@accent_bg_color, 0.55);
+         }}
 
          {COVER_LAYOUT}
 
@@ -457,10 +461,12 @@ fn backdrop_css(color: Option<&str>, dark: bool) -> String {
         return ".np-bar, .np-sheet { background-image: none; background-color: transparent; }"
             .into();
     };
+    // A touch richer than before so the sleeve reads as atmosphere rather than
+    // a tinted strip, without drowning labels in either theme.
     let (bar, sheet) = if dark {
-        ((0.52, 0.24, 0.06), (0.42, 0.18, 0.04))
+        ((0.58, 0.28, 0.08), (0.48, 0.22, 0.05))
     } else {
-        ((0.30, 0.13, 0.03), (0.24, 0.10, 0.02))
+        ((0.34, 0.15, 0.04), (0.28, 0.12, 0.03))
     };
     let gradient = |direction: &str, (strong, middle, tail): (f32, f32, f32)| {
         format!(
@@ -519,9 +525,9 @@ fn page_backdrop_css(class: &str, color: Option<&str>, dark: bool) -> String {
         return format!(".{class} {{ background-image: none; background-color: transparent; }}");
     };
     let (strong, middle, tail) = if dark {
-        (0.38, 0.16, 0.035)
+        (0.44, 0.20, 0.05)
     } else {
-        (0.22, 0.09, 0.02)
+        (0.26, 0.11, 0.03)
     };
     format!(
         ".{class} {{ background-color: @window_bg_color; background-image: linear-gradient(to bottom, alpha({color}, {strong}) 0%, alpha({color}, {middle}) 32%, alpha({color}, {tail}) 67%, alpha({color}, 0.0) 100%); background-repeat: no-repeat; }}"
@@ -640,9 +646,9 @@ mod tests {
     fn the_bar_shows_more_of_the_record_than_the_drawer() {
         let css = backdrop_css(Some("#c42828"), true);
         let bar = &css[css.find(".np-bar").unwrap()..css.find(".np-sheet").unwrap()];
-        assert!(bar.contains("0.52"), "bar scrim changed: {bar}");
+        assert!(bar.contains("0.58"), "bar scrim changed: {bar}");
         assert!(
-            !bar.contains("0.42"),
+            !bar.contains("0.48"),
             "bar is using the drawer's veil: {bar}"
         );
     }
@@ -651,8 +657,8 @@ mod tests {
     fn a_light_theme_gets_a_subtler_gradient_than_a_dark_one() {
         let dark = backdrop_css(Some("#c42828"), true);
         let light = backdrop_css(Some("#c42828"), false);
-        assert!(dark.contains("alpha(#c42828, 0.52)"), "{dark}");
-        assert!(light.contains("alpha(#c42828, 0.3)"), "{light}");
+        assert!(dark.contains("alpha(#c42828, 0.58)"), "{dark}");
+        assert!(light.contains("alpha(#c42828, 0.34)"), "{light}");
     }
 
     #[test]
@@ -676,7 +682,7 @@ mod tests {
     fn a_cover_colour_becomes_a_gradient() {
         let css = backdrop_css(Some("#c42828"), true);
         assert!(css.contains("linear-gradient"), "{css}");
-        assert!(css.contains("alpha(#c42828, 0.52)"), "{css}");
+        assert!(css.contains("alpha(#c42828, 0.58)"), "{css}");
         assert!(css.contains("alpha(#c42828, 0.0)"), "{css}");
         assert!(!css.contains("background-color: #c42828"), "{css}");
     }
@@ -696,6 +702,14 @@ mod tests {
 
     #[test]
     fn empty_sleeves_follow_the_cover_radius() {
-        assert!(crate::nodalix::CHROME.contains("--nodalix-radius-cover: 22%"));
+        assert!(crate::nodalix::CHROME.contains("--nodalix-radius-cover: 18%"));
+    }
+
+    #[test]
+    fn covers_cast_a_shadow_from_the_frame() {
+        // The image itself clips with overflow:hidden, so the shadow has to
+        // live on a wrapper — otherwise it never shows.
+        assert!(crate::nodalix::CHROME.contains(".nodalix-cover-frame"));
+        assert!(crate::nodalix::CHROME.contains("--nodalix-shadow:"));
     }
 }
