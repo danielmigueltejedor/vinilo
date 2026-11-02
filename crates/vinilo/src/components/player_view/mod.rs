@@ -346,7 +346,7 @@ impl SimpleComponent for PlayerView {
                         // the top edge, so without this the artwork starts
                         // under it and, in the compact layout, the title is
                         // written straight through it.
-                        set_margin_top: 24,
+                        set_margin_top: 28,
                         // Generous under a full-height player, and pure gap when
                         // the queue is immediately below it — the queue brings
                         // its own header, which is separation enough.

@@ -76,15 +76,15 @@ impl DiscoverView {
     pub fn new(registry: ArtRegistry, request: ArtRequest, on_activate: DiscoverHandler) -> Self {
         let body = gtk::Box::builder()
             .orientation(gtk::Orientation::Vertical)
-            .spacing(24)
-            .margin_top(18)
-            .margin_bottom(24)
-            .margin_start(18)
-            .margin_end(18)
+            .spacing(32)
+            .margin_top(22)
+            .margin_bottom(28)
+            .margin_start(22)
+            .margin_end(22)
             .build();
 
         let content = adw::Clamp::builder()
-            .maximum_size(1100)
+            .maximum_size(1160)
             .child(&body)
             .build();
 
@@ -201,12 +201,12 @@ impl DiscoverView {
         let heading = gtk::Label::builder()
             .label(title)
             .xalign(0.0)
-            .css_classes(["heading"])
+            .css_classes(["title-3", "shelf-heading"])
             .build();
 
         let row = gtk::Box::builder()
             .orientation(gtk::Orientation::Horizontal)
-            .spacing(12)
+            .spacing(14)
             .build();
 
         let scroller = gtk::ScrolledWindow::builder()
@@ -222,7 +222,7 @@ impl DiscoverView {
 
         let wrap = gtk::Box::builder()
             .orientation(gtk::Orientation::Vertical)
-            .spacing(8)
+            .spacing(12)
             .build();
         wrap.append(&heading);
         wrap.append(&scroller);
@@ -267,7 +267,7 @@ impl DiscoverView {
 
         let inner = gtk::Box::builder()
             .orientation(gtk::Orientation::Vertical)
-            .spacing(6)
+            .spacing(8)
             .width_request(TILE_PX)
             .build();
         inner.append(cover.widget());
@@ -275,7 +275,7 @@ impl DiscoverView {
         inner.append(&caption);
 
         let button = gtk::Button::builder()
-            .css_classes(["flat"])
+            .css_classes(["flat", "tile"])
             .child(&inner)
             .build();
         let activate = self.on_activate.clone();

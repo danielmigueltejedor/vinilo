@@ -31,7 +31,7 @@ use vinilo_core::music::types::{Album, Artist, Artwork, Playlist};
 
 /// Header artwork, in logical pixels. The widget is pinned to exactly this so
 /// the `card` background cannot outgrow the picture inside it.
-const ART_PX: i32 = 160;
+const ART_PX: i32 = 200;
 
 /// How wide the header subtitle grows before it wraps, in characters.
 ///
@@ -204,7 +204,7 @@ impl DetailPage {
 
         let play = gtk::Button::builder()
             .label(vinilo_core::i18n::t(vinilo_core::i18n::Key::PlayPage))
-            .css_classes(["suggested-action", "pill"])
+            .css_classes(["suggested-action", "pill", "page-play"])
             .build();
         play.connect_clicked(move |_| on_play());
 
@@ -218,8 +218,9 @@ impl DetailPage {
         // One box so both appear and disappear together — a Shuffle button
         // beside nothing is as useless as a Play button beside nothing.
         let actions = gtk::Box::builder()
-            .spacing(6)
+            .spacing(8)
             .halign(gtk::Align::Center)
+            .margin_top(4)
             .visible(false)
             .build();
         actions.append(&play);
@@ -227,10 +228,10 @@ impl DetailPage {
 
         let banner = gtk::Box::builder()
             .orientation(gtk::Orientation::Vertical)
-            .spacing(12)
+            .spacing(14)
             .halign(gtk::Align::Center)
-            .margin_top(24)
-            .margin_bottom(24)
+            .margin_top(28)
+            .margin_bottom(28)
             .build();
         cover.attach_first(&banner);
         banner.append(&title);
