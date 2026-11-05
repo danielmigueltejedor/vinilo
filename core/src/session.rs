@@ -34,6 +34,7 @@ use librespot_protocol::authentication::AuthenticationType;
 use num_traits::FromPrimitive;
 use pin_project_lite::pin_project;
 use quick_xml::events::Event;
+use quick_xml::XmlVersion;
 use thiserror::Error;
 use tokio::{
     sync::mpsc,
@@ -824,7 +825,7 @@ where
                             if !current_element.is_empty() {
                                 let _ = user_attributes.insert(
                                     current_element.clone(),
-                                    value.xml_content()?.to_string(),
+                                    value.xml_content(XmlVersion::Implicit1_0)?.to_string(),
                                 );
                             }
                         }
