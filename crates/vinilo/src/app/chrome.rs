@@ -214,12 +214,11 @@ pub(super) fn show_about(parent: &adw::ApplicationWindow) {
         .version(env!("CARGO_PKG_VERSION"))
         .release_notes_version(env!("CARGO_PKG_VERSION"))
         .release_notes(
-            "<p>Vinilo 1.1.2</p><ul>\
-             <li>Karaoke voice control cancels the singer on catalogue, local, and Spotify audio.</li>\
-             <li>YouTube Music starts from the stream URL. Crossfade opens the next track ahead of time.</li>\
-             <li>Tidal loads the full library and plays a direct stream when the session provides one.</li>\
-             <li>Listening stats show covers, including ones fetched from the catalogue.</li>\
-             <li>Sections, search, and lyrics ease between states.</li>\
+            "<p>Vinilo 1.1.3</p><ul>\
+             <li>Nodalix chrome is deeper — covers, drawer, and player surfaces read as one piece.</li>\
+             <li>Listen counts round at the unit boundary, and the stats file saves atomically.</li>\
+             <li>YouTube Music finishes writing audio before the next track is shown.</li>\
+             <li>Spotify keeps its login TOTP secrets across a timed-out refresh.</li>\
              </ul>",
         )
         .license_type(gtk::License::Gpl30)
