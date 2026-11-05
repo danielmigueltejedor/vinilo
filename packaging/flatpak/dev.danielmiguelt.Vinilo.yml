@@ -81,8 +81,8 @@ modules:
       # `node_modules/electron/dist/electron` directly, and the other thirteen
       # packages exist only to download that binary.
       - type: archive
-        url: https://github.com/castlabs/electron-releases/releases/download/v43.0.0%2Bwvcus/electron-v43.0.0+wvcus-linux-x64.zip
-        sha256: 53782f44b8a88703ed54da1602c54c0af998ce076839f719efe1c850b05baccf
+        url: https://github.com/castlabs/electron-releases/releases/download/v43.8.6%2Bwvcus/electron-v43.8.6+wvcus-linux-x64.zip
+        sha256: 0611409c669c5f8289f6151187e7054de17c8746b40db483218dfe8fdcc9ee6f
         strip-components: 0
         dest: electron-dist
     build-commands:

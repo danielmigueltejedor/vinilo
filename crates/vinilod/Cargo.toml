@@ -17,16 +17,17 @@ rodio = { version = "0.19", features = [
 ] }
 lofty = "0.22"
 
-# Spotify Premium audio — Sonora's librespot fork. crates.io 0.8 currently
-# fails its vergen build script against a newer vergen-lib; the pin below
-# matches Sonora's lockfile so Arch can compile.
-librespot-core = { git = "https://github.com/nolight132/librespot", rev = "e7eb953d5848fd97bacd00e6c0e33500765eaa63", default-features = false, features = [
+# Spotify Premium audio — Sonora's librespot fork, re-hosted on an orphan
+# branch of this repo with quick-xml raised to 0.41 (RUSTSEC-2026-0194/0195).
+# crates.io 0.8 still fails its vergen build against newer vergen-lib; do not
+# merge `cursor/vendor-librespot-sca-df08` into main.
+librespot-core = { git = "https://github.com/danielmigueltejedor/vinilo", rev = "393463e6a072c8b6fbc046641acf2e0956da4d6e", default-features = false, features = [
     "rustls-tls-native-roots",
 ] }
-librespot-oauth = { git = "https://github.com/nolight132/librespot", rev = "e7eb953d5848fd97bacd00e6c0e33500765eaa63", default-features = false, features = [
+librespot-oauth = { git = "https://github.com/danielmigueltejedor/vinilo", rev = "393463e6a072c8b6fbc046641acf2e0956da4d6e", default-features = false, features = [
     "rustls-tls-native-roots",
 ] }
-librespot-playback = { git = "https://github.com/nolight132/librespot", rev = "e7eb953d5848fd97bacd00e6c0e33500765eaa63", default-features = false, features = [
+librespot-playback = { git = "https://github.com/danielmigueltejedor/vinilo", rev = "393463e6a072c8b6fbc046641acf2e0956da4d6e", default-features = false, features = [
     "rustls-tls-native-roots",
 ] }
 # Keep librespot's build script on the vergen pair Sonora already ships.
