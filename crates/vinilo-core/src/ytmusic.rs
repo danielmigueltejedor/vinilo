@@ -876,6 +876,7 @@ pub async fn download_audio(http: &reqwest::Client, id: &str, dir: &Path) -> Res
         let _ = tokio::fs::remove_file(&tmp).await;
         bail!("youtube stream was empty");
     }
+    file.flush().await.context("write youtube audio")?;
     tokio::fs::rename(&tmp, &path)
         .await
         .context("rename youtube audio")?;
