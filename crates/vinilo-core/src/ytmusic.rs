@@ -14,19 +14,18 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use anyhow::{Context, Result, bail};
-use serde_json::{Value, json};
-use sha1::{Digest, Sha1};
-
 use crate::discover::Discover;
 use crate::entry::Entry;
 use crate::i18n::{self, Key};
 use crate::ipc::{PageKind, WriteAction};
 use crate::library_cache::Library;
 use crate::music::types::{Album, Artist, Artwork, Playlist, Track};
+use crate::protocol_digest::youtube_sapisid_sha1;
 use crate::provider::Provider;
 use crate::setup;
 use crate::streams::StreamHit;
+use anyhow::{Context, Result, bail};
+use serde_json::{Value, json};
 
 const ORIGIN: &str = "https://music.youtube.com";
 const API: &str = "https://music.youtube.com/youtubei/v1";
@@ -138,12 +137,7 @@ fn sapisidhash(sapisid: &str) -> String {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0);
-    // YouTube's SAPISIDHASH Authorization header is SHA-1 by spec; anything
-    // else is refused. This is not a password hash.
-    let mut hasher = Sha1::new(); // NOSONAR(rust:S4790)
-    hasher.update(format!("{ts} {sapisid} {ORIGIN}").as_bytes());
-    let digest = hasher.finalize();
-    let hex: String = digest.iter().map(|b| format!("{b:02x}")).collect();
+    let hex = youtube_sapisid_sha1(&format!("{ts} {sapisid} {ORIGIN}"));
     format!("{ts}_{hex}")
 }
 
