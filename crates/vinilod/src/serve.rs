@@ -290,6 +290,10 @@ impl Daemon {
     }
 }
 
+fn is_stale_socket(error: &std::io::Error) -> bool {
+    error.kind() == std::io::ErrorKind::ConnectionRefused
+}
+
 pub async fn run() -> Result<()> {
     let path = ipc::socket_path().context("XDG_RUNTIME_DIR is not set")?;
 
@@ -302,12 +306,16 @@ pub async fn run() -> Result<()> {
     if tokio::fs::try_exists(&path).await.unwrap_or(false) {
         match tokio::net::UnixStream::connect(&path).await {
             Ok(_) => anyhow::bail!("a daemon is already listening on {}", path.display()),
-            // Nobody home — the file is a leftover.
-            Err(_) => {
+            Err(error) if is_stale_socket(&error) => {
+                // Nobody home — the file is a leftover.
                 tracing::info!(socket = %path.display(), "removing a stale socket");
                 tokio::fs::remove_file(&path)
                     .await
                     .with_context(|| format!("removing {path:?}"))?;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(error).with_context(|| format!("connecting to {path:?}"));
             }
         }
     }
@@ -3805,6 +3813,19 @@ mod tests {
     use super::*;
     use vinilo_core::music::types::{Track, TrackId};
     use vinilo_core::player::protocol::{Item, RepeatMode, Tokens};
+
+    #[test]
+    fn only_connection_refused_marks_a_stale_socket() {
+        assert!(is_stale_socket(&std::io::Error::from(
+            std::io::ErrorKind::ConnectionRefused
+        )));
+        assert!(!is_stale_socket(&std::io::Error::from(
+            std::io::ErrorKind::WouldBlock
+        )));
+        assert!(!is_stale_socket(&std::io::Error::from(
+            std::io::ErrorKind::PermissionDenied
+        )));
+    }
 
     fn daemon() -> Rc<Daemon> {
         let (events, _) = broadcast::channel(8);
