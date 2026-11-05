@@ -28,6 +28,7 @@ tokio = { version = "1", features = [
     "rt-multi-thread",
     "process",
     "io-util",
+    "fs",
     "net",
     "sync",
     "macros",

@@ -142,8 +142,9 @@ async fn download_secret(http: &reqwest::Client) -> Option<Secret> {
                 Ok(text) => match parse_dict(&text) {
                     Some(secret) => {
                         if let Some(path) = dict_path() {
-                            let _ = std::fs::create_dir_all(path.parent().unwrap_or(&path));
-                            let _ = std::fs::write(path, text);
+                            let parent = path.parent().unwrap_or(&path).to_path_buf();
+                            let _ = tokio::fs::create_dir_all(&parent).await;
+                            let _ = tokio::fs::write(&path, &text).await;
                         }
                         return Some(secret);
                     }

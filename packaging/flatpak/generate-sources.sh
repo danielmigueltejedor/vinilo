@@ -12,9 +12,9 @@ here="$(cd "$(dirname "$0")" && pwd)"
 repo="$(cd "$here/../.." && pwd)"
 
 gen="$here/.flatpak-cargo-generator.py"
-if [ ! -f "$gen" ]; then
+if [[ ! -f "$gen" ]]; then
   echo "fetching flatpak-cargo-generator…"
-  curl -sSfL -o "$gen" \
+  curl --proto '=https' --tlsv1.2 -sSfL -o "$gen" \
     https://raw.githubusercontent.com/flatpak/flatpak-builder-tools/master/cargo/flatpak-cargo-generator.py
 fi
 

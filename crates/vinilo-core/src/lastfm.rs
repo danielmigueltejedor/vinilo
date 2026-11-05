@@ -70,7 +70,9 @@ pub fn save(cfg: &Config) {
 }
 
 fn md5_hex(input: &str) -> String {
-    let dig = Md5::digest(input.as_bytes());
+    // Last.fm's `api_sig` is defined as MD5 over the sorted params + secret.
+    // A stronger digest would be rejected by their servers.
+    let dig = Md5::digest(input.as_bytes()); // NOSONAR(rust:S4790)
     dig.iter().map(|b| format!("{b:02x}")).collect()
 }
 

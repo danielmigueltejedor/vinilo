@@ -511,7 +511,11 @@ function dispatch(msg) {
       // Main process, not the page: `session.clearStorageData` is a
       // main-process API, and the page cannot delete the cookies that keep it
       // logged in. That is precisely why sign-out used to leave them behind.
-      signOut()
+      // Fire-and-forget on purpose: the caller is the NDJSON command loop and
+      // must not stall waiting for storage to clear.
+      void signOut().catch((err) => {
+        log('signOut failed:', err && err.message)
+      })
       return
   }
 

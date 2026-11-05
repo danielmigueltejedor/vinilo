@@ -299,13 +299,15 @@ pub async fn run() -> Result<()> {
     // one. Both would spawn a sidecar, and the Chromium profile lock is the
     // thing this whole design exists to respect. So: if something answers, it
     // is not ours to replace.
-    if path.exists() {
-        match std::os::unix::net::UnixStream::connect(&path) {
+    if tokio::fs::try_exists(&path).await.unwrap_or(false) {
+        match tokio::net::UnixStream::connect(&path).await {
             Ok(_) => anyhow::bail!("a daemon is already listening on {}", path.display()),
             // Nobody home — the file is a leftover.
             Err(_) => {
                 tracing::info!(socket = %path.display(), "removing a stale socket");
-                std::fs::remove_file(&path).with_context(|| format!("removing {path:?}"))?;
+                tokio::fs::remove_file(&path)
+                    .await
+                    .with_context(|| format!("removing {path:?}"))?;
             }
         }
     }

@@ -52,7 +52,9 @@ fn cache_dir() -> Option<PathBuf> {
 /// Open a browser for Spotify Premium OAuth and cache the session.
 async fn login() -> Result<()> {
     let dir = cache_dir().context("no cache directory")?;
-    std::fs::create_dir_all(&dir).context("librespot cache")?;
+    tokio::fs::create_dir_all(&dir)
+        .await
+        .context("librespot cache")?;
     let token = tokio::task::spawn_blocking(|| {
         OAuthClientBuilder::new(CLIENT_ID, REDIRECT, SCOPES.to_vec())
             .open_in_browser()

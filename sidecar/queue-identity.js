@@ -9,7 +9,7 @@ const SENSITIVE_KEY = /(token|secret|credential|authorization)/i
 function propertyNames(value) {
   if (!value || (typeof value !== 'object' && typeof value !== 'function')) return []
   try {
-    return Object.getOwnPropertyNames(value).sort()
+    return Object.getOwnPropertyNames(value).sort((a, b) => a.localeCompare(b))
   } catch {
     return []
   }
@@ -60,7 +60,9 @@ function createQueueIdentityProbe(occurrenceId = createOccurrenceId()) {
   return (items) => Array.from(items || [], (item, index) => {
     const ownKeys = propertyNames(item)
     const prototypeKeys = prototypeNames(item)
-    const keys = [...new Set([...ownKeys, ...prototypeKeys])].sort()
+    const keys = [...new Set([...ownKeys, ...prototypeKeys])].sort((a, b) =>
+      a.localeCompare(b),
+    )
     const signature = JSON.stringify([ownKeys, prototypeKeys])
     let shape = shapes.get(signature)
     const newShape = !shape

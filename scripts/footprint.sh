@@ -69,7 +69,7 @@ disk() {
 	for row in "${rows[@]}"; do
 		label=${row%%|*}
 		path=${row##*|}
-		if [ -e "$path" ]; then
+		if [[ -e "$path" ]]; then
 			size=$(du -sk "$path" 2>/dev/null | cut -f1)
 			printf '  %-24s %10s  %s\n' "$label" "$(human "$size")" "$path"
 		else
@@ -81,7 +81,7 @@ disk() {
 	echo "  see components/prune.rs. The sidecar never changes."
 }
 
-if [ "${1:-}" = "--disk" ]; then
+if [[ "${1:-}" = "--disk" ]]; then
 	disk
 	exit 0
 fi
@@ -102,14 +102,14 @@ owner() {
 ROOTS=()
 for bus in "$APP_BUS" "$MPRIS_BUS"; do
 	pid=$(owner "$bus")
-	[ -n "$pid" ] && [ -d "/proc/$pid" ] || continue
+	[[ -n "$pid" ]] && [[ -d "/proc/$pid" ]] || continue
 	# The client owns both names when it runs alone, so the same pid arrives
 	# twice; counting its tree twice would double every number in the report.
-	for seen in ${ROOTS[@]+"${ROOTS[@]}"}; do [ "$seen" = "$pid" ] && continue 2; done
+	for seen in ${ROOTS[@]+"${ROOTS[@]}"}; do [[ "$seen" = "$pid" ]] && continue 2; done
 	ROOTS+=("$pid")
 done
 
-if [ ${#ROOTS[@]} -eq 0 ]; then
+if [[ ${#ROOTS[@]} -eq 0 ]]; then
 	echo "Nothing is running — start Vinilo or vinilod first, or use --disk." >&2
 	exit 1
 fi
@@ -171,10 +171,10 @@ rss_total=0
 pss_total=0
 cpu_total=0
 for p in "${PIDS[@]}"; do
-	[ -r "/proc/$p/smaps_rollup" ] || continue
+	[[ -r "/proc/$p/smaps_rollup" ]] || continue
 	rss=$(awk '/^Rss:/  {print $2; exit}' "/proc/$p/smaps_rollup")
 	pss=$(awk '/^Pss:/  {print $2; exit}' "/proc/$p/smaps_rollup")
-	[ -n "$rss" ] || continue
+	[[ -n "$rss" ]] || continue
 	cmd=$(tr '\0' ' ' <"/proc/$p/cmdline")
 	used=$(($(jiffies "$p") - ${before[$p]:-0}))
 	cpu=$(awk -v u="$used" -v hz="$HZ" -v s="$SAMPLE" 'BEGIN { printf "%.1f", 100*u/hz/s }')
