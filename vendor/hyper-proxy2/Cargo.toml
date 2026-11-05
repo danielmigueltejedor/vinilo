@@ -1,0 +1,37 @@
+[package]
+edition = "2021"
+rust-version = "1.70.0"
+name = "hyper-proxy2"
+version = "0.1.0"
+authors = ["Natsuki Ikeguchi <me@s6n.jp>"]
+description = "A proxy connector for Hyper-based applications (Vinilo patch: rustls 0.23)"
+license = "MIT"
+repository = "https://github.com/siketyan/hyper-proxy2"
+
+[dependencies]
+bytes = "1.5"
+futures-util = { version = "0.3.30", default-features = false }
+headers = "0.4"
+http = "1.0"
+hyper = { version = "1.0", features = ["client"] }
+hyper-rustls = { version = "0.27", optional = true, default-features = false }
+hyper-tls = { version = "0.6.0", optional = true }
+hyper-util = { version = "0.1.2", features = ["client", "client-legacy", "tokio"] }
+native-tls = { version = "0.2.11", optional = true }
+openssl = { version = "0.10.62", optional = true }
+pin-project-lite = "0.2.13"
+rustls-native-certs = { version = "0.8", optional = true }
+tokio = { version = "1.35", features = ["io-std", "io-util"] }
+tokio-native-tls = { version = "0.3.1", optional = true }
+tokio-openssl = { version = "0.6.4", optional = true }
+tokio-rustls = { version = "0.26", optional = true }
+tower-service = "0.3.2"
+webpki-roots = { version = "1", optional = true }
+
+[features]
+default = ["tls"]
+openssl-tls = ["openssl", "tokio-openssl"]
+rustls = ["rustls-base", "rustls-native-certs", "hyper-rustls/native-tokio", "hyper-rustls/http1", "hyper-rustls/http2", "hyper-rustls/tls12", "hyper-rustls/ring"]
+rustls-base = ["tokio-rustls", "hyper-rustls"]
+rustls-webpki = ["rustls-base", "webpki-roots", "hyper-rustls/webpki-tokio", "hyper-rustls/http1", "hyper-rustls/http2", "hyper-rustls/tls12", "hyper-rustls/ring"]
+tls = ["tokio-native-tls", "hyper-tls", "native-tls"]
