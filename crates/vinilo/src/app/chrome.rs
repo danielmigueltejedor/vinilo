@@ -214,11 +214,11 @@ pub(super) fn show_about(parent: &adw::ApplicationWindow) {
         .version(env!("CARGO_PKG_VERSION"))
         .release_notes_version(env!("CARGO_PKG_VERSION"))
         .release_notes(
-            "<p>Vinilo 1.1.3</p><ul>\
+            "<p>Vinilo 1.1.4</p><ul>\
+             <li>GitHub releases now ship an AppImage alongside the distro packages and Flatpak.</li>\
              <li>Nodalix chrome is deeper — covers, drawer, and player surfaces read as one piece.</li>\
              <li>Listen counts round at the unit boundary, and the stats file saves atomically.</li>\
              <li>YouTube Music finishes writing audio before the next track is shown.</li>\
-             <li>Spotify keeps its login TOTP secrets across a timed-out refresh.</li>\
              </ul>",
         )
         .license_type(gtk::License::Gpl30)
