@@ -415,15 +415,6 @@ impl<C> ProxyConnector<C> {
     }
 }
 
-macro_rules! mtry {
-    ($e:expr) => {
-        match $e {
-            Ok(v) => v,
-            Err(e) => break Err(e.into()),
-        }
-    };
-}
-
 impl<C> Service<Uri> for ProxyConnector<C>
 where
     C: Service<Uri>,
@@ -464,61 +455,60 @@ where
                     None
                 };
 
+                // Prefer `?` over the upstream one-pass `loop` + `mtry!` hack —
+                // Sonar rust:S1751 flags that loop as a bug on new code.
                 Box::pin(async move {
-                    loop {
-                        // this hack will gone once `try_blocks` will eventually stabilized
-                        let proxy_stream = mtry!(mtry!(connection).await.map_err(io_err));
-                        let tunnel_stream = mtry!(tunnel.with_stream(proxy_stream).await);
+                    let proxy_stream = connection?.await.map_err(io_err)?;
+                    let tunnel_stream = tunnel.with_stream(proxy_stream).await?;
 
-                        break match tls {
-                            #[cfg(feature = "tls")]
-                            Some(tls) => {
-                                use hyper_util::rt::TokioIo;
-                                let tls = TlsConnector::from(tls);
-                                let secure_stream = mtry!(tls
-                                    .connect(&host, TokioIo::new(tunnel_stream))
-                                    .await
-                                    .map_err(io_err));
+                    match tls {
+                        #[cfg(feature = "tls")]
+                        Some(tls) => {
+                            use hyper_util::rt::TokioIo;
+                            let tls = TlsConnector::from(tls);
+                            let secure_stream = tls
+                                .connect(&host, TokioIo::new(tunnel_stream))
+                                .await
+                                .map_err(io_err)?;
 
-                                Ok(ProxyStream::Secured(TokioIo::new(secure_stream)))
-                            }
+                            Ok(ProxyStream::Secured(TokioIo::new(secure_stream)))
+                        }
 
-                            #[cfg(feature = "rustls-base")]
-                            Some(tls) => {
-                                use hyper_util::rt::TokioIo;
-                                let server_name =
-                                    mtry!(ServerName::try_from(host.to_string()).map_err(io_err));
-                                let tls = TlsConnector::from(tls);
-                                let secure_stream = mtry!(tls
-                                    .connect(server_name, TokioIo::new(tunnel_stream))
-                                    .await
-                                    .map_err(io_err));
+                        #[cfg(feature = "rustls-base")]
+                        Some(tls) => {
+                            use hyper_util::rt::TokioIo;
+                            let server_name =
+                                ServerName::try_from(host.to_string()).map_err(io_err)?;
+                            let tls = TlsConnector::from(tls);
+                            let secure_stream = tls
+                                .connect(server_name, TokioIo::new(tunnel_stream))
+                                .await
+                                .map_err(io_err)?;
 
-                                Ok(ProxyStream::Secured(TokioIo::new(secure_stream)))
-                            }
+                            Ok(ProxyStream::Secured(TokioIo::new(secure_stream)))
+                        }
 
-                            #[cfg(feature = "openssl-tls")]
-                            Some(tls) => {
-                                use hyper_util::rt::TokioIo;
-                                let config = tls.configure().map_err(io_err)?;
-                                let ssl = config.into_ssl(&host).map_err(io_err)?;
+                        #[cfg(feature = "openssl-tls")]
+                        Some(tls) => {
+                            use hyper_util::rt::TokioIo;
+                            let config = tls.configure().map_err(io_err)?;
+                            let ssl = config.into_ssl(&host).map_err(io_err)?;
 
-                                let mut stream =
-                                    mtry!(SslStream::new(ssl, TokioIo::new(tunnel_stream)));
-                                mtry!(Pin::new(&mut stream).connect().await.map_err(io_err));
+                            let mut stream = SslStream::new(ssl, TokioIo::new(tunnel_stream))
+                                .map_err(io_err)?;
+                            Pin::new(&mut stream).connect().await.map_err(io_err)?;
 
-                                Ok(ProxyStream::Secured(TokioIo::new(stream)))
-                            }
+                            Ok(ProxyStream::Secured(TokioIo::new(stream)))
+                        }
 
-                            #[cfg(not(any(
-                                feature = "tls",
-                                feature = "rustls-base",
-                                feature = "openssl-tls"
-                            )))]
-                            Some(_) => panic!("hyper-proxy was not built with TLS support"),
+                        #[cfg(not(any(
+                            feature = "tls",
+                            feature = "rustls-base",
+                            feature = "openssl-tls"
+                        )))]
+                        Some(_) => panic!("hyper-proxy was not built with TLS support"),
 
-                            None => Ok(ProxyStream::Regular(tunnel_stream)),
-                        };
+                        None => Ok(ProxyStream::Regular(tunnel_stream)),
                     }
                 })
             } else {
