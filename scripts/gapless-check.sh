@@ -56,7 +56,7 @@ printf 'Timestamps below are local time; the app logs UTC (offset %s).\n' \
 echo
 
 known=$(vinilo_indices | tr '\n' ' ')
-if [ -n "${known// /}" ]; then
+if [[ -n "${known// /}" ]]; then
 	echo "Vinilo is already playing on sink-input(s): $known"
 else
 	echo "Vinilo is not playing yet — its stream will appear when you hit play."
@@ -88,7 +88,7 @@ pactl subscribe 2>/dev/null | while read -r line; do
 		current=$(vinilo_indices | tr '\n' ' ')
 		case " $current " in
 		*" $index "*)
-			[ -n "${known// /}" ] || echo "$stamp  Vinilo's stream #$index appeared"
+			[[ -n "${known// /}" ]] || echo "$stamp  Vinilo's stream #$index appeared"
 			known=$current
 			;;
 		esac

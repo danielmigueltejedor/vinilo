@@ -25,6 +25,7 @@ pub mod music;
 pub mod page_cache;
 pub mod paths;
 pub mod player;
+pub mod protocol_digest;
 pub mod provider;
 pub mod queue;
 pub mod session;

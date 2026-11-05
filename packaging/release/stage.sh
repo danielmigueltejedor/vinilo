@@ -5,10 +5,10 @@ ROOT="${1:-dist/root}"
 APPID="dev.danielmiguelt.Vinilo"
 AGUJA="dev.danielmiguelt.Aguja"
 
-test -x target/release/vinilo
-test -x target/release/vinilod
-test -x target/release/aguja
-test -d sidecar/node_modules
+[[ -x target/release/vinilo ]]
+[[ -x target/release/vinilod ]]
+[[ -x target/release/aguja ]]
+[[ -d sidecar/node_modules ]]
 
 rm -rf "$ROOT"
 

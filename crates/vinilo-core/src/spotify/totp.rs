@@ -8,12 +8,15 @@
 //! scrapers republish them as a versioned dict. We download the current dict,
 //! XOR it the same way the player does, and mint a 6-digit SHA-1 TOTP.
 
+use std::path::Path;
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use hmac::{Hmac, Mac};
 use serde_json::Value;
 use sha1::Sha1;
+use tokio::io::AsyncWriteExt;
 
 type HmacSha1 = Hmac<Sha1>;
 
@@ -26,6 +29,8 @@ const SECRET_URLS: &[&str] = &[
 const BUNDLED_SECRETS: &str = r#"{"59":[123,105,79,70,110,59,52,125,60,49,80,70,89,75,80,86,63,53,123,37,117,49,52,93,77,62,47,86,48,104,68,72],"60":[79,109,69,123,90,65,46,74,94,34,58,48,70,71,92,85,122,63,91,64,87,87],"61":[44,55,47,42,70,40,34,114,76,74,50,111,120,97,75,76,94,102,43,69,49,120,118,80,64,78]}"#;
 
 const MEMORY_TTL: Duration = Duration::from_secs(6 * 3600);
+
+static NEXT_TEMP_FILE: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, Clone)]
 pub struct Secret {
@@ -84,7 +89,12 @@ pub async fn current_secret(http: &reqwest::Client) -> Secret {
     // pin us to an expired TOTP version. GitHub is optional: waiting on it
     // is how Listen Now spun forever on a machine that cannot reach it.
     let downloaded = tokio::time::timeout(Duration::from_secs(3), download_secret(http)).await;
-    if let Ok(Some(secret)) = downloaded {
+    if let Ok(Some((secret, text))) = downloaded {
+        if let Some(path) = dict_path()
+            && let Err(err) = persist_dict(&path, &text).await
+        {
+            tracing::warn!(%err, "spotify totp dict cache write");
+        }
         remember(secret.clone());
         tracing::info!(ver = secret.version, "spotify totp secrets downloaded");
         return secret;
@@ -135,18 +145,12 @@ pub fn utc_ymd(unix: u64) -> String {
     format!("{y:04}-{m:02}-{d:02}")
 }
 
-async fn download_secret(http: &reqwest::Client) -> Option<Secret> {
+async fn download_secret(http: &reqwest::Client) -> Option<(Secret, String)> {
     for url in SECRET_URLS {
         match http.get(*url).send().await {
             Ok(res) if res.status().is_success() => match res.text().await {
                 Ok(text) => match parse_dict(&text) {
-                    Some(secret) => {
-                        if let Some(path) = dict_path() {
-                            let _ = std::fs::create_dir_all(path.parent().unwrap_or(&path));
-                            let _ = std::fs::write(path, text);
-                        }
-                        return Some(secret);
-                    }
+                    Some(secret) => return Some((secret, text)),
                     None => tracing::warn!(url, "spotify totp dict was not a versioned cipher"),
                 },
                 Err(err) => tracing::warn!(url, %err, "spotify totp dict body"),
@@ -156,6 +160,35 @@ async fn download_secret(http: &reqwest::Client) -> Option<Secret> {
         }
     }
     None
+}
+
+async fn persist_dict(path: &Path, text: &str) -> std::io::Result<()> {
+    let parent = path.parent().unwrap_or(Path::new("."));
+    tokio::fs::create_dir_all(parent).await?;
+    let name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("cache");
+    let temporary = parent.join(format!(
+        ".{name}.{}.{}.tmp",
+        std::process::id(),
+        NEXT_TEMP_FILE.fetch_add(1, Ordering::Relaxed)
+    ));
+    let mut file = tokio::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&temporary)
+        .await?;
+    let result = async {
+        file.write_all(text.as_bytes()).await?;
+        file.flush().await?;
+        tokio::fs::rename(&temporary, path).await
+    }
+    .await;
+    if result.is_err() {
+        let _ = tokio::fs::remove_file(&temporary).await;
+    }
+    result
 }
 
 fn load_disk() -> Option<Secret> {
@@ -305,6 +338,42 @@ mod tests {
         let secret = bundled();
         assert_eq!(secret.version, 61);
         assert_eq!(secret.cipher.len(), 26);
+    }
+
+    #[tokio::test]
+    async fn persist_dict_replaces_atomically_and_cleans_up_on_failure() {
+        let directory = std::env::temp_dir().join(format!(
+            "vinilo-totp-test-{}-{}",
+            std::process::id(),
+            NEXT_TEMP_FILE.fetch_add(1, Ordering::Relaxed)
+        ));
+        tokio::fs::create_dir(&directory).await.unwrap();
+        let path = directory.join("spotify-totp.json");
+        tokio::fs::write(&path, "old cache").await.unwrap();
+
+        let text = r#"{"62":[1,2,3]}"#;
+        persist_dict(&path, text).await.unwrap();
+
+        assert_eq!(tokio::fs::read_to_string(&path).await.unwrap(), text);
+        assert_eq!(
+            parse_dict(&tokio::fs::read_to_string(&path).await.unwrap())
+                .unwrap()
+                .version,
+            62
+        );
+
+        let blocked_path = directory.join("blocked");
+        tokio::fs::create_dir(&blocked_path).await.unwrap();
+        assert!(
+            persist_dict(&blocked_path, r#"{"62":[1,2,3]}"#)
+                .await
+                .is_err()
+        );
+        let mut entries = tokio::fs::read_dir(&directory).await.unwrap();
+        assert!(entries.next_entry().await.unwrap().is_some());
+        assert!(entries.next_entry().await.unwrap().is_some());
+        assert!(entries.next_entry().await.unwrap().is_none());
+        tokio::fs::remove_dir_all(directory).await.unwrap();
     }
 
     #[test]

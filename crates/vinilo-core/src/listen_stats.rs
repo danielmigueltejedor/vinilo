@@ -238,20 +238,20 @@ pub async fn cache_remote_cover(id: &str, url: &str) {
     let Some(dir) = crate::paths::artwork_dir() else {
         return;
     };
-    let _ = std::fs::create_dir_all(&dir);
+    let _ = tokio::fs::create_dir_all(&dir).await;
     let safe: String = id
         .chars()
         .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
         .collect();
     let path = dir.join(format!("stat-{safe}.jpg"));
-    if !path.is_file() {
+    if !tokio::fs::try_exists(&path).await.unwrap_or(false) {
         let Ok(bytes) = reqwest::Client::new().get(url).send().await else {
             return;
         };
         let Ok(bytes) = bytes.bytes().await else {
             return;
         };
-        if bytes.len() < 32 || std::fs::write(&path, &bytes).is_err() {
+        if bytes.len() < 32 || tokio::fs::write(&path, &bytes).await.is_err() {
             return;
         }
     }

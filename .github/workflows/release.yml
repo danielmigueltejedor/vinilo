@@ -69,8 +69,20 @@ jobs:
         shell: bash
         run: |
           set -euxo pipefail
-          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
-            | sh -s -- -y --profile minimal
+          # Download the installer and verify its checksum before executing —
+          # never pipe a remote script straight into a shell.
+          arch="$(uname -m)"
+          case "$arch" in
+            x86_64|amd64) rust_host=x86_64-unknown-linux-gnu ;;
+            aarch64|arm64) rust_host=aarch64-unknown-linux-gnu ;;
+            *) echo "unsupported arch: $arch" >&2; exit 1 ;;
+          esac
+          base="https://static.rust-lang.org/rustup/dist/${rust_host}"
+          curl --proto '=https' --tlsv1.2 -sSfO "${base}/rustup-init"
+          curl --proto '=https' --tlsv1.2 -sSfO "${base}/rustup-init.sha256"
+          sha256sum -c rustup-init.sha256
+          chmod +x rustup-init
+          ./rustup-init -y --profile minimal
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
           "$HOME/.cargo/bin/rustup" default stable
           "$HOME/.cargo/bin/rustc" --version
@@ -97,9 +109,12 @@ jobs:
         shell: bash
         run: |
           set -euxo pipefail
-          curl -sSfL \
-            https://github.com/goreleaser/nfpm/releases/download/v2.47.0/nfpm_2.47.0_Linux_x86_64.tar.gz \
-            | tar -xz -C /usr/local/bin nfpm
+          # Pin HTTPS and verify the published checksum before unpacking.
+          url="https://github.com/goreleaser/nfpm/releases/download/v2.47.0/nfpm_2.47.0_Linux_x86_64.tar.gz"
+          curl --proto '=https' --tlsv1.2 -sSfL -o nfpm.tar.gz "$url"
+          echo "0660ca602b2d2d2ae4781a06c692b3eeb9d437ffea05b831d76e41f4a3188783  nfpm.tar.gz" \
+            | sha256sum -c -
+          tar -xz -C /usr/local/bin -f nfpm.tar.gz nfpm
           nfpm --version
 
       - name: Build native package

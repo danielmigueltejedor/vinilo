@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use md5::{Digest, Md5};
+use crate::protocol_digest::lastfm_api_sig_md5;
 
 const API_ROOT: &str = "https://ws.audioscrobbler.com/2.0/";
 
@@ -69,11 +69,6 @@ pub fn save(cfg: &Config) {
     let _ = std::fs::create_dir_all(dir).and_then(|_| std::fs::write(path, json));
 }
 
-fn md5_hex(input: &str) -> String {
-    let dig = Md5::digest(input.as_bytes());
-    dig.iter().map(|b| format!("{b:02x}")).collect()
-}
-
 /// Last.fm `api_sig`: sorted `namevalue` pairs + secret, then MD5.
 pub fn sign(params: &BTreeMap<String, String>, secret: &str) -> String {
     let mut flat = String::new();
@@ -85,7 +80,7 @@ pub fn sign(params: &BTreeMap<String, String>, secret: &str) -> String {
         flat.push_str(v);
     }
     flat.push_str(secret);
-    md5_hex(&flat)
+    lastfm_api_sig_md5(&flat)
 }
 
 fn client() -> Result<reqwest::Client, String> {
@@ -280,7 +275,7 @@ mod tests {
         let sig = sign(&params, "mysecret");
         assert_eq!(
             sig,
-            md5_hex("api_keyxxxxxxxxmethodauth.getSessiontokenxxxxxxxmysecret")
+            lastfm_api_sig_md5("api_keyxxxxxxxxmethodauth.getSessiontokenxxxxxxxmysecret")
         );
     }
 

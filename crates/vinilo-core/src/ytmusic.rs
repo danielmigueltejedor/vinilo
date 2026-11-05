@@ -14,19 +14,18 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use anyhow::{Context, Result, bail};
-use serde_json::{Value, json};
-use sha1::{Digest, Sha1};
-
 use crate::discover::Discover;
 use crate::entry::Entry;
 use crate::i18n::{self, Key};
 use crate::ipc::{PageKind, WriteAction};
 use crate::library_cache::Library;
 use crate::music::types::{Album, Artist, Artwork, Playlist, Track};
+use crate::protocol_digest::youtube_sapisid_sha1;
 use crate::provider::Provider;
 use crate::setup;
 use crate::streams::StreamHit;
+use anyhow::{Context, Result, bail};
+use serde_json::{Value, json};
 
 const ORIGIN: &str = "https://music.youtube.com";
 const API: &str = "https://music.youtube.com/youtubei/v1";
@@ -138,10 +137,7 @@ fn sapisidhash(sapisid: &str) -> String {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0);
-    let mut hasher = Sha1::new();
-    hasher.update(format!("{ts} {sapisid} {ORIGIN}").as_bytes());
-    let digest = hasher.finalize();
-    let hex: String = digest.iter().map(|b| format!("{b:02x}")).collect();
+    let hex = youtube_sapisid_sha1(&format!("{ts} {sapisid} {ORIGIN}"));
     format!("{ts}_{hex}")
 }
 
@@ -816,12 +812,16 @@ pub async fn preload_audio_urls(http: &reqwest::Client, ids: &[String]) {
 /// Tries signed ANDROID_MUSIC, ANDROID, then VisionOS. Ciphered and webm
 /// formats are refused here so the daemon can fall back to yt-dlp's m4a.
 pub async fn download_audio(http: &reqwest::Client, id: &str, dir: &Path) -> Result<PathBuf> {
+    use tokio::io::AsyncWriteExt;
+
     let video = video_id(id)?;
     let stem = id
         .chars()
         .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
         .collect::<String>();
-    let _ = std::fs::create_dir_all(dir);
+    tokio::fs::create_dir_all(dir)
+        .await
+        .context("youtube audio cache")?;
     if let Some(existing) = find_cached_audio(dir, &stem) {
         return Ok(existing);
     }
@@ -853,26 +853,33 @@ pub async fn download_audio(http: &reqwest::Client, id: &str, dir: &Path) -> Res
         .context("youtube stream")?
         .error_for_status()
         .context("youtube stream status")?;
-    let mut file = std::fs::File::create(&tmp).context("write youtube audio")?;
+    let mut file = tokio::fs::File::create(&tmp)
+        .await
+        .context("write youtube audio")?;
     let mut written = 0usize;
     loop {
         match resp.chunk().await {
             Ok(Some(chunk)) => {
-                std::io::Write::write_all(&mut file, &chunk).context("write youtube audio")?;
+                file.write_all(&chunk)
+                    .await
+                    .context("write youtube audio")?;
                 written += chunk.len();
             }
             Ok(None) => break,
             Err(err) => {
-                let _ = std::fs::remove_file(&tmp);
+                let _ = tokio::fs::remove_file(&tmp).await;
                 return Err(err).context("youtube stream body");
             }
         }
     }
     if written < 1024 {
-        let _ = std::fs::remove_file(&tmp);
+        let _ = tokio::fs::remove_file(&tmp).await;
         bail!("youtube stream was empty");
     }
-    std::fs::rename(&tmp, &path).context("rename youtube audio")?;
+    file.flush().await.context("write youtube audio")?;
+    tokio::fs::rename(&tmp, &path)
+        .await
+        .context("rename youtube audio")?;
     Ok(path)
 }
 
