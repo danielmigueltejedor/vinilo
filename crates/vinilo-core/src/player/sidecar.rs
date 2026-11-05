@@ -210,6 +210,19 @@ pub fn locate() -> Result<PathBuf> {
         tried.push(p);
     }
 
+    // AppImage mounts the payload at `$APPDIR`. Prefer that over a host
+    // install so a user who also has `~/.local/share/vinilo/sidecar` still
+    // gets the Electron that shipped inside this bundle.
+    if let Ok(appdir) = std::env::var("APPDIR")
+        && !appdir.is_empty()
+    {
+        let p = PathBuf::from(&appdir).join("usr/share/vinilo/sidecar");
+        if p.join("main.js").is_file() {
+            return Ok(p);
+        }
+        tried.push(p);
+    }
+
     // Per-user first, then system-wide. `XDG_DATA_DIRS` is what makes a
     // packaged install work at all: `make install` puts the sidecar under
     // `~/.local/share`, but a distribution package puts it in

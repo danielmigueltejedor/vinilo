@@ -198,10 +198,90 @@ jobs:
           path: Vinilo-*.flatpak
           retention-days: 14
 
+  # Same toolchain floor as the .deb job (GTK 4.20 / libadwaita 1.8). The
+  # AppImage bundles those libraries so it can run on hosts that cannot build
+  # Vinilo, the same audience Flatpak already serves.
+  appimage:
+    name: AppImage
+    runs-on: ubuntu-latest
+    container:
+      image: ubuntu:26.04
+      # linuxdeploy needs to see host devices when resolving libraries; the
+      # default container mount is enough once FUSE is skipped via
+      # APPIMAGE_EXTRACT_AND_RUN (set inside appimage.sh).
+
+    steps:
+      - name: Install build dependencies
+        shell: bash
+        run: |
+          set -euxo pipefail
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            ca-certificates curl git tar gzip build-essential pkg-config \
+            file desktop-file-utils \
+            libgtk-4-dev libadwaita-1-dev libpulse-dev libasound2-dev \
+            libwebkitgtk-6.0-dev librsvg2-dev nodejs npm
+
+      - uses: actions/checkout@v5
+
+      - name: Install current stable Rust
+        shell: bash
+        run: |
+          set -euxo pipefail
+          arch="$(uname -m)"
+          case "$arch" in
+            x86_64|amd64) rust_host=x86_64-unknown-linux-gnu ;;
+            *) echo "unsupported arch: $arch" >&2; exit 1 ;;
+          esac
+          base="https://static.rust-lang.org/rustup/dist/${rust_host}"
+          curl --proto '=https' --tlsv1.2 -sSfO "${base}/rustup-init"
+          curl --proto '=https' --tlsv1.2 -sSfO "${base}/rustup-init.sha256"
+          sha256sum -c rustup-init.sha256
+          chmod +x rustup-init
+          ./rustup-init -y --profile minimal
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          "$HOME/.cargo/bin/rustup" default stable
+          "$HOME/.cargo/bin/rustc" --version
+
+      - name: Cache Cargo
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: release-appimage-${{ hashFiles('Cargo.lock') }}
+
+      - name: Build Vinilo and AppImage
+        shell: bash
+        run: |
+          set -euxo pipefail
+          export PATH="$HOME/.cargo/bin:$PATH"
+          cargo build --release --locked
+          make sidecar
+          ./packaging/release/stage.sh
+          chmod +x ./packaging/release/appimage.sh
+          ./packaging/release/appimage.sh
+
+          VERSION=$(awk -F\" '/^version = / {print $2; exit}' Cargo.toml)
+          if [[ "$GITHUB_REF" == refs/tags/v* ]] && [[ "${GITHUB_REF_NAME#v}" != "$VERSION" ]]; then
+            echo "tag ${GITHUB_REF_NAME} does not match Cargo.toml version $VERSION" >&2
+            exit 1
+          fi
+          test -s "dist/packages/Vinilo-${VERSION}-x86_64.AppImage"
+
+      - name: Keep AppImage
+        uses: actions/upload-artifact@v6
+        with:
+          name: release-appimage
+          path: dist/packages/*.AppImage
+          retention-days: 14
+
   release:
     name: Publish GitHub Release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [packages, flatpak]
+    needs: [packages, flatpak, appimage]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -223,6 +303,7 @@ jobs:
             *.rpm \
             *.pkg.tar.zst \
             *.flatpak \
+            *.AppImage \
             > SHA256SUMS
           cat SHA256SUMS
 
