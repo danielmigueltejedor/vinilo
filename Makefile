@@ -192,8 +192,9 @@ dev-install:
 		$(DATADIR)/applications/$(AGUJA).desktop
 	@for sz in $(ICON_SIZES); do \
 		install -Dm644 data/icons/hicolor/$${sz}x$${sz}/apps/$(APPID).png \
-			$(DATADIR)/icons/hicolor/$${sz}x$${sz}/apps/$(APPID).png; \
-		rm -f $(DATADIR)/icons/hicolor/$${sz}x$${sz}/apps/$(AGUJA).png; \
+			$(DATADIR)/icons/hicolor/$${sz}x$${sz}/apps/$(APPID).png \
+		&& rm -f $(DATADIR)/icons/hicolor/$${sz}x$${sz}/apps/$(AGUJA).png \
+		|| exit 1; \
 	done
 	@# Remove old scalable app icons left by pre-PNG installs.
 	rm -f $(DATADIR)/icons/hicolor/scalable/apps/$(APPID).svg \
