@@ -369,8 +369,6 @@ fn set_colors(colors: Option<(&'static str, &'static str)>) {
              font-weight: 700;
          }}
          .lyrics-karaoke .lyric-line {{
-             text-align: center;
-             xalign: 0.5;
              transform-origin: center center;
          }}
          .lyrics-karaoke.lyrics-synced .lyric-line {{
