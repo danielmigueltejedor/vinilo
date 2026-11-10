@@ -2346,7 +2346,12 @@ impl AppModel {
                 sender.oneshot_command(async move {
                     match vinilo_core::lastfm::begin_auth(&cfg).await {
                         Ok((token, url)) => {
-                            let _ = std::process::Command::new("xdg-open").arg(&url).spawn();
+                            let opener = if cfg!(target_os = "macos") {
+                                "open"
+                            } else {
+                                "xdg-open"
+                            };
+                            let _ = std::process::Command::new(opener).arg(&url).spawn();
                             CommandMsg::LastFmAuth {
                                 token: Some(token),
                                 error: None,

@@ -65,6 +65,10 @@ impl AppModel {
     /// Quick Settings → Background Apps, so a failure costs discoverability, not
     /// function.
     fn request_background(&self, sender: &ComponentSender<Self>) {
+        // The portal is a Linux desktop thing; elsewhere there is nothing to ask.
+        #[cfg(not(target_os = "linux"))]
+        let _ = sender;
+        #[cfg(target_os = "linux")]
         sender.oneshot_command(async {
             // `auto_start` is deliberately **not set**, rather than set to
             // false. Sending the option at all makes the portal attempt

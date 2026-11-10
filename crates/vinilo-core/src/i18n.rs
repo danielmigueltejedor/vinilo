@@ -284,6 +284,7 @@ pub enum Key {
     CatalogSignInNote,
     CatalogLoginDone,
     CatalogOpenBrowser,
+    CatalogBrowserSignIn,
     CatalogSignOutTitle,
     CatalogSignOutBody,
     SearchSpotifyBody,
@@ -574,6 +575,9 @@ fn en(key: Key) -> &'static str {
         }
         Key::CatalogLoginDone => "Done",
         Key::CatalogOpenBrowser => "Open in browser",
+        Key::CatalogBrowserSignIn => {
+            "Sign in in the browser window that just opened, then come back and press Done."
+        }
         Key::CatalogSignOutTitle => "Sign out of this catalogue?",
         Key::CatalogSignOutBody => {
             "Vinilo will forget this session. Signing back in opens the login window again."
@@ -874,6 +878,9 @@ fn es(key: Key) -> &'static str {
         }
         Key::CatalogLoginDone => "Listo",
         Key::CatalogOpenBrowser => "Abrir en el navegador",
+        Key::CatalogBrowserSignIn => {
+            "Inicia sesión en la ventana del navegador que se acaba de abrir y vuelve para pulsar Listo."
+        }
         Key::CatalogSignOutTitle => "¿Cerrar sesión de este catálogo?",
         Key::CatalogSignOutBody => {
             "Vinilo olvidará esta sesión. Volver a entrar abre otra vez la ventana de inicio de sesión."

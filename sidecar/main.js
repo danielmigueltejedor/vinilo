@@ -112,6 +112,11 @@ app.setName('Vinilo')
 if (process.platform === 'linux') {
   app.setDesktopName('dev.danielmiguelt.Vinilo.desktop')
 }
+// macOS gives every process with a window a Dock icon of its own; the sidecar
+// is not an app the user should see beside Vinilo.
+if (process.platform === 'darwin') {
+  app.dock?.hide()
+}
 
 // Chromium publishes its OWN MPRIS player as soon as a page plays media, and
 // grabs the hardware media keys with it. Vinilo exports MPRIS itself (see

@@ -295,7 +295,8 @@ fn is_stale_socket(error: &std::io::Error) -> bool {
 }
 
 pub async fn run() -> Result<()> {
-    let path = ipc::socket_path().context("XDG_RUNTIME_DIR is not set")?;
+    let path = ipc::socket_path()
+        .context("no runtime directory for the socket (XDG_RUNTIME_DIR, or TMPDIR on macOS)")?;
 
     // **Ask before removing.** A socket file outlives the process that made it,
     // so a crash leaves one behind that accepts nothing — but unlinking it and

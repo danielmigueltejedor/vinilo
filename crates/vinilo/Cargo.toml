@@ -26,6 +26,10 @@ gtk = { package = "gtk4", version = "0.11", features = ["v4_20"] }
 nodalia-gtk = { git = "https://github.com/danielmigueltejedor/nodalia-design", rev = "3784bbeb88d10f902c576cf58688bcbddc2d5e82" }
 
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Linux desktop integrations: the Background portal and the WebKit sign-in
+# window. macOS signs in through the user's browser instead.
+[target.'cfg(target_os = "linux")'.dependencies]
 ashpd = { version = "0.13.13", default-features = false, features = [
     "background",
     "tokio",

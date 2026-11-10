@@ -19,8 +19,12 @@ use relm4::gtk::prelude::GtkWindowExt;
 use relm4::{ComponentSender, gtk};
 use vinilo_core::i18n::{self, Key};
 use vinilo_core::provider::Provider;
-use vinilo_core::setup::{self, NetscapeCookie};
+#[cfg(target_os = "linux")]
+use vinilo_core::setup::NetscapeCookie;
+use vinilo_core::setup::{self};
+#[cfg(target_os = "linux")]
 use webkit6::prelude::*;
+#[cfg(target_os = "linux")]
 use webkit6::{CookieAcceptPolicy, HardwareAccelerationPolicy, LoadEvent, NetworkSession, WebView};
 
 use super::{AppModel, AppMsg};
@@ -29,14 +33,17 @@ fn t(key: Key) -> &'static str {
     i18n::t(key)
 }
 
+#[cfg(target_os = "linux")]
 const CHROME_UA: &str = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36";
 
 /// The login window plus the cookie manager we still need after it closes.
 #[derive(Clone)]
 pub(super) struct CatalogLogin {
     pub window: ndl::Window,
+    #[cfg(target_os = "linux")]
     pub cookies: webkit6::CookieManager,
     pub provider: Provider,
+    #[cfg(target_os = "linux")]
     pub webview: WebView,
 }
 
@@ -167,114 +174,14 @@ impl AppModel {
             return;
         }
 
-        let data_dir = setup::webkit_data_dir(provider);
-        let cache_dir = setup::webkit_cache_dir(provider);
-        if let Some(dir) = &data_dir {
-            let _ = std::fs::create_dir_all(dir);
-        }
-        if let Some(dir) = &cache_dir {
-            let _ = std::fs::create_dir_all(dir);
-        }
-
-        let session = NetworkSession::new(
-            data_dir.as_deref().and_then(|p| p.to_str()),
-            cache_dir.as_deref().and_then(|p| p.to_str()),
-        );
-        let cookies = match session.cookie_manager() {
-            Some(manager) => manager,
-            None => {
-                tracing::error!("webkit session has no cookie manager");
-                return;
-            }
+        #[cfg(target_os = "linux")]
+        let Some((webview, cookies)) = web_view(sender, provider) else {
+            return;
         };
-        cookies.set_accept_policy(CookieAcceptPolicy::Always);
-
-        let webview = WebView::builder().network_session(&session).build();
-        if let Some(settings) = webkit6::prelude::WebViewExt::settings(&webview) {
-            settings.set_user_agent(Some(CHROME_UA));
-            // Google's sign-in (and YouTube Music after it) drives WebGL and
-            // the DMA-BUF renderer. On AMD radv that SIGSEGVs the whole
-            // process — not just the WebKit web process. Tidal's player
-            // shell is the same class of page.
-            settings.set_hardware_acceleration_policy(HardwareAccelerationPolicy::Never);
-            settings.set_enable_webgl(false);
-        }
-        {
-            let view = webview.clone();
-            webview.connect_decide_policy(move |_, decision, kind| {
-                if kind != webkit6::PolicyDecisionType::NewWindowAction {
-                    return false;
-                }
-                let Some(nav) = decision.downcast_ref::<webkit6::NavigationPolicyDecision>() else {
-                    return false;
-                };
-                let Some(uri) = nav
-                    .navigation_action()
-                    .and_then(|action| action.request())
-                    .and_then(|req| req.uri())
-                else {
-                    return false;
-                };
-                tracing::info!(%uri, "catalogue login opened another window");
-                view.load_uri(&uri);
-                decision.ignore();
-                true
-            });
-        }
-        {
-            let session = session.clone();
-            webview.connect_create(move |_, action| {
-                if let Some(uri) = action.request().and_then(|req| req.uri()) {
-                    tracing::info!(%uri, "catalogue login create");
-                }
-                let popup = WebView::builder().network_session(&session).build();
-                if let Some(settings) = webkit6::prelude::WebViewExt::settings(&popup) {
-                    settings.set_user_agent(Some(CHROME_UA));
-                    settings.set_hardware_acceleration_policy(HardwareAccelerationPolicy::Never);
-                    settings.set_enable_webgl(false);
-                }
-                let window = ndl::Window::builder()
-                    .title(i18n::catalog_sign_in(provider))
-                    .default_width(520)
-                    .default_height(640)
-                    .content(&popup)
-                    .build();
-                {
-                    let window = window.clone();
-                    popup.connect_close(move |_| {
-                        window.close();
-                    });
-                }
-                window.present();
-                Some(gtk::prelude::Cast::upcast::<gtk::Widget>(popup))
-            });
-        }
-        {
-            let sender = sender.clone();
-            webview.connect_web_process_terminated(move |_, reason| {
-                tracing::warn!(?reason, "catalogue login web process died");
-                sender.input(AppMsg::CatalogLoginClosed);
-            });
-        }
-        webview.load_uri(setup::login_url(provider));
-
-        let finished = Rc::new(Cell::new(false));
-        {
-            let sender = sender.clone();
-            let finished = finished.clone();
-            webview.connect_load_changed(move |view, event| {
-                if event != LoadEvent::Finished || finished.get() {
-                    return;
-                }
-                let uri = view.uri().unwrap_or_default();
-                if setup::uri_looks_signed_in(provider, &uri) {
-                    finished.set(true);
-                    view.stop_loading();
-                    view.load_uri("about:blank");
-                    sender.input(AppMsg::CatalogLoginFinished);
-                }
-            });
-        }
+        #[cfg(target_os = "linux")]
+        let content: gtk::Widget = webview.clone().upcast();
+        #[cfg(not(target_os = "linux"))]
+        let content: gtk::Widget = browser_sign_in(provider).upcast();
 
         let cancel = gtk::Button::builder()
             .label(t(Key::Cancel))
@@ -300,9 +207,7 @@ impl AppModel {
             .build();
         {
             let url = setup::login_url(provider).to_owned();
-            browser.connect_clicked(move |_| {
-                let _ = std::process::Command::new("xdg-open").arg(&url).spawn();
-            });
+            browser.connect_clicked(move |button| open_in_browser(button, &url));
         }
 
         let header = ndl::HeaderBar::builder().css_classes(["flat"]).build();
@@ -313,7 +218,7 @@ impl AppModel {
         header.pack_start(&cancel);
         header.pack_end(&done);
 
-        let view = ndl::ToolbarView::builder().content(&webview).build();
+        let view = ndl::ToolbarView::builder().content(&content).build();
         view.add_top_bar(&header);
 
         let window = ndl::Window::builder()
@@ -334,10 +239,14 @@ impl AppModel {
         }
 
         window.present();
+        #[cfg(not(target_os = "linux"))]
+        open_in_browser(&window, setup::login_url(provider));
         self.catalog_login = Some(CatalogLogin {
             window,
+            #[cfg(target_os = "linux")]
             cookies,
             provider,
+            #[cfg(target_os = "linux")]
             webview,
         });
     }
@@ -347,8 +256,11 @@ impl AppModel {
             return;
         };
         self.catalog_login_busy = false;
-        login.webview.stop_loading();
-        login.webview.terminate_web_process();
+        #[cfg(target_os = "linux")]
+        {
+            login.webview.stop_loading();
+            login.webview.terminate_web_process();
+        }
         login.window.set_content(Some(
             &gtk::Box::builder()
                 .orientation(gtk::Orientation::Vertical)
@@ -375,10 +287,15 @@ impl AppModel {
         };
         self.catalog_login_busy = true;
         let provider = login.provider;
+        #[cfg(target_os = "linux")]
         let cookies = login.cookies.clone();
         let sender = sender.clone();
         gtk::glib::spawn_future_local(async move {
+            #[cfg(target_os = "linux")]
             let mut dumped = dump_cookies_until_signed_in(&cookies, provider).await;
+            // No WebKit to sign in through: the browser holds the session.
+            #[cfg(not(target_os = "linux"))]
+            let mut dumped = false;
             if !dumped {
                 let _ = relm4::spawn_blocking(move || import_browser_cookies(provider)).await;
                 dumped = setup::looks_signed_in(provider, &setup::cookie_names(provider));
@@ -392,6 +309,7 @@ impl AppModel {
     }
 }
 
+#[cfg(target_os = "linux")]
 async fn dump_cookies_until_signed_in(
     manager: &webkit6::CookieManager,
     provider: Provider,
@@ -406,6 +324,7 @@ async fn dump_cookies_until_signed_in(
     false
 }
 
+#[cfg(target_os = "linux")]
 async fn dump_cookies(manager: &webkit6::CookieManager, provider: Provider) -> bool {
     let Some(path) = setup::cookies_path(provider) else {
         return false;
@@ -433,6 +352,7 @@ async fn dump_cookies(manager: &webkit6::CookieManager, provider: Provider) -> b
     signed_in
 }
 
+#[cfg(target_os = "linux")]
 fn from_soup(cookie: &mut webkit6::soup::Cookie) -> NetscapeCookie {
     let domain = cookie.domain().unwrap_or_default().to_string();
     let host_only = !domain.starts_with('.');
@@ -458,7 +378,12 @@ fn import_browser_cookies(provider: Provider) {
     if setup::looks_signed_in(provider, &setup::cookie_names(provider)) {
         return;
     }
-    for browser in ["firefox", "chromium", "google-chrome", "chrome", "brave"] {
+    let browsers: &[&str] = if cfg!(target_os = "macos") {
+        &["safari", "chrome", "firefox", "brave", "chromium"]
+    } else {
+        &["firefox", "chromium", "google-chrome", "chrome", "brave"]
+    };
+    for &browser in browsers {
         let status = std::process::Command::new("yt-dlp")
             .args([
                 "--cookies-from-browser",
@@ -475,4 +400,141 @@ fn import_browser_cookies(provider: Provider) {
             return;
         }
     }
+}
+
+/// The service's sign-in page in a WebKit view, with the cookie jar behind it.
+#[cfg(target_os = "linux")]
+fn web_view(
+    sender: &ComponentSender<AppModel>,
+    provider: Provider,
+) -> Option<(WebView, webkit6::CookieManager)> {
+    let data_dir = setup::webkit_data_dir(provider);
+    let cache_dir = setup::webkit_cache_dir(provider);
+    if let Some(dir) = &data_dir {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    if let Some(dir) = &cache_dir {
+        let _ = std::fs::create_dir_all(dir);
+    }
+
+    let session = NetworkSession::new(
+        data_dir.as_deref().and_then(|p| p.to_str()),
+        cache_dir.as_deref().and_then(|p| p.to_str()),
+    );
+    let cookies = match session.cookie_manager() {
+        Some(manager) => manager,
+        None => {
+            tracing::error!("webkit session has no cookie manager");
+            return None;
+        }
+    };
+    cookies.set_accept_policy(CookieAcceptPolicy::Always);
+
+    let webview = WebView::builder().network_session(&session).build();
+    if let Some(settings) = webkit6::prelude::WebViewExt::settings(&webview) {
+        settings.set_user_agent(Some(CHROME_UA));
+        // Google's sign-in (and YouTube Music after it) drives WebGL and
+        // the DMA-BUF renderer. On AMD radv that SIGSEGVs the whole
+        // process — not just the WebKit web process. Tidal's player
+        // shell is the same class of page.
+        settings.set_hardware_acceleration_policy(HardwareAccelerationPolicy::Never);
+        settings.set_enable_webgl(false);
+    }
+    {
+        let view = webview.clone();
+        webview.connect_decide_policy(move |_, decision, kind| {
+            if kind != webkit6::PolicyDecisionType::NewWindowAction {
+                return false;
+            }
+            let Some(nav) = decision.downcast_ref::<webkit6::NavigationPolicyDecision>() else {
+                return false;
+            };
+            let Some(uri) = nav
+                .navigation_action()
+                .and_then(|action| action.request())
+                .and_then(|req| req.uri())
+            else {
+                return false;
+            };
+            tracing::info!(%uri, "catalogue login opened another window");
+            view.load_uri(&uri);
+            decision.ignore();
+            true
+        });
+    }
+    {
+        let session = session.clone();
+        webview.connect_create(move |_, action| {
+            if let Some(uri) = action.request().and_then(|req| req.uri()) {
+                tracing::info!(%uri, "catalogue login create");
+            }
+            let popup = WebView::builder().network_session(&session).build();
+            if let Some(settings) = webkit6::prelude::WebViewExt::settings(&popup) {
+                settings.set_user_agent(Some(CHROME_UA));
+                settings.set_hardware_acceleration_policy(HardwareAccelerationPolicy::Never);
+                settings.set_enable_webgl(false);
+            }
+            let window = ndl::Window::builder()
+                .title(i18n::catalog_sign_in(provider))
+                .default_width(520)
+                .default_height(640)
+                .content(&popup)
+                .build();
+            {
+                let window = window.clone();
+                popup.connect_close(move |_| {
+                    window.close();
+                });
+            }
+            window.present();
+            Some(gtk::prelude::Cast::upcast::<gtk::Widget>(popup))
+        });
+    }
+    {
+        let sender = sender.clone();
+        webview.connect_web_process_terminated(move |_, reason| {
+            tracing::warn!(?reason, "catalogue login web process died");
+            sender.input(AppMsg::CatalogLoginClosed);
+        });
+    }
+    webview.load_uri(setup::login_url(provider));
+
+    let finished = Rc::new(Cell::new(false));
+    {
+        let sender = sender.clone();
+        let finished = finished.clone();
+        webview.connect_load_changed(move |view, event| {
+            if event != LoadEvent::Finished || finished.get() {
+                return;
+            }
+            let uri = view.uri().unwrap_or_default();
+            if setup::uri_looks_signed_in(provider, &uri) {
+                finished.set(true);
+                view.stop_loading();
+                view.load_uri("about:blank");
+                sender.input(AppMsg::CatalogLoginFinished);
+            }
+        });
+    }
+    Some((webview, cookies))
+}
+
+/// Where there is no WebKit view: the sign-in happens in the user's browser,
+/// and its cookies are read back when they press Done.
+#[cfg(not(target_os = "linux"))]
+fn browser_sign_in(provider: Provider) -> ndl::StatusPage {
+    ndl::StatusPage::builder()
+        .icon_name("web-browser-symbolic")
+        .title(i18n::catalog_sign_in(provider))
+        .description(t(Key::CatalogBrowserSignIn))
+        .build()
+}
+
+fn open_in_browser(near: &impl IsA<gtk::Widget>, url: &str) {
+    let window = near.as_ref().root().and_downcast::<gtk::Window>();
+    gtk::UriLauncher::new(url).launch(window.as_ref(), gtk::gio::Cancellable::NONE, |result| {
+        if let Err(err) = result {
+            tracing::warn!(%err, "could not open the sign-in page in a browser");
+        }
+    });
 }

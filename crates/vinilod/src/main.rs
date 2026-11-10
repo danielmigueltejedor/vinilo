@@ -17,6 +17,10 @@ mod bus;
 mod heal;
 mod library;
 mod local;
+#[cfg(target_os = "linux")]
+mod mixer;
+#[cfg(not(target_os = "linux"))]
+#[path = "mixer_none.rs"]
 mod mixer;
 mod serve;
 mod spotify_play;

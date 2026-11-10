@@ -60,6 +60,56 @@ jobs:
       - name: make check
         run: make check
 
+  macos:
+    name: macOS · clippy · tests · DMG
+    # Apple Silicon. Homebrew's GTK is built for the runner's own macOS, so the
+    # DMG needs that version or newer; Info.plist says which.
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install the build floor
+        run: |
+          brew install gtk4 librsvg adwaita-icon-theme pkgconf node
+          rustup default stable
+          rustc --version
+
+      - name: Cache cargo
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: cargo-${{ runner.os }}-
+
+      - name: clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: tests
+        run: cargo test --workspace --locked
+
+      # The DMG is built on every run so a change that breaks the bundle shows
+      # here, and so the result can be downloaded and opened on a Mac.
+      - name: Vinilo.app and DMG
+        run: |
+          set -euxo pipefail
+          cargo build --release --locked
+          make sidecar
+          ./packaging/macos/bundle.sh dist/macos
+          VERSION=$(awk -F\" '/^version = / {print $2; exit}' Cargo.toml)
+          ./packaging/macos/create_dmg.sh dist/macos/Vinilo.app "dist/Vinilo-${VERSION}-macos-arm64.dmg"
+          # Nothing outside the bundle but the system's own libraries.
+          otool -L dist/macos/Vinilo.app/Contents/MacOS/vinilo | grep -v -E '@rpath|/usr/lib/|/System/' | tail -n +2 | tee /dev/stderr | (! grep -q .)
+
+      - name: Keep DMG
+        uses: actions/upload-artifact@v6
+        with:
+          name: macos-dmg
+          path: dist/Vinilo-*-macos-arm64.dmg
+          retention-days: 7
+
   packaging-changed:
     name: Did the packaging move?
     runs-on: ubuntu-latest

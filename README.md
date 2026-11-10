@@ -19,6 +19,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
   <p>
     <img src="https://img.shields.io/badge/version-2.0.0-4a86cf" alt="Version 2.0.0">
     <img src="https://img.shields.io/badge/platform-Linux%20x86__64-fcc624?logo=linux&logoColor=black" alt="Linux x86_64">
+    <img src="https://img.shields.io/badge/platform-macOS%20arm64-000000?logo=apple&logoColor=white" alt="macOS arm64">
     <img src="https://img.shields.io/badge/GTK4%20%2F%20Nodalia%20Design-4a86cf" alt="GTK4 and Nodalia Design">
     <img src="https://img.shields.io/badge/Rust-dea584?logo=rust&logoColor=black" alt="Written in Rust">
     <img src="https://img.shields.io/badge/interface-System%20%7C%20English%20%7C%20Español-8a63d2" alt="System, English and Spanish">
@@ -152,6 +153,21 @@ reinstalls. If the grid still launches nothing, the desktop file must read
 `Exec=/home/YOU/.local/bin/vinilo-desktop`. Log out once if an icon or launcher
 looks stale.
 
+### macOS (Apple Silicon)
+
+Download `Vinilo-<version>-macos-arm64.dmg` from the
+[latest release](https://github.com/danielmigueltejedor/vinilo/releases/latest),
+open it and drag Vinilo to Applications. The app is signed ad-hoc, not
+notarized, so the first time macOS refuses to open it: right-click Vinilo in
+Applications, choose **Open**, and confirm.
+
+YouTube Music, Tidal and links play through `yt-dlp` and `ffmpeg`:
+`brew install yt-dlp ffmpeg`. Those sources sign in through your browser, and
+Vinilo reads the session back when you press Done.
+
+To build it yourself: `brew install gtk4 librsvg adwaita-icon-theme pkgconf node`,
+then `cargo build --release && make sidecar && packaging/macos/bundle.sh dist/macos`.
+
 ### Default player for files
 
 In Files: right-click a track → **Open With** → Vinilo → **Always**. Or:
@@ -216,6 +232,8 @@ Vinilo does not strip DRM, cache decrypted audio, or offer downloads.
 | x86_64 only for Apple Music | Linux ARM Widevine is not a stable target |
 | Spotify and Apple Music are ready; YouTube Music is **Beta**; Tidal is **Alpha** | Catalogue clients are still settling |
 | Karaoke voice attenuation is catalogue / local only | MusicKit never hands Vinilo samples |
+| Apple Music on macOS needs Widevine VMP signing | Without it Apple's licence server can refuse playback; local files and Spotify are unaffected |
+| macOS: no media keys or Now Playing yet | The shell controls are MPRIS, which is Linux's |
 
 ## Contributing
 
