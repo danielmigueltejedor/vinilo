@@ -232,6 +232,11 @@ jobs:
                      libgtk-3-0t64 libgtk-3-0; do
             apt-get install -y --no-install-recommends "$pkg" || echo "not available: $pkg"
           done
+          # linuxdeploy-plugin-gtk copies <libdir>/gtk-4.0 (GTK's loadable modules).
+          # Without recommended packages that directory does not exist, so install
+          # the media backend that provides it and make sure the directory is there.
+          apt-get install -y --no-install-recommends libgtk-4-media-gstreamer || echo "not available: libgtk-4-media-gstreamer"
+          mkdir -p "$(pkg-config --variable=libdir gtk4)/gtk-4.0"
 
       - uses: actions/checkout@v5
 
