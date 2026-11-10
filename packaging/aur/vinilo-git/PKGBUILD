@@ -90,7 +90,11 @@ package_vinilo-daemon-git() {
   #
   # The front-ends carry that conflict instead: neither can be installed beside
   # the release package, so the daemon never arrives next to it either.
-  conflicts=('vinilo-daemon')
+  # `aguja-git` pinned this daemon to its own exact version. Without a conflict
+  # an installed copy would hold every later daemon upgrade back; this way
+  # pacman offers to remove it.
+  conflicts=('vinilo-daemon' 'aguja-git')
+  replaces=('aguja-git')
 
   cd "$srcdir/$_pkgname"
   install -Dm755 target/release/vinilod "$pkgdir/usr/bin/vinilod"

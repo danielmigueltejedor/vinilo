@@ -39,6 +39,10 @@ package_vinilo-daemon() {
   pkgdesc="Vinilo's playback daemon and hidden Chromium sidecar"
   depends=('gtk3' 'nss' 'alsa-lib' 'libcups' 'libxkbcommon' 'mesa' 'libdrm'
            'libseccomp' 'libpulse' 'yt-dlp' 'ffmpeg')
+  # The removed `aguja` package pinned this daemon to its exact version; the
+  # conflict lets pacman remove it instead of holding the upgrade back.
+  conflicts=('aguja')
+  replaces=('aguja')
 
   cd "$srcdir/Vinilo-$pkgver"
   install -Dm755 target/release/vinilod "$pkgdir/usr/bin/vinilod"
