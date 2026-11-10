@@ -11,7 +11,7 @@
 //!
 //! System follows `LC_MESSAGES` / `LANG` (primary tag only). An unsupported
 //! tag falls back to English. The choice lives in `~/.config/vinilo/locale` so
-//! Vinilo and Aguja agree without sharing a GTK settings parser.
+//! the app and the daemon agree without sharing a GTK settings parser.
 //!
 //! ## Adding a language
 //!

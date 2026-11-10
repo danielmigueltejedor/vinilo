@@ -35,10 +35,9 @@ jobs:
       - name: Install the build floor
         run: |
           # `libpulse` is a build dependency now, not only a runtime one:
-          # aguja's visualiser reads a monitor source and the daemon sets the
-          # stream's volume, so both link against it. Without it the compile is
-          # fine and the *link* fails, which reads as a mystery until you scroll
-          # to `unable to find library -l:libpulse.so.0`.
+          # the daemon sets the stream's volume, so it links against it.
+          # Without it the compile is fine and the *link* fails, which reads as
+          # a mystery until you scroll to `unable to find library -l:libpulse.so.0`.
           pacman -Syu --needed --noconfirm \
             git pkgconf rust gtk4 libadwaita librsvg libpulse webkitgtk-6.0
           rustc --version

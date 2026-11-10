@@ -44,8 +44,8 @@ wrapped in a window. The interface is GTK4 and libadwaita. Apple Music still
 needs Apple's own player and Google's official Widevine CDM, so a small
 Chromium process stays hidden after sign-in. Local files never touch it.
 
-A GNOME app and a terminal client (`aguja`) talk to the same engine. Closing
-the window does not stop the music.
+The app talks to a small engine that keeps playing in the background, so
+closing the window does not stop the music.
 
 > [!IMPORTANT]
 > **Apple Music** needs an active subscription, an **x86_64** machine and a
@@ -75,9 +75,9 @@ the window does not stop the music.
 | --- | --- | --- |
 | A GNOME app, not a website in a frame | Gapless playback, queue, lyrics and karaoke with a voice level on catalogue tracks | Play, pause and skip from the top bar, lock screen or media keys |
 | Your library: songs, albums, artists and playlists | The catalogues you already use, searchable from one place | Music keeps going when you close the window |
-| English or Spanish, or the system language | Crossfade, local listening stats, optional Last.fm scrobbling | A terminal client (`aguja`) on the same engine |
+| English or Spanish, or the system language | Crossfade, local listening stats, optional Last.fm scrobbling | Open audio files straight from the file manager |
 
-Vinilo is built for daily listening: one queue, two faces, and a small hidden
+Vinilo is built for daily listening: one queue, one native interface, and a small hidden
 web layer only where DRM requires it.
 
 ## Sources
@@ -166,13 +166,9 @@ xdg-mime default dev.danielmiguelt.Vinilo.desktop audio/ogg
 
 ```bash
 cargo run                 # GNOME app
-cargo run -p aguja        # terminal client
 make sidecar-run          # hidden player, window visible (DRM isolation)
 make check                # fmt + clippy + tests
 ```
-
-`aguja` is installed with Vinilo. Apple Music still needs a graphical session
-because Chromium needs a display server.
 
 ## First launch
 
@@ -191,13 +187,12 @@ tokens are never written to disk.
 ## How it works
 
 ```
-┌────────────────────────────┐   ┌────────────────────────────┐
-│  Vinilo  GTK4 / libadwaita │   │  aguja  terminal           │
-│  library · search · player │   │  the same engine, in text  │
-└─────────────┬──────────────┘   └─────────────┬──────────────┘
-              │         JSON on a Unix socket
-              └──────────────┬─────────────────┘
-┌─────────────────────────────▼─────────────────────────────────┐
+               ┌────────────────────────────┐
+               │  Vinilo  GTK4 / libadwaita │
+               │  library · search · player │
+               └─────────────┬──────────────┘
+                             │ JSON on a Unix socket
+┌────────────────────────────▼──────────────────────────────────┐
 │  vinilod — the engine                         no window      │
 │  queue · desktop controls · artwork · local files · cache    │
 │  listen stats · Last.fm scrobbles                             │
@@ -221,7 +216,6 @@ Vinilo does not strip DRM, cache decrypted audio, or offer downloads.
 | x86_64 only for Apple Music | Linux ARM Widevine is not a stable target |
 | Spotify and Apple Music are ready; YouTube Music is **Beta**; Tidal is **Alpha** | Catalogue clients are still settling |
 | Karaoke voice attenuation is catalogue / local only | MusicKit never hands Vinilo samples |
-| `aguja` needs a desktop session for Chromium sources | The decoder still needs a display server |
 
 ## Contributing
 
@@ -252,8 +246,8 @@ Licensing: every new source file needs the two-line SPDX header
 
 Strings are runtime tables in
 [`crates/vinilo-core/src/i18n.rs`](./crates/vinilo-core/src/i18n.rs), not
-gettext. Both Vinilo and Aguja call `t(Key::…)`, so one edit covers both
-clients.
+gettext. The app and the engine both call `t(Key::…)`, so one edit covers
+both.
 
 ### Add a language
 

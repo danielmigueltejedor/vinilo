@@ -8,10 +8,9 @@
 # ~220 MB Electron at the same paths in two packages, which pacman refuses and
 # which would be wrong even if it did not: they are one installation.
 #
-# So: one build, three packages. Either front-end pulls the daemon in on its
-# own, and both can be installed together sharing one copy of it.
+# So: one build, two packages. The app pulls the daemon in on its own.
 pkgbase=vinilo-git
-pkgname=('vinilo-daemon-git' 'vinilo-git' 'aguja-git')
+pkgname=('vinilo-daemon-git' 'vinilo-git')
 _pkgname=vinilo
 pkgver=0.10.0.r0.g0000000
 pkgrel=1
@@ -19,8 +18,8 @@ arch=('x86_64')          # Widevine on Linux is x86_64 only
 # Fork of Slipmat. Point `url` at your own remote when you publish.
 url="https://github.com/SoftARV/Slipmat"
 license=('GPL-3.0-or-later')
-# `libpulse` is needed to *build*, not only to run: both the daemon and aguja
-# link against it. A missing runtime dependency fails at launch; a missing build
+# `libpulse` is needed to *build*, not only to run: the daemon links against
+# it. A missing runtime dependency fails at launch; a missing build
 # one fails at the link, which is harder to read.
 makedepends=('cargo' 'nodejs' 'npm' 'git' 'pkgconf' 'librsvg'
              'gtk4' 'libadwaita' 'libpulse' 'webkitgtk-6.0')
@@ -148,45 +147,4 @@ package_vinilo-git() {
 
   install -Dm644 COPYING "$pkgdir/usr/share/licenses/$pkgname/COPYING"
   install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
-}
-
-package_aguja-git() {
-  pkgdesc="Winamp-style Apple Music in a terminal; needs a graphical session (latest commit)"
-  # No toolkit: it draws itself. The daemon behind it still needs a display
-  # server for Chromium, which is why this cannot run over plain SSH — see the
-  # README it installs.
-  #
-  # `libpulse` is the visualiser's, and it is a real link rather than a
-  # convention — `ldd` shows libpulse.so.0 and libpulse-simple.so.0. PipeWire
-  # users have it too, through `pipewire-pulse`.
-  depends=("vinilo-daemon-git=$pkgver-$pkgrel" 'libpulse' 'hicolor-icon-theme')
-  provides=("aguja=$pkgver")
-  # **Only `aguja`.** The release `vinilo` package owns the same sidecar paths
-  # the daemon does, so it would be tempting to name it here — but `vinilo-git`
-  # *provides* `vinilo`, and a conflict on a name another package in this very
-  # split provides means the two cannot be installed together. That is the same
-  # mistake that made the daemon conflict with its own front-end, one package
-  # over. Someone holding the release package and installing this gets a file
-  # conflict from pacman instead, which is uglier and correct; it goes away when
-  # the release package is split too.
-  conflicts=('aguja')
-
-  cd "$srcdir/$_pkgname"
-  local appid=dev.danielmiguelt.Aguja
-
-  install -Dm755 target/release/aguja "$pkgdir/usr/bin/aguja"
-
-  # **A desktop entry for a terminal program.** `Terminal=true`, so a launcher
-  # opens a terminal and runs it there — which terminal is the desktop's
-  # business. Without this aguja is only ever a command.
-  install -Dm644 "data/$appid.desktop" \
-    "$pkgdir/usr/share/applications/$appid.desktop"
-  for sz in 16 32 48 64 128 256 512; do
-    install -d "$pkgdir/usr/share/icons/hicolor/${sz}x${sz}/apps"
-    install -Dm644 "data/icons/hicolor/${sz}x${sz}/apps/$appid.png" \
-      "$pkgdir/usr/share/icons/hicolor/${sz}x${sz}/apps/$appid.png"
-  done
-
-  install -Dm644 COPYING "$pkgdir/usr/share/licenses/$pkgname/COPYING"
-  install -Dm644 crates/aguja/README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
 }

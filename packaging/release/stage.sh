@@ -3,23 +3,19 @@ set -euo pipefail
 
 ROOT="${1:-dist/root}"
 APPID="dev.danielmiguelt.Vinilo"
-AGUJA="dev.danielmiguelt.Aguja"
 
 [[ -x target/release/vinilo ]]
 [[ -x target/release/vinilod ]]
-[[ -x target/release/aguja ]]
 [[ -d sidecar/node_modules ]]
 
 rm -rf "$ROOT"
 
 install -Dm755 target/release/vinilo "$ROOT/usr/bin/vinilo"
 install -Dm755 target/release/vinilod "$ROOT/usr/bin/vinilod"
-install -Dm755 target/release/aguja "$ROOT/usr/bin/aguja"
 install -Dm755 data/vinilo-desktop "$ROOT/usr/bin/vinilo-desktop"
 
 install -d "$ROOT/usr/share/applications"
 sed "s|@BINDIR@|/usr/bin|g" "data/$APPID.desktop" > "$ROOT/usr/share/applications/$APPID.desktop"
-sed "s|@BINDIR@|/usr/bin|g" "data/$AGUJA.desktop" > "$ROOT/usr/share/applications/$AGUJA.desktop"
 
 install -d "$ROOT/usr/lib/systemd/user"
 sed "s|@BINDIR@|/usr/bin|g" packaging/systemd/vinilod.service > "$ROOT/usr/lib/systemd/user/vinilod.service"
@@ -29,7 +25,6 @@ sed "s|@BINDIR@|/usr/bin|g" "packaging/dbus/$APPID.service" > "$ROOT/usr/share/d
 
 for size in 16 32 48 64 128 256 512; do
     install -Dm644 "data/icons/hicolor/${size}x${size}/apps/$APPID.png" "$ROOT/usr/share/icons/hicolor/${size}x${size}/apps/$APPID.png"
-    install -Dm644 "data/icons/hicolor/${size}x${size}/apps/$AGUJA.png" "$ROOT/usr/share/icons/hicolor/${size}x${size}/apps/$AGUJA.png"
 done
 
 install -Dm644 "data/icons/hicolor/symbolic/apps/$APPID-symbolic.svg" "$ROOT/usr/share/icons/hicolor/symbolic/apps/$APPID-symbolic.svg"

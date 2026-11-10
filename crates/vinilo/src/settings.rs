@@ -339,8 +339,8 @@ impl Settings {
         if let Ok(names) = file.string(GROUP, "pinned-names") {
             settings.pinned_names = parse_pin_names(&names);
         }
-        // The locale file is the source of truth so Aguja can read it without
-        // glib. A value in the ini is only a fallback for older installs.
+        // The locale file is the source of truth so the daemon can read it
+        // without glib. A value in the ini is only a fallback for older installs.
         // Default is System — that is not "a saved preference", so it must not
         // masquerade as evidence of an older install when deciding the provider.
         let had_saved_language = i18n::load().is_some() || file.string(GROUP, "language").is_ok();

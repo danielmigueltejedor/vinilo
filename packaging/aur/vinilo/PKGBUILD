@@ -4,7 +4,7 @@
 # the source URL below still points at upstream Slipmat for reference.
 
 pkgbase=vinilo
-pkgname=('vinilo-daemon' 'vinilo' 'aguja')
+pkgname=('vinilo-daemon' 'vinilo')
 pkgver=0.11.0
 pkgrel=1
 arch=('x86_64')          # Widevine on Linux is x86_64 only
@@ -81,25 +81,4 @@ package_vinilo() {
 
   install -Dm644 COPYING "$pkgdir/usr/share/licenses/$pkgname/COPYING"
   install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
-}
-
-package_aguja() {
-  pkgdesc="Winamp-style Apple Music in a terminal; needs a graphical session"
-  depends=("vinilo-daemon=$pkgver-$pkgrel" 'libpulse' 'hicolor-icon-theme')
-
-  cd "$srcdir/Vinilo-$pkgver"
-  local appid=dev.danielmiguelt.Aguja
-
-  install -Dm755 target/release/aguja "$pkgdir/usr/bin/aguja"
-  install -Dm644 "data/$appid.desktop" \
-    "$pkgdir/usr/share/applications/$appid.desktop"
-
-  for sz in 16 32 48 64 128 256 512; do
-    install -d "$pkgdir/usr/share/icons/hicolor/${sz}x${sz}/apps"
-    install -Dm644 "data/icons/hicolor/${sz}x${sz}/apps/$appid.png" \
-      "$pkgdir/usr/share/icons/hicolor/${sz}x${sz}/apps/$appid.png"
-  done
-
-  install -Dm644 COPYING "$pkgdir/usr/share/licenses/$pkgname/COPYING"
-  install -Dm644 crates/aguja/README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
 }

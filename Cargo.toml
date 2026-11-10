@@ -4,7 +4,6 @@ members = [
     "crates/vinilo-core",
     "crates/vinilod",
     "crates/vinilo",
-    "crates/aguja",
 ]
 
 # Shared so the two crates cannot drift apart on a version.
