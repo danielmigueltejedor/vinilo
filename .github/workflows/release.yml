@@ -222,6 +222,16 @@ jobs:
             file desktop-file-utils \
             libgtk-4-dev libadwaita-1-dev libpulse-dev libasound2-dev \
             libwebkitgtk-6.0-dev librsvg2-dev nodejs npm
+          # Runtime libraries of the bundled Electron sidecar. linuxdeploy copies
+          # them into the AppImage and fails on any it cannot find. Names differ
+          # between Ubuntu releases (the t64 transition), so each is tried alone.
+          for pkg in libnss3 libnspr4 libxkbcommon0 libxcomposite1 libxdamage1 \
+                     libxfixes3 libxrandr2 libgbm1 libdrm2 libxshmfence1 \
+                     libatk1.0-0t64 libatk1.0-0 libatk-bridge2.0-0t64 libatk-bridge2.0-0 \
+                     libatspi2.0-0t64 libatspi2.0-0 libcups2t64 libcups2 \
+                     libgtk-3-0t64 libgtk-3-0; do
+            apt-get install -y --no-install-recommends "$pkg" || echo "not available: $pkg"
+          done
 
       - uses: actions/checkout@v5
 
