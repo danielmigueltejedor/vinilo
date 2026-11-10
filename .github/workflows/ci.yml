@@ -101,7 +101,10 @@ jobs:
           VERSION=$(awk -F\" '/^version = / {print $2; exit}' Cargo.toml)
           ./packaging/macos/create_dmg.sh dist/macos/Vinilo.app "dist/Vinilo-${VERSION}-macos-arm64.dmg"
           # Nothing outside the bundle but the system's own libraries.
-          otool -L dist/macos/Vinilo.app/Contents/MacOS/vinilo | grep -v -E '@rpath|/usr/lib/|/System/' | tail -n +2 | tee /dev/stderr | (! grep -q .)
+          for bin in dist/macos/Vinilo.app/Contents/MacOS/vinilo dist/macos/Vinilo.app/Contents/MacOS/vinilod; do
+            outside=$(otool -L "$bin" | tail -n +2 | grep -v -E '@rpath|@executable_path|@loader_path|/usr/lib/|/System/' || true)
+            if [ -n "$outside" ]; then echo "$bin links outside the bundle:"; echo "$outside"; exit 1; fi
+          done
 
       - name: Keep DMG
         uses: actions/upload-artifact@v6
