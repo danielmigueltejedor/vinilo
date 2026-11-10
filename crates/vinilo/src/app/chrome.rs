@@ -214,11 +214,9 @@ pub(super) fn show_about(parent: &adw::ApplicationWindow) {
         .version(env!("CARGO_PKG_VERSION"))
         .release_notes_version(env!("CARGO_PKG_VERSION"))
         .release_notes(
-            "<p>Vinilo 1.1.4</p><ul>\
-             <li>GitHub releases now ship an AppImage alongside the distro packages and Flatpak.</li>\
-             <li>Nodalix chrome is deeper — covers, drawer, and player surfaces read as one piece.</li>\
-             <li>Listen counts round at the unit boundary, and the stats file saves atomically.</li>\
-             <li>YouTube Music finishes writing audio before the next track is shown.</li>\
+            "<p>Vinilo 1.1.5</p><ul>\
+             <li>New app icon: a portrait of Beethoven, part of the Nodalia icon family.</li>\
+             <li>Release downloads are back: the AppImage step that left 1.1.4 without packages is fixed.</li>\
              </ul>",
         )
         .license_type(gtk::License::Gpl30)

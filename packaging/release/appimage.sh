@@ -94,12 +94,13 @@ ELECTRON_BIN="$APPDIR/usr/share/vinilo/sidecar/node_modules/electron/dist/electr
 
 # One linuxdeploy pass: app binaries, GTK plugin, Electron deps, custom AppRun,
 # then pack. A second pass for Electron alone used to race the gtk plugin.
+# vinilo-desktop is a shell launcher already staged in the AppDir: linuxdeploy
+# only accepts ELF files as --executable and aborts on anything else.
 deploy=(
   --appdir "$APPDIR"
   --executable "$APPDIR/usr/bin/vinilo"
   --executable "$APPDIR/usr/bin/vinilod"
   --executable "$APPDIR/usr/bin/aguja"
-  --executable "$APPDIR/usr/bin/vinilo-desktop"
   --desktop-file "$APPDIR/usr/share/applications/$APPID.desktop"
   --icon-file "$ICON_SRC"
   --icon-filename "$APPID"
