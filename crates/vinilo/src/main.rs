@@ -4,6 +4,7 @@
 mod app;
 mod components;
 mod daemon;
+mod handover;
 mod mirror;
 mod nodalix;
 mod notify;
@@ -77,6 +78,8 @@ fn main() {
     // is why the grid used to do nothing; this is why "Open with Vinilo"
     // actually starts the song. Set before `run` so GTK has not registered.
     let gtk_app = relm4::main_application();
+    handover::advertise(&gtk_app);
+    handover::replace_older_instance();
     gtk_app.set_flags(gtk_app.flags() | gtk::gio::ApplicationFlags::HANDLES_OPEN);
     gtk_app.connect_open(|app, files, _hint| {
         let paths: Vec<std::path::PathBuf> = files.iter().filter_map(|f| f.path()).collect();
