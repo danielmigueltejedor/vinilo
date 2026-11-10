@@ -87,11 +87,7 @@ modules:
         dest: electron-dist
     build-commands:
       - cargo --offline fetch --manifest-path Cargo.toml --verbose
-      # **Only what this package ships.** The workspace also holds `aguja`,
-      # the terminal client, which the Flatpak deliberately does not install —
-      # this stays the GNOME application. Its crates still have to be
-      # *vendored*, because `fetch` resolves the whole workspace, but there is
-      # no reason to compile a binary nothing will install.
+      # **Only what this package ships**: the app and its daemon.
       - cargo --offline build --release --verbose -p vinilo -p vinilod
       - install -Dm755 target/release/vinilo /app/bin/vinilo.real
       # **Required, not optional.** The app is a client of the daemon: it looks

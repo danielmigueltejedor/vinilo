@@ -23,7 +23,7 @@ src="$repo/packaging/aur/$pkg"
 if [[ ! -d $src ]]; then
     # The argument is a **package base**, which is the directory here and the
     # repository on the AUR. `vinilo-git` is a split base: one push publishes
-    # vinilo-daemon-git, vinilo-git and aguja-git together.
+    # vinilo-daemon-git and vinilo-git together.
     echo "usage: $0 <vinilo|vinilo-git> [--push]" >&2
     exit 2
 fi

@@ -35,6 +35,7 @@ pub mod spotify;
 pub mod streams;
 pub mod tidal;
 pub mod unplayable;
+pub mod version;
 pub mod ytmusic;
 
 /// The application id. It must match the `.desktop` file name, the GResource

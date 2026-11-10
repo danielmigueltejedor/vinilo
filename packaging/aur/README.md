@@ -9,8 +9,8 @@ Two split package bases, both built from this tree:
 
 | Directory | Builds | Builds from |
 | --- | --- | --- |
-| `vinilo/` | `vinilo-daemon`, `vinilo`, `aguja` | the `v0.11.0` release tarball |
-| `vinilo-git/` | `vinilo-daemon-git`, `vinilo-git`, `aguja-git` | the latest commit on `main` |
+| `vinilo/` | `vinilo-daemon`, `vinilo` | the `v0.11.0` release tarball |
+| `vinilo-git/` | `vinilo-daemon-git`, `vinilo-git` | the latest commit on `main` |
 
 The release and `-git` lines conflict with each other, as the two conventions
 require.
@@ -28,11 +28,9 @@ they are one installation.
 | --- | --- | --- | --- |
 | Engine | `vinilo-daemon` | `vinilo-daemon-git` | `vinilod`, the sidecar, the optional systemd unit |
 | GNOME client | `vinilo` | `vinilo-git` | the app, desktop file and icons |
-| Terminal client | `aguja` | `aguja-git` | the app, desktop file and icons |
 
-Installing either front-end pulls the daemon in on its own, so each behaves as
-though it were self-contained, and both can be installed together sharing one
-copy of it.
+Installing the app pulls the daemon in on its own, so it behaves as though it
+were self-contained.
 
 **`vinilo-git` shipped without `vinilod` for a while and nobody noticed**,
 because the package predating the daemon still worked: the app spawned the

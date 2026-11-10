@@ -100,7 +100,6 @@ deploy=(
   --appdir "$APPDIR"
   --executable "$APPDIR/usr/bin/vinilo"
   --executable "$APPDIR/usr/bin/vinilod"
-  --executable "$APPDIR/usr/bin/aguja"
   --desktop-file "$APPDIR/usr/share/applications/$APPID.desktop"
   --icon-file "$ICON_SRC"
   --icon-filename "$APPID"

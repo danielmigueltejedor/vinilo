@@ -21,8 +21,7 @@ CARGO ?= $(shell \
 	elif [ -x "$(HOME)/.cargo/bin/cargo" ]; then echo "$(HOME)/.cargo/bin/cargo"; \
 	elif command -v rustup >/dev/null 2>&1; then rustup which cargo 2>/dev/null; \
 	fi)
-# aguja has an id of its own because it is a separate program with a separate
-# entry — a terminal one, launched by the desktop into a terminal.
+# The terminal client aguja was removed; installs still clean up what it left.
 AGUJA   = dev.danielmiguelt.Aguja
 SIDECAR  = $(DATADIR)/vinilo/sidecar
 
@@ -152,10 +151,10 @@ install: build install-sidecar
 	fi
 	install -Dm755 target/release/vinilo $(BINDIR)/vinilo
 	install -Dm755 target/release/vinilod $(BINDIR)/vinilod
-	install -Dm755 target/release/aguja $(BINDIR)/aguja
+	rm -f $(BINDIR)/aguja
 	$(MAKE) dev-install
 	@echo "Installed to $(PREFIX)."
-	@echo "Launch Vinilo from the app grid, or run 'vinilo' — or 'aguja' for the terminal."
+	@echo "Launch Vinilo from the app grid, or run 'vinilo'."
 	@echo "If the grid still does nothing: log out and back in, then cat ~/.cache/vinilo/launcher.log"
 
 install-sidecar: sidecar
@@ -176,10 +175,7 @@ dev-install:
 	install -d $(DATADIR)/applications
 	sed -e 's|@BINDIR@|$(BINDIR)|g' data/$(APPID).desktop \
 		> $(DATADIR)/applications/$(APPID).desktop
-	sed -e 's|@BINDIR@|$(BINDIR)|g' data/$(AGUJA).desktop \
-		> $(DATADIR)/applications/$(AGUJA).desktop
-	chmod 644 $(DATADIR)/applications/$(APPID).desktop \
-		$(DATADIR)/applications/$(AGUJA).desktop
+	chmod 644 $(DATADIR)/applications/$(APPID).desktop
 	install -d $(DATADIR)/systemd/user
 	sed -e 's|@BINDIR@|$(BINDIR)|g' packaging/systemd/vinilod.service \
 		> $(DATADIR)/systemd/user/vinilod.service
@@ -192,14 +188,13 @@ dev-install:
 	@# icons, and they still say `Exec=vinilo`.
 	rm -f $(DATADIR)/applications/vinilo.desktop \
 		$(DATADIR)/applications/slipmat.desktop \
-		$(DATADIR)/applications/Slipmat.desktop
+		$(DATADIR)/applications/Slipmat.desktop \
+		$(DATADIR)/applications/$(AGUJA).desktop
 	@for sz in $(ICON_SIZES); do \
 		install -Dm644 data/icons/hicolor/$${sz}x$${sz}/apps/$(APPID).png \
-			$(DATADIR)/icons/hicolor/$${sz}x$${sz}/apps/$(APPID).png; \
-	done
-	@for sz in $(ICON_SIZES); do \
-		install -Dm644 data/icons/hicolor/$${sz}x$${sz}/apps/$(AGUJA).png \
-			$(DATADIR)/icons/hicolor/$${sz}x$${sz}/apps/$(AGUJA).png; \
+			$(DATADIR)/icons/hicolor/$${sz}x$${sz}/apps/$(APPID).png \
+		&& rm -f $(DATADIR)/icons/hicolor/$${sz}x$${sz}/apps/$(AGUJA).png \
+		|| exit 1; \
 	done
 	@# Remove old scalable app icons left by pre-PNG installs.
 	rm -f $(DATADIR)/icons/hicolor/scalable/apps/$(APPID).svg \
