@@ -7,7 +7,9 @@ use nodalia_gtk as ndl;
 use relm4::ComponentSender;
 use relm4::gtk::prelude::*;
 
-use super::{AppModel, CommandMsg};
+use super::AppModel;
+#[cfg(target_os = "linux")]
+use super::CommandMsg;
 
 impl AppModel {
     /// The close button. **Not a quit** — or not always.

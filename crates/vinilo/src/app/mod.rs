@@ -712,6 +712,7 @@ pub enum CommandMsg {
     /// work can be a command rather than something done on the GTK thread.
     Pruned(crate::components::prune::Report),
     /// Whether the Background portal agreed to list us. Advisory only.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     BackgroundPortal(Result<(), String>),
     /// A grid tile's cover is on disk and decoded, or could not be had.
     /// Carries pixels rather than a path because the decode is the expensive

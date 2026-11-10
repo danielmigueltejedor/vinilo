@@ -10,7 +10,9 @@
 //! dump exists, which is why picking an unconfigured source feels like Apple's
 //! signed-out screen rather than a toast you can dismiss.
 
+#[cfg(target_os = "linux")]
 use std::cell::Cell;
+#[cfg(target_os = "linux")]
 use std::rc::Rc;
 
 use nodalia_gtk as ndl;
