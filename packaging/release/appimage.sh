@@ -111,6 +111,10 @@ if [[ -x "$ELECTRON_BIN" ]]; then
   deploy+=(--executable "$ELECTRON_BIN")
 fi
 
+# The bundle holds two toolkits: GTK 4 for Vinilo and GTK 3 pulled in by the
+# Electron sidecar. The gtk plugin refuses to guess, so name the app's own.
+export DEPLOY_GTK_VERSION=4
+
 "$TOOLS/linuxdeploy-${ARCH}.AppImage" "${deploy[@]}"
 
 mkdir -p "$OUT_DIR"
