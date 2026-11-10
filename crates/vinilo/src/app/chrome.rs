@@ -11,9 +11,10 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
-use relm4::adw::prelude::*;
+use nodalia_gtk as ndl;
+use nodalia_gtk::prelude::*;
 use relm4::gtk::prelude::WidgetExt;
-use relm4::{ComponentSender, adw, gtk};
+use relm4::{ComponentSender, gtk};
 
 use super::{AppModel, AppMsg};
 use crate::style::Accent;
@@ -92,7 +93,7 @@ relm4::new_stateless_action!(SupportAction, AppMenuActionGroup, "support");
 
 /// Wire the primary menu's actions to messages, with their accelerators.
 pub(super) fn register_actions(
-    window: &adw::ApplicationWindow,
+    window: &ndl::ApplicationWindow,
     sender: &ComponentSender<AppModel>,
 ) {
     use relm4::actions::{AccelsPlus, RelmAction, RelmActionGroup};
@@ -117,12 +118,12 @@ pub(super) fn register_actions(
     }));
     // **Application-scoped, not window-scoped.** A `win.` action resolves
     // through whatever currently holds focus, and the first-run gate is an
-    // `adw::Dialog` presented into the window's own dialog host — so the one
+    // `ndl::Dialog` presented into the window's own dialog host — so the one
     // moment a user most needs a way out is the moment that scope is least
     // certain. `app.quit` is reachable from any focus scope, and is the GNOME
     // convention besides.
     //
-    // It matters more than it looks: an `adw::Dialog` with `can_close(false)`
+    // It matters more than it looks: an `ndl::Dialog` with `can_close(false)`
     // also blocks the window's close request, so while the gate is up the title
     // bar button does nothing either. Between that and Quit missing from the
     // primary menu, a signed-out app had no visible way to exit at all.
@@ -206,17 +207,18 @@ pub(super) fn icon(name: &'static str) -> &'static str {
     crate::nodalix::icon(name)
 }
 
-pub(super) fn show_about(parent: &adw::ApplicationWindow) {
-    let about = adw::AboutDialog::builder()
+pub(super) fn show_about(parent: &ndl::ApplicationWindow) {
+    let about = ndl::AboutDialog::builder()
         .application_name(t(Key::AppName))
         .application_icon(crate::APP_ID)
         .developer_name("Daniel Miguel Tejedor")
         .version(env!("CARGO_PKG_VERSION"))
         .release_notes_version(env!("CARGO_PKG_VERSION"))
         .release_notes(
-            "<p>Vinilo 1.1.5</p><ul>\
-             <li>New app icon: a portrait of Beethoven, part of the Nodalia icon family.</li>\
-             <li>Release downloads are back: the AppImage step that left 1.1.4 without packages is fixed.</li>\
+            "<p>Vinilo 2.0.0</p><ul>\
+             <li>A new look: Vinilo is drawn in the Nodalia Design Language and no longer needs libadwaita.</li>\
+             <li>Nodalia Teal is the new default accent; the other accents stay.</li>\
+             <li>Light and dark follow the system as before.</li>\
              </ul>",
         )
         .license_type(gtk::License::Gpl30)
@@ -234,7 +236,7 @@ pub(super) const SUPPORT_URL: &str = "https://ko-fi.com/miguelrincon";
 /// through the OpenURI portal, which is the only route out of the sandbox —
 /// and it is the same call whether sandboxed or not, so there is nothing to
 /// branch on.
-pub(super) fn open_support(parent: &adw::ApplicationWindow) {
+pub(super) fn open_support(parent: &ndl::ApplicationWindow) {
     gtk::UriLauncher::new(SUPPORT_URL).launch(
         Some(parent),
         gtk::gio::Cancellable::NONE,
@@ -248,12 +250,12 @@ pub(super) fn open_support(parent: &adw::ApplicationWindow) {
     );
 }
 
-pub(super) fn show_shortcuts(parent: &adw::ApplicationWindow) {
+pub(super) fn show_shortcuts(parent: &ndl::ApplicationWindow) {
     // Built by hand rather than from a .ui file: it is a dozen lines either
     // way, and this keeps the strings next to the code that implements them.
-    let dialog = adw::ShortcutsDialog::new();
+    let dialog = ndl::ShortcutsDialog::new();
 
-    let playback = adw::ShortcutsSection::new(Some(t(Key::ShortcutsPlayback)));
+    let playback = ndl::ShortcutsSection::new(Some(t(Key::ShortcutsPlayback)));
     for (title, accel) in [
         (t(Key::ShortcutPlayPause), "<Control>k"),
         (t(Key::ShortcutNext), "<Control>Right"),
@@ -261,10 +263,10 @@ pub(super) fn show_shortcuts(parent: &adw::ApplicationWindow) {
         (t(Key::ShortcutVolumeUp), "<Control>Up"),
         (t(Key::ShortcutVolumeDown), "<Control>Down"),
     ] {
-        playback.add(adw::ShortcutsItem::new(title, accel));
+        playback.add(ndl::ShortcutsItem::new(title, accel));
     }
 
-    let general = adw::ShortcutsSection::new(Some(t(Key::ShortcutsGeneral)));
+    let general = ndl::ShortcutsSection::new(Some(t(Key::ShortcutsGeneral)));
     for (title, accel) in [
         (t(Key::ShortcutSearch), "<Control>f"),
         (t(Key::ShortcutCloseWindow), "<Control>w"),
@@ -274,7 +276,7 @@ pub(super) fn show_shortcuts(parent: &adw::ApplicationWindow) {
         (t(Key::ShortcutShortcuts), "<Control>question"),
         (t(Key::ShortcutQuit), "<Control>q"),
     ] {
-        general.add(adw::ShortcutsItem::new(title, accel));
+        general.add(ndl::ShortcutsItem::new(title, accel));
     }
 
     dialog.add(playback);
@@ -297,9 +299,9 @@ impl AppModel {
     pub(super) fn present_onboarding(
         &self,
         sender: &ComponentSender<Self>,
-        parent: &adw::ApplicationWindow,
-    ) -> adw::Dialog {
-        let page = adw::StatusPage::builder()
+        parent: &ndl::ApplicationWindow,
+    ) -> ndl::Dialog {
+        let page = ndl::StatusPage::builder()
             .icon_name(crate::APP_ID)
             .title(t(Key::WelcomeTitle))
             .description(t(Key::WelcomeBody))
@@ -356,7 +358,7 @@ impl AppModel {
         // The bar exists only to hold that button — the dialog cannot be
         // closed, so there are no window controls to show and no title to
         // repeat above the status page's own.
-        let header = adw::HeaderBar::builder()
+        let header = ndl::HeaderBar::builder()
             .show_start_title_buttons(false)
             .show_end_title_buttons(false)
             .css_classes(["flat"])
@@ -364,16 +366,16 @@ impl AppModel {
         header.set_title_widget(Some(&gtk::Label::new(None)));
         header.pack_end(&quit);
 
-        let view = adw::ToolbarView::builder().content(&page).build();
+        let view = ndl::ToolbarView::builder().content(&page).build();
         view.add_top_bar(&header);
 
         // **Width only.** A fixed `content_height` was what made this scroll:
-        // `adw::StatusPage` puts its content in a scrolled window, so any
+        // `ndl::StatusPage` puts its content in a scrolled window, so any
         // height smaller than the natural one produces a scrollbar — and 420
         // was smaller, on a dialog with a heading, two short paragraphs and a
         // button. Left unset, the dialog takes the height its content asks for
         // and there is nothing to scroll.
-        let dialog = adw::Dialog::builder()
+        let dialog = ndl::Dialog::builder()
             .child(&view)
             .content_width(480)
             // No escape, no click-outside: there is nothing behind this worth
@@ -386,7 +388,7 @@ impl AppModel {
         // Moving the action from `win.quit` to `app.quit` was not enough:
         // tested by hand with the gate up, the Quit button works — so
         // `main_application().quit()` is fine — while the accelerator never
-        // arrives. A modal `adw::Dialog` holds the focus, and the application
+        // arrives. A modal `ndl::Dialog` holds the focus, and the application
         // shortcut does not survive that, whatever the scope of the action
         // behind it.
         //
@@ -427,10 +429,10 @@ impl AppModel {
     pub(super) fn confirm_sign_out(
         &self,
         sender: &ComponentSender<Self>,
-        parent: &adw::ApplicationWindow,
+        parent: &ndl::ApplicationWindow,
     ) {
         let catalog = self.settings.provider.is_catalog();
-        let dialog = adw::AlertDialog::new(
+        let dialog = ndl::AlertDialog::new(
             Some(t(if catalog {
                 Key::CatalogSignOutTitle
             } else {
@@ -444,7 +446,7 @@ impl AppModel {
         );
         dialog.add_response("cancel", t(Key::Cancel));
         dialog.add_response("sign-out", i18n::sign_out_button());
-        dialog.set_response_appearance("sign-out", adw::ResponseAppearance::Destructive);
+        dialog.set_response_appearance("sign-out", ndl::ResponseAppearance::Destructive);
         dialog.set_default_response(Some("cancel"));
         dialog.set_close_response("cancel");
 
@@ -461,10 +463,10 @@ impl AppModel {
     pub(super) fn prompt_new_playlist(
         &self,
         sender: &ComponentSender<Self>,
-        parent: &adw::ApplicationWindow,
+        parent: &ndl::ApplicationWindow,
         track_id: Option<String>,
     ) {
-        let dialog = adw::AlertDialog::new(Some(t(Key::NewPlaylistTitle)), None);
+        let dialog = ndl::AlertDialog::new(Some(t(Key::NewPlaylistTitle)), None);
         let entry = gtk::Entry::builder()
             .placeholder_text(t(Key::NewPlaylistPlaceholder))
             .activates_default(true)
@@ -473,7 +475,7 @@ impl AppModel {
         dialog.set_extra_child(Some(&entry));
         dialog.add_response("cancel", t(Key::Cancel));
         dialog.add_response("create", t(Key::Create));
-        dialog.set_response_appearance("create", adw::ResponseAppearance::Suggested);
+        dialog.set_response_appearance("create", ndl::ResponseAppearance::Suggested);
         dialog.set_default_response(Some("create"));
         dialog.set_close_response("cancel");
 
@@ -506,15 +508,15 @@ impl AppModel {
     pub(super) fn show_preferences(
         &self,
         sender: &ComponentSender<Self>,
-        parent: &adw::ApplicationWindow,
+        parent: &ndl::ApplicationWindow,
     ) {
-        let dialog = adw::PreferencesDialog::new();
-        let page = adw::PreferencesPage::new();
+        let dialog = ndl::PreferencesDialog::new();
+        let page = ndl::PreferencesPage::new();
 
-        let appearance = adw::PreferencesGroup::builder()
+        let appearance = ndl::PreferencesGroup::builder()
             .title(t(Key::Appearance))
             .build();
-        let theme = adw::ComboRow::builder()
+        let theme = ndl::ComboRow::builder()
             .title(t(Key::Theme))
             .model(&gtk::StringList::new(&[
                 t(Key::ThemeSystem),
@@ -532,7 +534,7 @@ impl AppModel {
         appearance.add(&theme);
 
         let names: Vec<&str> = Accent::ALL.iter().map(|a| a.label()).collect();
-        let accent = adw::ComboRow::builder()
+        let accent = ndl::ComboRow::builder()
             .title(t(Key::AccentColour))
             .model(&gtk::StringList::new(&names))
             .selected(Accent::parse(&self.settings.accent).index())
@@ -545,7 +547,7 @@ impl AppModel {
         }
         appearance.add(&accent);
 
-        let source_tint = adw::SwitchRow::builder()
+        let source_tint = ndl::SwitchRow::builder()
             .title(t(Key::SourceTint))
             .subtitle(t(Key::SourceTintSub))
             .active(self.settings.source_tint)
@@ -575,7 +577,7 @@ impl AppModel {
         // libadwaita's own surfaces are plain. Off, the two surfaces fall
         // back to the bar and sheet backgrounds they had before the wash
         // existed — there is nothing to draw instead.
-        let backdrop = adw::SwitchRow::builder()
+        let backdrop = ndl::SwitchRow::builder()
             .title(t(Key::AlbumArtBackdrop))
             .subtitle(t(Key::AlbumArtBackdropSub))
             .active(self.settings.player_backdrop)
@@ -588,10 +590,10 @@ impl AppModel {
         }
         appearance.add(&backdrop);
 
-        let language = adw::PreferencesGroup::builder()
+        let language = ndl::PreferencesGroup::builder()
             .title(t(Key::Language))
             .build();
-        let language_row = adw::ComboRow::builder()
+        let language_row = ndl::ComboRow::builder()
             .title(t(Key::Language))
             .subtitle(t(Key::LanguageSub))
             .model(&gtk::StringList::new(&[
@@ -619,10 +621,10 @@ impl AppModel {
         }
         language.add(&language_row);
 
-        let source = adw::PreferencesGroup::builder()
+        let source = ndl::PreferencesGroup::builder()
             .title(t(Key::MusicSource))
             .build();
-        let source_row = adw::ComboRow::builder()
+        let source_row = ndl::ComboRow::builder()
             .title(t(Key::MusicSource))
             .subtitle(t(Key::MusicSourceSub))
             .model(&gtk::StringList::new(&[
@@ -657,10 +659,10 @@ impl AppModel {
         // who has Preferences open from a Flatpak or `make install` is already
         // past it, and pointing at the README from inside a settings dialog is
         // not something a preferences pane should do.
-        let notifications = adw::PreferencesGroup::builder()
+        let notifications = ndl::PreferencesGroup::builder()
             .title(t(Key::Notifications))
             .build();
-        let notify = adw::SwitchRow::builder()
+        let notify = ndl::SwitchRow::builder()
             .title(t(Key::NotifyTrackChange))
             .subtitle(t(Key::NotifyTrackChangeSub))
             .active(self.settings.notify_track_change)
@@ -673,10 +675,10 @@ impl AppModel {
         }
         notifications.add(&notify);
 
-        let playback = adw::PreferencesGroup::builder()
+        let playback = ndl::PreferencesGroup::builder()
             .title(t(Key::Playback))
             .build();
-        let crossfade = adw::SpinRow::with_range(0.0, 12.0, 0.5);
+        let crossfade = ndl::SpinRow::with_range(0.0, 12.0, 0.5);
         crossfade.set_title(t(Key::Crossfade));
         crossfade.set_subtitle(t(Key::CrossfadeSub));
         crossfade.set_value(f64::from(self.settings.crossfade_ms) / 1000.0);
@@ -690,11 +692,11 @@ impl AppModel {
         playback.add(&crossfade);
 
         let lastfm_cfg = vinilo_core::lastfm::load();
-        let lastfm = adw::PreferencesGroup::builder()
+        let lastfm = ndl::PreferencesGroup::builder()
             .title(t(Key::LastFm))
             .description(t(Key::LastFmSub))
             .build();
-        let lastfm_on = adw::SwitchRow::builder()
+        let lastfm_on = ndl::SwitchRow::builder()
             .title(t(Key::LastFm))
             .active(lastfm_cfg.enabled && !lastfm_cfg.session_key.is_empty())
             .sensitive(!lastfm_cfg.session_key.is_empty())
@@ -707,7 +709,7 @@ impl AppModel {
         }
         lastfm.add(&lastfm_on);
 
-        let api_key = adw::EntryRow::builder()
+        let api_key = ndl::EntryRow::builder()
             .title(t(Key::LastFmApiKey))
             .text(&lastfm_cfg.api_key)
             .build();
@@ -719,7 +721,7 @@ impl AppModel {
         }
         lastfm.add(&api_key);
 
-        let api_secret = adw::PasswordEntryRow::builder()
+        let api_secret = ndl::PasswordEntryRow::builder()
             .title(t(Key::LastFmSecret))
             .text(&lastfm_cfg.api_secret)
             .build();
@@ -740,7 +742,7 @@ impl AppModel {
                     &lastfm_cfg.username
                 },
             );
-            let status = adw::ActionRow::builder()
+            let status = ndl::ActionRow::builder()
                 .title(connected_title.as_str())
                 .build();
             let disconnect = gtk::Button::builder()
@@ -757,7 +759,7 @@ impl AppModel {
             status.add_suffix(&disconnect);
             lastfm.add(&status);
         } else {
-            let connect = adw::ButtonRow::builder()
+            let connect = ndl::ButtonRow::builder()
                 .title(t(Key::LastFmConnect))
                 .build();
             {
@@ -767,7 +769,7 @@ impl AppModel {
                 });
             }
             lastfm.add(&connect);
-            let finish = adw::ButtonRow::builder()
+            let finish = ndl::ButtonRow::builder()
                 .title(t(Key::LastFmFinish))
                 .build();
             {
@@ -794,9 +796,9 @@ impl AppModel {
     pub(super) fn present_language_picker(
         &self,
         sender: &ComponentSender<Self>,
-        parent: &adw::ApplicationWindow,
-    ) -> adw::Dialog {
-        let page = adw::StatusPage::builder()
+        parent: &ndl::ApplicationWindow,
+    ) -> ndl::Dialog {
+        let page = ndl::StatusPage::builder()
             .icon_name(crate::APP_ID)
             .title("Vinilo")
             .description("Choose your language / Elige tu idioma")
@@ -848,8 +850,8 @@ impl AppModel {
         column.append(&note);
         page.set_child(Some(&column));
 
-        let view = adw::ToolbarView::builder().content(&page).build();
-        let header = adw::HeaderBar::builder()
+        let view = ndl::ToolbarView::builder().content(&page).build();
+        let header = ndl::HeaderBar::builder()
             .show_start_title_buttons(false)
             .show_end_title_buttons(false)
             .css_classes(["flat"])
@@ -857,7 +859,7 @@ impl AppModel {
         header.set_title_widget(Some(&gtk::Label::new(None)));
         view.add_top_bar(&header);
 
-        let dialog = adw::Dialog::builder()
+        let dialog = ndl::Dialog::builder()
             .child(&view)
             .content_width(480)
             .can_close(false)
@@ -870,11 +872,11 @@ impl AppModel {
     pub(super) fn present_provider_picker(
         &self,
         sender: &ComponentSender<Self>,
-        parent: &adw::ApplicationWindow,
-    ) -> adw::Dialog {
+        parent: &ndl::ApplicationWindow,
+    ) -> ndl::Dialog {
         use vinilo_core::provider::Provider;
 
-        let page = adw::StatusPage::builder()
+        let page = ndl::StatusPage::builder()
             .icon_name(crate::APP_ID)
             .title(t(Key::ProviderTitle))
             .description(t(Key::ProviderBody))
@@ -887,7 +889,7 @@ impl AppModel {
             .width_request(380)
             .build();
 
-        let apple = adw::ActionRow::builder()
+        let apple = ndl::ActionRow::builder()
             .title(t(Key::ProviderApple))
             .subtitle(t(Key::ProviderAppleSub))
             .activatable(true)
@@ -902,7 +904,7 @@ impl AppModel {
         }
         list.append(&apple);
 
-        let local = adw::ActionRow::builder()
+        let local = ndl::ActionRow::builder()
             .title(t(Key::ProviderLocal))
             .subtitle(t(Key::ProviderLocalSub))
             .activatable(true)
@@ -917,7 +919,7 @@ impl AppModel {
         }
         list.append(&local);
 
-        let spotify = adw::ActionRow::builder()
+        let spotify = ndl::ActionRow::builder()
             .title(t(Key::ProviderSpotify))
             .subtitle(t(Key::ProviderSpotifySub))
             .activatable(true)
@@ -932,7 +934,7 @@ impl AppModel {
         }
         list.append(&spotify);
 
-        let youtube = adw::ActionRow::builder()
+        let youtube = ndl::ActionRow::builder()
             .title(t(Key::ProviderYoutube))
             .subtitle(t(Key::ProviderYoutubeSub))
             .activatable(true)
@@ -947,7 +949,7 @@ impl AppModel {
         }
         list.append(&youtube);
 
-        let tidal = adw::ActionRow::builder()
+        let tidal = ndl::ActionRow::builder()
             .title(t(Key::ProviderTidal))
             .subtitle(t(Key::ProviderTidalSub))
             .activatable(true)
@@ -979,8 +981,8 @@ impl AppModel {
         column.append(&note);
         page.set_child(Some(&column));
 
-        let view = adw::ToolbarView::builder().content(&page).build();
-        let header = adw::HeaderBar::builder()
+        let view = ndl::ToolbarView::builder().content(&page).build();
+        let header = ndl::HeaderBar::builder()
             .show_start_title_buttons(false)
             .show_end_title_buttons(false)
             .css_classes(["flat"])
@@ -988,7 +990,7 @@ impl AppModel {
         header.set_title_widget(Some(&gtk::Label::new(None)));
         view.add_top_bar(&header);
 
-        let dialog = adw::Dialog::builder()
+        let dialog = ndl::Dialog::builder()
             .child(&view)
             .content_width(520)
             .can_close(false)

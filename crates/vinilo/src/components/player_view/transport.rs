@@ -15,8 +15,8 @@
 //! its parent's private fields, so `refresh_transport` stays an inherent
 //! method on [`PlayerView`] reading `snap` and `bits` directly.
 
-use relm4::adw;
-use relm4::adw::prelude::*;
+use nodalia_gtk as ndl;
+use nodalia_gtk::prelude::*;
 use relm4::gtk;
 use relm4::prelude::*;
 
@@ -67,7 +67,7 @@ pub(super) fn build_transport(into: &gtk::Box, sender: &ComponentSender<PlayerVi
     // for "up to this wide, then centre", and using it keeps the ceiling out of
     // the widget's own minimum, so the compact layout still shrinks freely.
     into.append(
-        &adw::Clamp::builder()
+        &ndl::Clamp::builder()
             .maximum_size(SCRUB_MAX_W)
             .child(&scrubber_row)
             .build(),

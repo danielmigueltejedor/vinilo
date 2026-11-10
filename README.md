@@ -17,9 +17,9 @@ SPDX-License-Identifier: GPL-3.0-or-later
   <p><strong>A native GNOME music player for Linux.</strong></p>
 
   <p>
-    <img src="https://img.shields.io/badge/version-1.1.5-4a86cf" alt="Version 1.1.5">
+    <img src="https://img.shields.io/badge/version-2.0.0-4a86cf" alt="Version 2.0.0">
     <img src="https://img.shields.io/badge/platform-Linux%20x86__64-fcc624?logo=linux&logoColor=black" alt="Linux x86_64">
-    <img src="https://img.shields.io/badge/GTK4%20%2F%20libadwaita-4a86cf" alt="GTK4 and libadwaita">
+    <img src="https://img.shields.io/badge/GTK4%20%2F%20Nodalia%20Design-4a86cf" alt="GTK4 and Nodalia Design">
     <img src="https://img.shields.io/badge/Rust-dea584?logo=rust&logoColor=black" alt="Written in Rust">
     <img src="https://img.shields.io/badge/interface-System%20%7C%20English%20%7C%20Español-8a63d2" alt="System, English and Spanish">
     <a href="./COPYING"><img src="https://img.shields.io/badge/license-GPL--3.0--or--later-2ea44f" alt="GPL-3.0-or-later"></a>
@@ -40,7 +40,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 ---
 
 Vinilo is a native front-end for the music you already pay for, not a website
-wrapped in a window. The interface is GTK4 and libadwaita. Apple Music still
+wrapped in a window. The interface is GTK4 drawn in the Nodalia Design Language. Apple Music still
 needs Apple's own player and Google's official Widevine CDM, so a small
 Chromium process stays hidden after sign-in. Local files never touch it.
 
@@ -117,7 +117,7 @@ into `~/.local` (no `sudo`).
 1. Install the build and runtime packages:
 
    ```bash
-   sudo pacman -S --needed base-devel pkgconf rustup gtk4 libadwaita librsvg \
+   sudo pacman -S --needed base-devel pkgconf rustup gtk4 librsvg \
                            nodejs npm libpulse alsa-lib yt-dlp ffmpeg webkitgtk-6.0
    rustup default stable   # Vinilo needs Rust ≥ 1.93 (edition 2024)
    ```
@@ -188,7 +188,7 @@ tokens are never written to disk.
 
 ```
                ┌────────────────────────────┐
-               │  Vinilo  GTK4 / libadwaita │
+               │  Vinilo  GTK4 / Nodalia    │
                │  library · search · player │
                └─────────────┬──────────────┘
                              │ JSON on a Unix socket
@@ -275,7 +275,7 @@ tag is unsupported.
 
 - Use [GitHub Issues](https://github.com/danielmigueltejedor/vinilo/issues) for
   reproducible bugs and focused feature requests.
-- Include the Vinilo version (`1.1.5`), distribution, GTK/libadwaita versions
+- Include the Vinilo version (`2.0.0`), distribution, GTK version
   and the source (Apple Music, local, Spotify, YouTube Music or Tidal).
 - Never paste tokens, cookies, `settings.ini` or `lastfm.json` into an issue.
 

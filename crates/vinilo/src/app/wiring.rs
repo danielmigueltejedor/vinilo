@@ -15,8 +15,8 @@
 //! `library_list` in particular restores two properties whose loss looked like
 //! two unrelated bugs.
 
-use relm4::adw;
-use relm4::adw::prelude::*;
+use nodalia_gtk as ndl;
+use nodalia_gtk::prelude::*;
 use relm4::gtk;
 use relm4::{ComponentSender, RelmWidgetExt};
 
@@ -34,7 +34,7 @@ type Widgets = <AppModel as relm4::Component>::Widgets;
 pub(super) fn connect(
     model: &mut AppModel,
     widgets: &Widgets,
-    root: &adw::ApplicationWindow,
+    root: &ndl::ApplicationWindow,
     sender: &ComponentSender<AppModel>,
 ) {
     sidebar_rows(model, widgets, sender);
@@ -57,7 +57,7 @@ pub(super) fn connect(
     model.volume_osd.sit_below_the_header(&widgets.content_bars);
 
     let theme_sender = sender.clone();
-    adw::StyleManager::default().connect_dark_notify(move |_| {
+    ndl::StyleManager::default().connect_dark_notify(move |_| {
         theme_sender.input(AppMsg::ThemeFlipped);
     });
 }
@@ -121,7 +121,7 @@ fn sidebar_rows(model: &mut AppModel, widgets: &Widgets, sender: &ComponentSende
         if let SidebarRow::Section(view) = entry
             && view != View::Search
         {
-            let spinner = adw::Spinner::new();
+            let spinner = ndl::Spinner::new();
             spinner.set_size_request(16, 16);
             spinner.set_valign(gtk::Align::Center);
             spinner.set_visible(false);
@@ -386,7 +386,7 @@ fn catalog_pagination(widgets: &Widgets, sender: &ComponentSender<AppModel>) {
 /// the entry is a header title rather than a revealer strip, so the capture is
 /// ours. What it costs is the four guards below, each of which is a way to
 /// break something that already works.
-fn type_to_search(root: &adw::ApplicationWindow, sender: &ComponentSender<AppModel>) {
+fn type_to_search(root: &ndl::ApplicationWindow, sender: &ComponentSender<AppModel>) {
     let controller = gtk::EventControllerKey::new();
     // Capture, so it is seen on the way *down* — a list or a button would
     // otherwise consume Space and the arrow keys before this ever ran. The
@@ -407,7 +407,7 @@ fn type_to_search(root: &adw::ApplicationWindow, sender: &ComponentSender<AppMod
         let Some(ch) = key.to_unicode().filter(|c| !c.is_control() && *c != ' ') else {
             return gtk::glib::Propagation::Proceed;
         };
-        let Some(window) = controller.widget().and_downcast::<adw::ApplicationWindow>() else {
+        let Some(window) = controller.widget().and_downcast::<ndl::ApplicationWindow>() else {
             return gtk::glib::Propagation::Proceed;
         };
         // An `AdwDialog` is presented *into* this window rather than into one
@@ -456,7 +456,7 @@ fn type_to_search(root: &adw::ApplicationWindow, sender: &ComponentSender<AppMod
 /// the threshold, and the entry still *fits* below it — what it stops fitting
 /// with is the room to read it.
 fn window_breakpoints(
-    root: &adw::ApplicationWindow,
+    root: &ndl::ApplicationWindow,
     widgets: &Widgets,
     sender: &ComponentSender<AppModel>,
 ) {
@@ -465,22 +465,22 @@ fn window_breakpoints(
     // a screen — which is how it is actually used. `AdwOverlaySplitView`
     // already knows how to be a summonable overlay rather than a fixed pane; it
     // just has to be told when.
-    let collapse_sidebar = |breakpoint: &adw::Breakpoint| {
+    let collapse_sidebar = |breakpoint: &ndl::Breakpoint| {
         breakpoint.add_setter(&widgets.nav_split, "collapsed", Some(&true.to_value()));
     };
 
-    match adw::BreakpointCondition::parse("max-width: 700px") {
+    match ndl::BreakpointCondition::parse("max-width: 700px") {
         Ok(condition) => {
-            let breakpoint = adw::Breakpoint::new(condition);
+            let breakpoint = ndl::Breakpoint::new(condition);
             collapse_sidebar(&breakpoint);
             root.add_breakpoint(breakpoint);
         }
         Err(_) => tracing::warn!("unparsable window breakpoint; the sidebar will not collapse"),
     }
 
-    match adw::BreakpointCondition::parse("max-width: 600px") {
+    match ndl::BreakpointCondition::parse("max-width: 600px") {
         Ok(condition) => {
-            let breakpoint = adw::Breakpoint::new(condition);
+            let breakpoint = ndl::Breakpoint::new(condition);
             // Everything the wider one does, because this one replaces it.
             collapse_sidebar(&breakpoint);
             // Signals rather than a setter for the header, because what changes
@@ -541,7 +541,7 @@ fn bottom_bar_inset(widgets: &Widgets) {
     {
         let content = widgets.nav_split.clone();
         let sheet = widgets.player_sheet.clone();
-        let apply = move |sheet: &adw::BottomSheet| {
+        let apply = move |sheet: &ndl::BottomSheet| {
             content.set_margin_bottom(sheet.bottom_bar_height());
         };
         apply(&sheet);

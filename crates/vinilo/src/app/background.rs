@@ -3,8 +3,8 @@
 
 //! Closing the window, and staying alive when that is the right thing to do.
 
+use nodalia_gtk as ndl;
 use relm4::ComponentSender;
-use relm4::adw;
 use relm4::gtk::prelude::*;
 
 use super::{AppModel, CommandMsg};
@@ -30,7 +30,7 @@ impl AppModel {
     /// quit.
     pub(super) fn close_window(
         &mut self,
-        root: &adw::ApplicationWindow,
+        root: &ndl::ApplicationWindow,
         sender: &ComponentSender<Self>,
     ) {
         // The queue, not the playback state: paused-with-a-queue is still "you

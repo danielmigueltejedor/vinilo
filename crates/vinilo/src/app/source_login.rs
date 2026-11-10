@@ -13,9 +13,10 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
-use relm4::adw::prelude::*;
+use nodalia_gtk as ndl;
+use nodalia_gtk::prelude::*;
 use relm4::gtk::prelude::GtkWindowExt;
-use relm4::{ComponentSender, adw, gtk};
+use relm4::{ComponentSender, gtk};
 use vinilo_core::i18n::{self, Key};
 use vinilo_core::provider::Provider;
 use vinilo_core::setup::{self, NetscapeCookie};
@@ -33,7 +34,7 @@ const CHROME_UA: &str = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHT
 /// The login window plus the cookie manager we still need after it closes.
 #[derive(Clone)]
 pub(super) struct CatalogLogin {
-    pub window: adw::Window,
+    pub window: ndl::Window,
     pub cookies: webkit6::CookieManager,
     pub provider: Provider,
     pub webview: WebView,
@@ -44,9 +45,9 @@ impl AppModel {
     pub(super) fn present_catalog_onboarding(
         &self,
         sender: &ComponentSender<Self>,
-        parent: &adw::ApplicationWindow,
+        parent: &ndl::ApplicationWindow,
         provider: Provider,
-    ) -> adw::Dialog {
+    ) -> ndl::Dialog {
         let ytdlp = std::process::Command::new("yt-dlp")
             .arg("--version")
             .stdout(std::process::Stdio::null())
@@ -55,7 +56,7 @@ impl AppModel {
             .map(|s| s.success())
             .unwrap_or(false);
 
-        let page = adw::StatusPage::builder()
+        let page = ndl::StatusPage::builder()
             .icon_name(crate::APP_ID)
             .title(i18n::catalog_heading(provider))
             .description(t(Key::CatalogSetupBody))
@@ -119,7 +120,7 @@ impl AppModel {
             back.connect_clicked(move |_| sender.input(AppMsg::PickAnotherSource));
         }
 
-        let header = adw::HeaderBar::builder()
+        let header = ndl::HeaderBar::builder()
             .show_start_title_buttons(false)
             .show_end_title_buttons(false)
             .css_classes(["flat"])
@@ -128,10 +129,10 @@ impl AppModel {
         header.pack_start(&back);
         header.pack_end(&quit);
 
-        let view = adw::ToolbarView::builder().content(&page).build();
+        let view = ndl::ToolbarView::builder().content(&page).build();
         view.add_top_bar(&header);
 
-        let dialog = adw::Dialog::builder()
+        let dialog = ndl::Dialog::builder()
             .child(&view)
             .content_width(480)
             .can_close(false)
@@ -158,7 +159,7 @@ impl AppModel {
     pub(super) fn present_catalog_login(
         &mut self,
         sender: &ComponentSender<Self>,
-        parent: &adw::ApplicationWindow,
+        parent: &ndl::ApplicationWindow,
         provider: Provider,
     ) {
         if let Some(existing) = &self.catalog_login {
@@ -232,7 +233,7 @@ impl AppModel {
                     settings.set_hardware_acceleration_policy(HardwareAccelerationPolicy::Never);
                     settings.set_enable_webgl(false);
                 }
-                let window = adw::Window::builder()
+                let window = ndl::Window::builder()
                     .title(i18n::catalog_sign_in(provider))
                     .default_width(520)
                     .default_height(640)
@@ -304,7 +305,7 @@ impl AppModel {
             });
         }
 
-        let header = adw::HeaderBar::builder().css_classes(["flat"]).build();
+        let header = ndl::HeaderBar::builder().css_classes(["flat"]).build();
         header.set_title_widget(Some(&gtk::Label::new(Some(&i18n::catalog_sign_in(
             provider,
         )))));
@@ -312,10 +313,10 @@ impl AppModel {
         header.pack_start(&cancel);
         header.pack_end(&done);
 
-        let view = adw::ToolbarView::builder().content(&webview).build();
+        let view = ndl::ToolbarView::builder().content(&webview).build();
         view.add_top_bar(&header);
 
-        let window = adw::Window::builder()
+        let window = ndl::Window::builder()
             .title(i18n::catalog_sign_in(provider))
             .default_width(720)
             .default_height(780)

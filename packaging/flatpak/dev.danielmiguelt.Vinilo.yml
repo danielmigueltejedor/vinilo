@@ -1,8 +1,9 @@
 # Vinilo as a Flatpak.
 #
-# Why this exists: the app needs libadwaita >= 1.8 and GTK >= 4.20 (relm4's
-# `gnome_49` feature), which almost nothing ships yet. A Flatpak carries the
-# GNOME 49 runtime with it, so the distro's own libadwaita stops mattering —
+# Why this exists: the app needs GTK >= 4.20 (the floor of `nodalia-gtk`,
+# which draws the interface since 2.0.0), which many distros do not ship yet.
+# A Flatpak carries the GNOME 49 runtime with it, so the distro's GTK stops
+# mattering —
 # Ubuntu 24.04 and Fedora 42 can run this despite being unable to build it.
 #
 # **Not for Flathub.** Distributed as a bundle or from our own repo.

@@ -3,8 +3,8 @@
 
 //! Listening stats page: totals, cover grid, and top tracks.
 
-use relm4::adw;
-use relm4::adw::prelude::*;
+use nodalia_gtk as ndl;
+use nodalia_gtk::prelude::*;
 use relm4::gtk;
 use relm4::gtk::gdk::Texture;
 use vinilo_core::i18n::{self, Key};
@@ -25,7 +25,7 @@ pub fn refresh(root: &gtk::Box) {
     let total = listen_stats::total_ms();
     let top = listen_stats::top_tracks(24);
     if total == 0 && top.is_empty() {
-        let page = adw::StatusPage::builder()
+        let page = ndl::StatusPage::builder()
             .icon_name("preferences-system-time-symbolic")
             .title(i18n::t(Key::StatsEmpty))
             .description(i18n::t(Key::StatsEmptyBody))
@@ -152,7 +152,7 @@ pub fn refresh(root: &gtk::Box) {
             subtitle.push_str(&track.source);
         }
 
-        let row = adw::ActionRow::builder()
+        let row = ndl::ActionRow::builder()
             .title(&track.title)
             .subtitle(&subtitle)
             .build();

@@ -3,7 +3,7 @@
 
 //! The app's accent colour, the Nodalix chrome, and the two rules that need CSS.
 //!
-//! CLAUDE.md says not to reach for CSS where a libadwaita widget would do. The
+//! CLAUDE.md says not to reach for CSS where a Nodalia widget would do. The
 //! exceptions it allows are here: an **accent colour** is not a widget, and the
 //! Nodalix identity — cover radii, rounder sidebar rows — is a family
 //! look other apps copy, not a GNOME widget we failed to find.
@@ -17,19 +17,19 @@
 //! Keeping them apart means a new cover does not reparse the accent rules, and
 //! a bad backdrop can be dropped without taking the accent with it.
 
-use relm4::adw;
+use nodalia_gtk as ndl;
 use relm4::gtk::{self, gdk};
 
 /// Accent choices offered in Preferences.
 ///
-/// Apple Music red is the default: it is the app's own subject, and GNOME's
-/// blue says nothing about what this program is for. Following the system
-/// accent stays available for anyone who wants their desktop to match.
+/// Nodalia's teal is the default: Vinilo wears the Nodalia Design Language,
+/// and the accent is what makes that recognisable. Apple Music red stays for
+/// anyone who chose it before 2.0.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Accent {
     #[default]
+    Nodalia,
     AppleRed,
-    System,
     Blue,
     Purple,
     Green,
@@ -38,8 +38,8 @@ pub enum Accent {
 
 impl Accent {
     pub const ALL: [Self; 6] = [
+        Self::Nodalia,
         Self::AppleRed,
-        Self::System,
         Self::Blue,
         Self::Purple,
         Self::Green,
@@ -49,8 +49,8 @@ impl Accent {
     pub fn label(self) -> &'static str {
         use vinilo_core::i18n::{self, Key};
         i18n::t(match self {
+            Self::Nodalia => Key::AccentNodalia,
             Self::AppleRed => Key::AccentAppleRed,
-            Self::System => Key::AccentSystem,
             Self::Blue => Key::AccentBlue,
             Self::Purple => Key::AccentPurple,
             Self::Green => Key::AccentGreen,
@@ -61,8 +61,8 @@ impl Accent {
     /// What lands in the ini file.
     pub fn id(self) -> &'static str {
         match self {
+            Self::Nodalia => "nodalia",
             Self::AppleRed => "apple-red",
-            Self::System => "system",
             Self::Blue => "blue",
             Self::Purple => "purple",
             Self::Green => "green",
@@ -72,12 +72,14 @@ impl Accent {
 
     pub fn parse(s: &str) -> Self {
         match s {
-            "system" => Self::System,
+            // There is no system accent without libadwaita to read it: Follow
+            // System (1.x) becomes the app's own default.
+            "apple-red" => Self::AppleRed,
             "blue" => Self::Blue,
             "purple" => Self::Purple,
             "green" => Self::Green,
             "orange" => Self::Orange,
-            _ => Self::AppleRed,
+            _ => Self::Nodalia,
         }
     }
 
@@ -89,15 +91,14 @@ impl Accent {
         Self::ALL.get(i as usize).copied().unwrap_or_default()
     }
 
-    /// `(background, foreground)`. `None` means "leave libadwaita alone", which
-    /// is how Follow System works — the desktop's own accent is already in
-    /// those variables and the right move is to write nothing over it.
+    /// `(background, foreground)`. `None` means NDL's own accent, which the
+    /// theme already carries in every mode.
     fn colors(self) -> Option<(&'static str, &'static str)> {
         match self {
+            Self::Nodalia => None,
             // Apple Music's own red. Paired with white text: at this lightness
             // black would not meet contrast on a filled button.
             Self::AppleRed => Some(("#fa243c", "#ffffff")),
-            Self::System => None,
             Self::Blue => Some(("#3584e4", "#ffffff")),
             Self::Purple => Some(("#9141ac", "#ffffff")),
             Self::Green => Some(("#2ec27e", "#ffffff")),
@@ -154,7 +155,7 @@ pub fn init(accent: Accent, backdrop: bool) {
     //
     // `SHOWN_ART` already holds what is on screen, so repainting is just
     // re-emitting the same image through the current theme's numbers.
-    adw::StyleManager::default().connect_dark_notify(|_| {
+    ndl::StyleManager::default().connect_dark_notify(|_| {
         let shown = SHOWN_ART.with(|c| c.borrow().clone());
         paint_backdrop(shown.as_deref());
     });
@@ -214,24 +215,15 @@ pub fn set_accent(accent: Accent) {
 }
 
 fn set_colors(colors: Option<(&'static str, &'static str)>) {
-    let accent_rules = match colors {
-        Some((bg, fg)) => format!(
-            ":root {{
-                 --accent-bg-color: {bg};
-                 --accent-fg-color: {fg};
-                 --accent-color: {bg};
-             }}"
-        ),
-        None => String::new(),
-    };
+    // NDL's widgets and the named colours this sheet reads both follow it.
+    ndl::StyleManager::default().set_accent(colors);
 
     // The star follows the accent (and the source tint, when that is on).
     // `color` on `image` is what tints a symbolic icon in GTK 4.
     // Nodalix chrome last, so cover radii and sidebar rows win over Adwaita.
     let chrome = crate::nodalix::CHROME;
     let css = format!(
-        "{accent_rules}
-         image.favorite-star {{ color: var(--accent-color); }}
+        "image.favorite-star {{ color: var(--accent-color); }}
 
          /* Padding rather than a margin: the backdrop is a background, and a
             margin would leave an untinted frame around it.
@@ -534,13 +526,13 @@ fn page_backdrop_css(class: &str, color: Option<&str>, dark: bool) -> String {
     )
 }
 
-/// Whether libadwaita is currently painting dark.
+/// Whether the Nodalia theme is currently painting dark.
 ///
 /// Asked at paint time rather than cached: the answer changes when the user
 /// flips the preference *and* when the system does it under `ColorScheme::
 /// Default`, and the second one never passes through our settings.
 fn painting_dark() -> bool {
-    adw::StyleManager::default().is_dark()
+    ndl::StyleManager::default().is_dark()
 }
 
 /// Show the sleeve's colour behind the player, or stop showing it (#145). Live, from

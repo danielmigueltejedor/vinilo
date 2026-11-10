@@ -1,7 +1,7 @@
 # Flatpak
 
-Vinilo needs libadwaita ≥ 1.8 and GTK ≥ 4.20 — relm4's `gnome_49` feature —
-which almost nothing ships yet. Debian stable, Ubuntu 24.04 and Fedora ≤ 42
+Vinilo needs GTK ≥ 4.20, the floor of `nodalia-gtk`, which draws its interface
+since 2.0.0, and many distros do not ship it yet. Debian stable, Ubuntu 24.04 and Fedora ≤ 42
 cannot build it. A Flatpak carries the GNOME 49 runtime with it, so those same
 systems can run it.
 

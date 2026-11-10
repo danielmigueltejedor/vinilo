@@ -45,20 +45,20 @@ jobs:
               apt-get update
               apt-get install -y --no-install-recommends \
                 ca-certificates curl git tar gzip build-essential pkg-config \
-                libgtk-4-dev libadwaita-1-dev libpulse-dev libasound2-dev \
+                libgtk-4-dev libpulse-dev libasound2-dev \
                 libwebkitgtk-6.0-dev librsvg2-dev nodejs npm
               ;;
             rpm)
               dnf -y install \
                 ca-certificates curl git tar gzip gcc gcc-c++ make \
-                pkgconf-pkg-config gtk4-devel libadwaita-devel \
+                pkgconf-pkg-config gtk4-devel \
                 pulseaudio-libs-devel alsa-lib-devel webkitgtk6.0-devel \
                 librsvg2-devel nodejs npm
               ;;
             archlinux)
               pacman -Syu --needed --noconfirm \
                 ca-certificates curl git tar gzip base-devel pkgconf \
-                gtk4 libadwaita libpulse alsa-lib webkitgtk-6.0 librsvg \
+                gtk4 libpulse alsa-lib webkitgtk-6.0 librsvg \
                 nodejs npm
               ;;
           esac
@@ -198,7 +198,7 @@ jobs:
           path: Vinilo-*.flatpak
           retention-days: 14
 
-  # Same toolchain floor as the .deb job (GTK 4.20 / libadwaita 1.8). The
+  # Same toolchain floor as the .deb job (GTK 4.20). The
   # AppImage bundles those libraries so it can run on hosts that cannot build
   # Vinilo, the same audience Flatpak already serves.
   appimage:
@@ -220,7 +220,7 @@ jobs:
           apt-get install -y --no-install-recommends \
             ca-certificates curl git tar gzip build-essential pkg-config \
             file desktop-file-utils \
-            libgtk-4-dev libadwaita-1-dev libpulse-dev libasound2-dev \
+            libgtk-4-dev libpulse-dev libasound2-dev \
             libwebkitgtk-6.0-dev librsvg2-dev nodejs npm
           # Runtime libraries of the bundled Electron sidecar. linuxdeploy copies
           # them into the AppImage and fails on any it cannot find. Names differ

@@ -24,13 +24,13 @@ jobs:
     name: fmt · clippy · tests
     runs-on: ubuntu-latest
     # **In a container, because the runner cannot build this.** Vinilo needs
-    # libadwaita >= 1.8 and GTK >= 4.20 (relm4's `gnome_49`), and
-    # `ubuntu-latest` ships neither. Arch is what the app is developed against
-    # and tracks both closely.
+    # GTK >= 4.20 (what `nodalia-gtk` targets), and `ubuntu-latest` does not
+    # ship it. Arch is what the app is developed against
+    # and tracks GTK closely.
     container: archlinux:base-devel
     steps:
       # Verified by running this exact list in a clean `archlinux:base-devel`
-      # container: rustc 1.97.1, GTK 4.22.4, libadwaita 1.9.2, `make check`
+      # container: rustc 1.97.1, GTK 4.22.4, `make check`
       # green from scratch. No openssl — reqwest is built on rustls.
       - name: Install the build floor
         run: |
@@ -39,7 +39,7 @@ jobs:
           # Without it the compile is fine and the *link* fails, which reads as
           # a mystery until you scroll to `unable to find library -l:libpulse.so.0`.
           pacman -Syu --needed --noconfirm \
-            git pkgconf rust gtk4 libadwaita librsvg libpulse webkitgtk-6.0
+            git pkgconf rust gtk4 librsvg libpulse webkitgtk-6.0
           rustc --version
 
       - uses: actions/checkout@v5

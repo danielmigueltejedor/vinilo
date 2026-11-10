@@ -12,7 +12,7 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use relm4::adw::prelude::*;
+use nodalia_gtk::prelude::*;
 use relm4::{ComponentParts, ComponentSender, SimpleComponent, gtk};
 
 use super::cover::SWAP_MS;

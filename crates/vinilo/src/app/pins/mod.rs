@@ -15,9 +15,10 @@
 pub(in crate::app) mod drag;
 mod menu;
 
-use relm4::adw::prelude::*;
+use nodalia_gtk as ndl;
+use nodalia_gtk::prelude::*;
 use relm4::gtk::glib;
-use relm4::{ComponentSender, adw, gtk};
+use relm4::{ComponentSender, gtk};
 
 use super::View;
 use super::pages::Arrival;
@@ -237,9 +238,9 @@ impl AppModel {
     pub(super) fn show_pin_picker(
         &mut self,
         sender: &ComponentSender<Self>,
-        parent: &adw::ApplicationWindow,
+        parent: &ndl::ApplicationWindow,
     ) {
-        let group = adw::PreferencesGroup::new();
+        let group = ndl::PreferencesGroup::new();
 
         if self.playlists.is_empty() {
             // Not an error, and not a dialog worth opening empty either — but a
@@ -251,7 +252,7 @@ impl AppModel {
 
         let mut switches = Vec::with_capacity(self.playlists.len());
         for playlist in &self.playlists {
-            let row = adw::SwitchRow::new();
+            let row = ndl::SwitchRow::new();
             row.set_title(&glib::markup_escape_text(&playlist.name));
             row.set_active(self.settings.pinned_playlists.contains(&playlist.id));
             group.add(&row);
@@ -309,17 +310,17 @@ impl AppModel {
             });
         }
 
-        let page = adw::PreferencesPage::new();
+        let page = ndl::PreferencesPage::new();
         page.add(&group);
 
-        let header = adw::HeaderBar::new();
+        let header = ndl::HeaderBar::new();
         header.pack_start(&toggle_all);
 
-        let toolbar = adw::ToolbarView::new();
+        let toolbar = ndl::ToolbarView::new();
         toolbar.add_top_bar(&header);
         toolbar.set_content(Some(&page));
 
-        let dialog = adw::Dialog::builder()
+        let dialog = ndl::Dialog::builder()
             .title(vinilo_core::i18n::t(vinilo_core::i18n::Key::PinPlaylists))
             .content_width(420)
             .content_height(520)

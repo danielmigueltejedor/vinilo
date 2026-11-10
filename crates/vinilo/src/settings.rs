@@ -12,6 +12,7 @@
 //! single-user app on one machine, and refusing to start because an ini file
 //! got mangled would be absurd.
 
+use nodalia_gtk as ndl;
 use relm4::gtk::glib::{self, KeyFile, KeyFileFlags};
 use vinilo_core::i18n::{self, Locale};
 use vinilo_core::provider::Provider;
@@ -230,7 +231,7 @@ impl Default for Settings {
         Self {
             theme: Theme::default(),
             // Apple Music red: the app's own subject says more than GNOME blue.
-            accent: "apple-red".into(),
+            accent: "nodalia".into(),
             // Apple's own order.
             sort: "title".into(),
             sort_reversed: false,
@@ -452,11 +453,11 @@ impl Settings {
     /// Apply the colour scheme. Called at startup before the window is shown,
     /// so there is no flash of the wrong theme, and again whenever it changes.
     pub fn apply_theme(&self) {
-        let manager = relm4::adw::StyleManager::default();
+        let manager = ndl::StyleManager::default();
         manager.set_color_scheme(match self.theme {
-            Theme::System => relm4::adw::ColorScheme::Default,
-            Theme::Light => relm4::adw::ColorScheme::ForceLight,
-            Theme::Dark => relm4::adw::ColorScheme::ForceDark,
+            Theme::System => ndl::ColorScheme::Default,
+            Theme::Light => ndl::ColorScheme::ForceLight,
+            Theme::Dark => ndl::ColorScheme::ForceDark,
         });
     }
 }

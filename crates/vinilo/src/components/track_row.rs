@@ -12,7 +12,7 @@
 //! every property it cares about, because the widget it is handed was showing
 //! something else a moment ago, and anything left unset keeps the old value.
 
-use relm4::adw::prelude::*;
+use nodalia_gtk::prelude::*;
 use relm4::gtk::prelude::Cast;
 use relm4::prelude::*;
 use relm4::typed_view::list::RelmListItem;

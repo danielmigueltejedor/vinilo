@@ -260,7 +260,7 @@ impl AppModel {
             Stage::Ready => self
                 .mirror
                 .now_playing()
-                // adw::StatusPage always parses its description as Pango
+                // ndl::StatusPage always parses its description as Pango
                 // markup — there is no use-markup to turn off — so a track like
                 // "Mercury - Acts 1 & 2" has to be escaped. It warns even while
                 // this page is behind the library, because #[watch] still runs.
