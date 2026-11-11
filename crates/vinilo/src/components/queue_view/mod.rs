@@ -29,9 +29,10 @@ mod sync;
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
-use relm4::adw::prelude::*;
+use nodalia_gtk as ndl;
+use nodalia_gtk::prelude::*;
 use relm4::typed_view::list::TypedListView;
-use relm4::{Component, ComponentParts, ComponentSender, adw, gtk};
+use relm4::{Component, ComponentParts, ComponentSender, gtk};
 
 use crate::components::now_playing::{RepeatButton, mode_opacity};
 use reconcile::Key;
@@ -249,15 +250,15 @@ impl Component for QueueView {
     type CommandOutput = ();
 
     view! {
-        adw::ToolbarView {
+        ndl::ToolbarView {
 
-            add_top_bar = &adw::HeaderBar {
+            add_top_bar = &ndl::HeaderBar {
                 // No window controls: inside the drawer they would be a second
                 // close button laid over the real one.
                 set_show_end_title_buttons: false,
 
                 #[wrap(Some)]
-                set_title_widget = &adw::WindowTitle {
+                set_title_widget = &ndl::WindowTitle {
                     #[watch]
                     set_title: {
                         let _ = model.locale_tick;
@@ -350,7 +351,7 @@ impl Component for QueueView {
                     #[watch]
                     set_visible: model.entries.is_empty(),
 
-                    adw::StatusPage {
+                    ndl::StatusPage {
                         set_icon_name: Some(crate::nodalix::icon("view-list-symbolic")),
                         #[watch]
                         set_title: {

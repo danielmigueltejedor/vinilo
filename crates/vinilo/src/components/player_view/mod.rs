@@ -13,8 +13,8 @@
 //! reducer arms. Anything else would be two players disagreeing about one
 //! MusicKit.
 
-use relm4::adw;
-use relm4::adw::prelude::*;
+use nodalia_gtk as ndl;
+use nodalia_gtk::prelude::*;
 use relm4::gtk;
 use relm4::gtk::{gdk, glib};
 use relm4::prelude::*;
@@ -70,11 +70,11 @@ pub struct PlayerView {
     /// Drives the artwork between its two sizes. `None` until `init` has a
     /// widget to hang it on: an animation needs a frame clock, and a frame
     /// clock comes from a widget.
-    art_anim: Option<adw::TimedAnimation>,
+    art_anim: Option<ndl::TimedAnimation>,
     /// Scrolls the current lyric into the middle of the pane. Finite, and
     /// only played when the line changes — an infinite CSS animation is
     /// what pins the frame clock (#126).
-    lyric_scroll_anim: Option<adw::TimedAnimation>,
+    lyric_scroll_anim: Option<ndl::TimedAnimation>,
     /// The ⋮ beside the title, so a click can parent the popover to it.
     menu_button: Option<gtk::Button>,
 }
@@ -83,7 +83,7 @@ pub struct PlayerView {
 struct Slots {
     pane: gtk::Stack,
     lyrics_root: gtk::Stack,
-    lyrics_status: adw::StatusPage,
+    lyrics_status: ndl::StatusPage,
     lyrics_scroll: gtk::ScrolledWindow,
     lyrics_lines: gtk::Box,
     queue_wide_rev: gtk::Revealer,
@@ -159,8 +159,8 @@ const SHEET_MIN_H: i32 = DRAWER_CHROME_H + ART_FLOOR;
 /// `Rc` rather than `Arc`: these are GTK signal handlers, all on the main
 /// thread.
 pub fn fill_window(
-    window: &adw::ApplicationWindow,
-    sheet: &adw::BottomSheet,
+    window: &ndl::ApplicationWindow,
+    sheet: &ndl::BottomSheet,
     content: &gtk::Widget,
     player: &relm4::Sender<PlayerViewInput>,
 ) {
@@ -298,7 +298,7 @@ impl SimpleComponent for PlayerView {
 
     view! {
         #[name = "root"]
-        adw::BreakpointBin {
+        ndl::BreakpointBin {
             // Low enough that the drawer never becomes the window's floor.
             // The whole point of the compact layout is that the app can be
             // tiled to half a screen, and a minimum here would undo that.
@@ -658,9 +658,9 @@ impl SimpleComponent for PlayerView {
         // user, who cannot act on it either way.
         let queue = QUEUE_SLOT.with(|q| q.borrow().clone()).unwrap_or_else(|| {
             tracing::error!("no queue widget was handed over; the drawer's queue will be empty");
-            adw::ToolbarView::new()
+            ndl::ToolbarView::new()
         });
-        let lyrics_status = adw::StatusPage::builder()
+        let lyrics_status = ndl::StatusPage::builder()
             .icon_name(lyrics_icon())
             .title(vinilo_core::i18n::t(vinilo_core::i18n::Key::LyricsLoading))
             .build();
@@ -717,32 +717,32 @@ impl SimpleComponent for PlayerView {
         // re-setting the size would queue a resize for no change.
         let px = model.art_px.clone();
         let cover = model.cover.clone();
-        let anim = adw::TimedAnimation::new(
+        let anim = ndl::TimedAnimation::new(
             &widgets.art_slot,
             f64::from(ART_LARGE),
             f64::from(ART_LARGE),
             QUEUE_ANIM_MS,
-            adw::CallbackAnimationTarget::new(move |value| {
+            ndl::CallbackAnimationTarget::new(move |value| {
                 let size = value.round() as i32;
                 if px.replace(size) != size {
                     cover.resize(size);
                 }
             }),
         );
-        anim.set_easing(adw::Easing::EaseOutCubic);
+        anim.set_easing(ndl::Easing::EaseOutCubic);
         model.art_anim = Some(anim);
 
         let lyric_adj = lyrics_scroll.vadjustment();
-        let lyric_anim = adw::TimedAnimation::new(
+        let lyric_anim = ndl::TimedAnimation::new(
             &lyrics_scroll,
             0.0,
             0.0,
             LYRIC_SCROLL_MS,
-            adw::CallbackAnimationTarget::new(move |value| {
+            ndl::CallbackAnimationTarget::new(move |value| {
                 lyric_adj.set_value(value);
             }),
         );
-        lyric_anim.set_easing(adw::Easing::EaseOutCubic);
+        lyric_anim.set_easing(ndl::Easing::EaseOutCubic);
         model.lyric_scroll_anim = Some(lyric_anim);
         model.slots = Some(Slots {
             pane,
@@ -762,9 +762,9 @@ impl SimpleComponent for PlayerView {
         // One breakpoint. The other decision — whether the queue is showing —
         // is the user's, and combining the two is what `relayout` is for.
         if let Ok(condition) =
-            adw::BreakpointCondition::parse(&format!("max-width: {}px", WIDE_PX - 1))
+            ndl::BreakpointCondition::parse(&format!("max-width: {}px", WIDE_PX - 1))
         {
-            let breakpoint = adw::Breakpoint::new(condition);
+            let breakpoint = ndl::Breakpoint::new(condition);
             let narrowed = sender.clone();
             breakpoint.connect_apply(move |_| narrowed.input(PlayerViewInput::Wide(false)));
             let widened = sender.clone();
@@ -999,12 +999,12 @@ thread_local! {
     /// that can carry a `&Widget` through. Handing it over on this cell keeps
     /// the queue a *moved* component rather than a second implementation, which
     /// is what issue #18 asked for.
-    static QUEUE_SLOT: std::cell::RefCell<Option<adw::ToolbarView>> =
+    static QUEUE_SLOT: std::cell::RefCell<Option<ndl::ToolbarView>> =
         const { std::cell::RefCell::new(None) };
 }
 
 /// Lend the queue widget to the player view being built next.
-pub fn hand_over_queue(queue: adw::ToolbarView) {
+pub fn hand_over_queue(queue: ndl::ToolbarView) {
     QUEUE_SLOT.with(|q| *q.borrow_mut() = Some(queue));
 }
 

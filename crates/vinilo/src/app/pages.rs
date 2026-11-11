@@ -9,7 +9,6 @@
 //! right one — the same lesson `queue.rs` is built around.
 
 use relm4::ComponentSender;
-use relm4::adw::prelude::NavigationPageExt;
 
 use super::AppMsg;
 use super::{ART_SIZE, AppModel, CommandMsg, PageKind, artwork};

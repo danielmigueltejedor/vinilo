@@ -68,10 +68,10 @@ fn main() {
         }
     }
 
-    // `RelmApp::new` calls `gtk::init()` and — because we enable relm4's
-    // `libadwaita` feature — `adw::init()` too. So there's deliberately no adw
-    // init here.
+    // `RelmApp::new` calls `gtk::init()`, which opens the display NDL's
+    // stylesheets are installed on.
     let app = RelmApp::new(APP_ID);
+    nodalia_gtk::init();
     setup_icon();
 
     // Files and folders this process was asked to play. GNOME's session PATH
@@ -113,7 +113,6 @@ fn main() {
         settings.provider,
         style::Accent::parse(&settings.accent),
     );
-    nodalix::init();
     app.run::<app::AppModel>(settings);
 }
 

@@ -26,9 +26,16 @@ use crate::player::protocol::{Item, RepeatMode};
 use crate::queue::Start;
 
 fn runtime_dir() -> Option<std::path::PathBuf> {
-    let dir = std::env::var("XDG_RUNTIME_DIR")
-        .ok()
-        .filter(|d| !d.is_empty())?;
+    let var = |name| std::env::var(name).ok().filter(|d: &String| !d.is_empty());
+    // macOS has no `XDG_RUNTIME_DIR`; `TMPDIR` is its per-user equivalent, and
+    // short enough for the 104-byte limit on a socket path there.
+    let dir = var("XDG_RUNTIME_DIR").or_else(|| {
+        if cfg!(target_os = "macos") {
+            var("TMPDIR")
+        } else {
+            None
+        }
+    })?;
     Some(std::path::PathBuf::from(dir))
 }
 
@@ -86,9 +93,27 @@ fn pid_is_alive(pid: u32) -> bool {
     unsafe { libc::kill(pid as libc::pid_t, 0) == 0 }
 }
 
+#[cfg(not(target_os = "macos"))]
 fn pid_is_vinilod(pid: u32) -> bool {
     let comm = std::fs::read_to_string(format!("/proc/{pid}/comm")).unwrap_or_default();
     comm.trim() == "vinilod"
+}
+
+/// macOS has no `/proc`; `proc_name` is its answer to the same question.
+#[cfg(target_os = "macos")]
+fn pid_is_vinilod(pid: u32) -> bool {
+    let mut name = [0u8; 64];
+    let len = unsafe {
+        libc::proc_name(
+            pid as libc::c_int,
+            name.as_mut_ptr().cast(),
+            name.len() as u32,
+        )
+    };
+    usize::try_from(len)
+        .ok()
+        .and_then(|len| name.get(..len))
+        .is_some_and(|name| name == b"vinilod")
 }
 
 fn signal_pid(pid: u32, sig: i32) {
@@ -242,7 +267,7 @@ pub fn connect_or_spawn(exe: &std::path::Path) -> std::io::Result<std::os::unix:
     let path = socket_path().ok_or_else(|| {
         std::io::Error::new(
             std::io::ErrorKind::NotFound,
-            "XDG_RUNTIME_DIR is not set, so there is nowhere to put the socket",
+            "no runtime directory (XDG_RUNTIME_DIR, or TMPDIR on macOS), so there is nowhere to put the socket",
         )
     })?;
 

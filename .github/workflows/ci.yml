@@ -24,13 +24,13 @@ jobs:
     name: fmt · clippy · tests
     runs-on: ubuntu-latest
     # **In a container, because the runner cannot build this.** Vinilo needs
-    # libadwaita >= 1.8 and GTK >= 4.20 (relm4's `gnome_49`), and
-    # `ubuntu-latest` ships neither. Arch is what the app is developed against
-    # and tracks both closely.
+    # GTK >= 4.20 (what `nodalia-gtk` targets), and `ubuntu-latest` does not
+    # ship it. Arch is what the app is developed against
+    # and tracks GTK closely.
     container: archlinux:base-devel
     steps:
       # Verified by running this exact list in a clean `archlinux:base-devel`
-      # container: rustc 1.97.1, GTK 4.22.4, libadwaita 1.9.2, `make check`
+      # container: rustc 1.97.1, GTK 4.22.4, `make check`
       # green from scratch. No openssl — reqwest is built on rustls.
       - name: Install the build floor
         run: |
@@ -39,7 +39,7 @@ jobs:
           # Without it the compile is fine and the *link* fails, which reads as
           # a mystery until you scroll to `unable to find library -l:libpulse.so.0`.
           pacman -Syu --needed --noconfirm \
-            git pkgconf rust gtk4 libadwaita librsvg libpulse webkitgtk-6.0
+            git pkgconf rust gtk4 librsvg libpulse webkitgtk-6.0
           rustc --version
 
       - uses: actions/checkout@v5
@@ -59,6 +59,59 @@ jobs:
       # its parts means CI cannot drift from what a developer runs.
       - name: make check
         run: make check
+
+  macos:
+    name: macOS · clippy · tests · DMG
+    # Apple Silicon. Homebrew's GTK is built for the runner's own macOS, so the
+    # DMG needs that version or newer; Info.plist says which.
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install the build floor
+        run: |
+          brew install gtk4 librsvg adwaita-icon-theme pkgconf node
+          rustup default stable
+          rustc --version
+
+      - name: Cache cargo
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: cargo-${{ runner.os }}-
+
+      - name: clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: tests
+        run: cargo test --workspace --locked
+
+      # The DMG is built on every run so a change that breaks the bundle shows
+      # here, and so the result can be downloaded and opened on a Mac.
+      - name: Vinilo.app and DMG
+        run: |
+          set -euxo pipefail
+          cargo build --release --locked
+          make sidecar
+          ./packaging/macos/bundle.sh dist/macos
+          VERSION=$(awk -F\" '/^version = / {print $2; exit}' Cargo.toml)
+          ./packaging/macos/create_dmg.sh dist/macos/Vinilo.app "dist/Vinilo-${VERSION}-macos-arm64.dmg"
+          # Nothing outside the bundle but the system's own libraries.
+          for bin in dist/macos/Vinilo.app/Contents/MacOS/vinilo dist/macos/Vinilo.app/Contents/MacOS/vinilod; do
+            outside=$(otool -L "$bin" | tail -n +2 | grep -v -E '@rpath|@executable_path|@loader_path|/usr/lib/|/System/' || true)
+            if [ -n "$outside" ]; then echo "$bin links outside the bundle:"; echo "$outside"; exit 1; fi
+          done
+
+      - name: Keep DMG
+        uses: actions/upload-artifact@v6
+        with:
+          name: macos-dmg
+          path: dist/Vinilo-*-macos-arm64.dmg
+          retention-days: 7
 
   packaging-changed:
     name: Did the packaging move?

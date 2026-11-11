@@ -7,6 +7,7 @@
 //! are already looking at a playlist and decide it belongs in the sidebar —
 //! which is a different moment, and the one where a dialog is in the way.
 
+use nodalia_gtk as ndl;
 use relm4::gtk;
 use relm4::gtk::prelude::*;
 
@@ -27,16 +28,19 @@ impl AppModel {
         let pinned = self.settings.pinned_playlists.contains(&req.playlist_id);
 
         let menu = gtk::gio::Menu::new();
-        menu.append(
-            Some(if pinned {
+        menu.append_item(&ndl::menu_item(
+            if pinned {
                 i18n::t(Key::RemoveFromSidebar)
             } else {
                 i18n::t(Key::AddToSidebar)
-            }),
-            Some("tile.toggle-pin"),
-        );
+            },
+            "tile.toggle-pin",
+            "ndl-pin-symbolic",
+        ));
 
         let popover = gtk::PopoverMenu::from_model(Some(&menu));
+
+        ndl::menu_rows(&popover);
         popover.set_has_arrow(false);
         popover.set_halign(gtk::Align::Start);
         popover.set_pointing_to(Some(&gtk::gdk::Rectangle::new(req.at.0, req.at.1, 1, 1)));

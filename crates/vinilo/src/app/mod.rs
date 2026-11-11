@@ -34,10 +34,9 @@
 
 use std::path::PathBuf;
 
-use relm4::adw::prelude::*;
-use relm4::{
-    Component, ComponentController, ComponentParts, ComponentSender, Controller, adw, gtk,
-};
+use nodalia_gtk as ndl;
+use nodalia_gtk::prelude::*;
+use relm4::{Component, ComponentController, ComponentParts, ComponentSender, Controller, gtk};
 
 use relm4::typed_view::grid::TypedGridView;
 use relm4::typed_view::list::TypedListView;
@@ -131,15 +130,15 @@ pub struct AppModel {
     mirror: Mirror,
     /// The first-run gate, while it is up. `Some` exactly when the app is
     /// blocked, which is what stops it being presented twice.
-    onboarding: Option<adw::Dialog>,
+    onboarding: Option<ndl::Dialog>,
     /// Catalogue WebKit login window, while it is up.
     catalog_login: Option<source_login::CatalogLogin>,
     /// True while cookies are being dumped, so Done and auto-detect cannot race.
     catalog_login_busy: bool,
     /// The language picker, while a first run has not chosen English or Spanish.
-    language_picker: Option<adw::Dialog>,
+    language_picker: Option<ndl::Dialog>,
     /// The music-source picker, after language and before Apple's sign-in.
-    provider_picker: Option<adw::Dialog>,
+    provider_picker: Option<ndl::Dialog>,
     /// Redraw sidebar group titles after the source changes ("Apple Music"
     /// becoming "Spotify").
     refresh_nav_headers: bool,
@@ -147,7 +146,8 @@ pub struct AppModel {
     pending_files: Vec<PathBuf>,
     /// Bumped when the interface language changes so `#[watch]` labels refresh.
     locale_tick: u32,
-    primary_menu: gtk::gio::Menu,
+    /// The primary menu's popover, owned so a refill can rebuild its rows.
+    primary_menu: gtk::PopoverMenu,
 
     /// The last track MusicKit reported, kept so the bar can hold it through a
     /// queue reload — see `push_snapshot::showing`.
@@ -168,7 +168,7 @@ pub struct AppModel {
     /// True between choosing a new source and attaching to the daemon that
     /// belongs to it.
     switching_source: bool,
-    toaster: adw::ToastOverlay,
+    toaster: ndl::ToastOverlay,
     /// The volume panel. Its widgets rather than its state, which is the two
     /// fields below — see `osd.rs`.
     volume_osd: osd::VolumeOsd,
@@ -261,7 +261,10 @@ pub struct AppModel {
     /// Held because they are built outside `view!` and so get no `#[watch]` —
     /// `sync_section_spinners` is what replaces it. Apple Music has no entry:
     /// it has nothing of its own to load.
-    section_spinners: Vec<(View, adw::Spinner)>,
+    section_spinners: Vec<(View, ndl::Spinner)>,
+    /// How many songs, albums, artists or playlists each library row leads to,
+    /// built beside the spinners and kept current the same way.
+    section_counts: Vec<(View, gtk::Label)>,
     /// Which library row currently carries the play marker.
     marked_playing: Option<String>,
     /// Icons of the library rows currently on screen, so the marker can move
@@ -363,7 +366,7 @@ pub struct AppModel {
     next_page_id: u64,
     /// The navigation stack for the content pane. Held because pages are pushed
     /// from `update`, not declared in the view.
-    nav: adw::NavigationView,
+    nav: ndl::NavigationView,
 
     /// How many rows of the **paging kind** are in `catalog`, and so the offset
     /// the next page starts from.
@@ -713,6 +716,7 @@ pub enum CommandMsg {
     /// work can be a command rather than something done on the GTK thread.
     Pruned(crate::components::prune::Report),
     /// Whether the Background portal agreed to list us. Advisory only.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     BackgroundPortal(Result<(), String>),
     /// A grid tile's cover is on disk and decoded, or could not be had.
     /// Carries pixels rather than a path because the decode is the expensive
@@ -758,7 +762,7 @@ impl Component for AppModel {
     type CommandOutput = CommandMsg;
 
     view! {
-        adw::ApplicationWindow {
+        ndl::ApplicationWindow {
             add_css_class: "nodalix",
             set_title: Some(WINDOW_TITLE),
 
@@ -781,16 +785,18 @@ impl Component for AppModel {
             set_default_height: 680,
 
             #[local_ref]
-            toaster -> adw::ToastOverlay {
+            #[wrap(Some)]
+            set_content = toaster -> ndl::ToastOverlay {
                 // The volume panel floats here: above the drawer, so opening it
                 // does not cover the panel, and below toasts, so an error still
                 // wins. See `osd.rs`.
-                gtk::Overlay {
+                #[wrap(Some)]
+                set_child = &gtk::Overlay {
                     #[local_ref]
                     add_overlay = volume_osd -> gtk::Revealer {},
 
                     #[wrap(Some)]
-                    set_child = &adw::ToolbarView {
+                    set_child = &ndl::ToolbarView {
                     // The bar is the handle of a drawer, not furniture bolted
                     // to the bottom (#18). `AdwBottomSheet` is the widget for
                     // exactly this: `bottom_bar` while closed, `sheet` when
@@ -801,7 +807,7 @@ impl Component for AppModel {
                     // drawer, beside the thing it is a queue for.
                     #[wrap(Some)]
                     #[name = "player_sheet"]
-                    set_content = &adw::BottomSheet {
+                    set_content = &ndl::BottomSheet {
                         set_full_width: true,
                         set_show_drag_handle: true,
                         // Modal: with the drawer open there is nothing useful
@@ -828,7 +834,7 @@ impl Component for AppModel {
 
                         #[wrap(Some)]
                         #[local_ref]
-                        set_sheet = player_sheet_content -> adw::BreakpointBin {},
+                        set_sheet = player_sheet_content -> ndl::BreakpointBin {},
 
                         // Navigation on the left, and an OverlaySplitView
                         // rather than a NavigationSplitView because it can be
@@ -838,7 +844,7 @@ impl Component for AppModel {
                         // shape for the same reason.
                         #[wrap(Some)]
                         #[name = "nav_split"]
-                        set_content = &adw::OverlaySplitView {
+                        set_content = &ndl::OverlaySplitView {
                             set_min_sidebar_width: 220.0,
                             set_max_sidebar_width: 280.0,
                             // Not a `#[watch]`. See `sync_animated`.
@@ -864,10 +870,15 @@ impl Component for AppModel {
                             },
 
                             #[wrap(Some)]
-                            set_sidebar = &adw::ToolbarView {
-                                    add_top_bar = &adw::HeaderBar {
+                            set_sidebar = &ndl::ToolbarView {
+                                    add_top_bar = &ndl::HeaderBar {
+                                        // The content header always carries the
+                                        // end-side controls; NDL's header does
+                                        // not hide a second set by itself.
+                                        set_show_end_title_buttons: false,
+
                                         #[wrap(Some)]
-                                        set_title_widget = &adw::WindowTitle {
+                                        set_title_widget = &ndl::WindowTitle {
                                             set_title: WINDOW_TITLE,
                                             #[watch]
                                             set_subtitle: &model.subtitle(),
@@ -880,7 +891,7 @@ impl Component for AppModel {
                                                 let _ = model.locale_tick;
                                                 i18n::t(Key::MainMenu)
                                             }),
-                                            set_menu_model: Some(&primary_menu),
+                                            set_popover: Some(&primary_menu),
                                         },
                                     },
 
@@ -940,8 +951,8 @@ impl Component for AppModel {
 
                             #[wrap(Some)]
                             #[local_ref]
-                            set_content = nav_view -> adw::NavigationView {
-                                add = &adw::NavigationPage {
+                            set_content = nav_view -> ndl::NavigationView {
+                                add = &ndl::NavigationPage {
                                     set_title: WINDOW_TITLE,
                                     // The root page. Albums and artists push on
                                     // top of it; nothing ever pops it.
@@ -949,8 +960,8 @@ impl Component for AppModel {
 
                                     #[wrap(Some)]
                                     #[name = "content_bars"]
-                                    set_child = &adw::ToolbarView {
-                                    add_top_bar = &adw::HeaderBar {
+                                    set_child = &ndl::ToolbarView {
+                                    add_top_bar = &ndl::HeaderBar {
                                         // The sidebar's own header carries the
                                         // start-side window controls while it
                                         // is open, so this header only shows
@@ -1033,7 +1044,7 @@ impl Component for AppModel {
                                             set_transition_type: gtk::StackTransitionType::Crossfade,
                                             set_transition_duration: 180,
 
-                                            add_named[Some("title")] = &adw::WindowTitle {
+                                            add_named[Some("title")] = &ndl::WindowTitle {
                                                 #[watch]
                                                 set_title: {
                                                     let _ = model.locale_tick;
@@ -1155,7 +1166,7 @@ impl Component for AppModel {
                                             // The only sign a reload is running,
                                             // once the list stopped being taken
                                             // away for one.
-                                            add_named[Some("busy")] = &adw::Spinner {
+                                            add_named[Some("busy")] = &ndl::Spinner {
                                                 set_size_request: (16, 16),
                                                 set_valign: gtk::Align::Center,
                                                 set_halign: gtk::Align::Center,
@@ -1230,10 +1241,35 @@ impl Component for AppModel {
                                     },
 
                                     #[wrap(Some)]
-                                    set_content = &gtk::Stack {
+                                    set_content = &gtk::Box {
+                                    set_orientation: gtk::Orientation::Vertical,
+
+                                    // The section's name, large, over what it
+                                    // holds: where you are reads before what is
+                                    // there. Pages that title themselves (a
+                                    // status page, search) leave it out.
+                                    gtk::Label {
+                                        add_css_class: "ndl-view-title",
+                                        set_xalign: 0.0,
+                                        set_margin_start: 28,
+                                        set_margin_end: 28,
+                                        set_margin_top: 12,
+                                        set_margin_bottom: 8,
+                                        set_ellipsize: gtk::pango::EllipsizeMode::End,
+                                        #[watch]
+                                        set_visible: model.titles_its_page(),
+                                        #[watch]
+                                        set_label: {
+                                            let _ = model.locale_tick;
+                                            model.view.sidebar_label()
+                                        },
+                                    },
+
+                                    gtk::Stack {
+                                        set_vexpand: true,
                                         set_transition_type: gtk::StackTransitionType::Crossfade,
                                         set_transition_duration: 200,
-                                        add_named[Some("status")] = &adw::StatusPage {
+                                        add_named[Some("status")] = &ndl::StatusPage {
                                             #[watch]
                                             set_icon_name: Some(model.icon()),
                                             #[watch]
@@ -1251,7 +1287,7 @@ impl Component for AppModel {
                                             set_valign: gtk::Align::Center,
                                             set_spacing: 18,
 
-                                            adw::Spinner {
+                                            ndl::Spinner {
                                                 set_size_request: (42, 42),
                                             },
 
@@ -1279,7 +1315,7 @@ impl Component for AppModel {
 
                                             #[wrap(Some)]
                                             #[name = "library_clamp"]
-                                            set_child = &adw::ClampScrollable {
+                                            set_child = &ndl::ClampScrollable {
                                                 set_maximum_size: 800,
                                                 add_css_class: "plain-scroller",
                                             },
@@ -1365,7 +1401,7 @@ impl Component for AppModel {
                                         // search. Telling someone that Apple
                                         // Music has nothing matching "" is
                                         // nonsense — this is an invitation.
-                                        add_named[Some("search-prompt")] = &adw::StatusPage {
+                                        add_named[Some("search-prompt")] = &ndl::StatusPage {
                                             set_icon_name: Some("system-search-symbolic"),
                                             #[watch]
                                             set_title: {
@@ -1379,7 +1415,7 @@ impl Component for AppModel {
                                             }),
                                         },
 
-                                        add_named[Some("empty-library")] = &adw::StatusPage {
+                                        add_named[Some("empty-library")] = &ndl::StatusPage {
                                             set_icon_name: Some("audio-x-generic-symbolic"),
                                             #[watch]
                                             set_title: {
@@ -1402,7 +1438,7 @@ impl Component for AppModel {
                                         // Distinct from "status": an empty
                                         // library and a search with no matches
                                         // are different problems.
-                                        add_named[Some("no-results")] = &adw::StatusPage {
+                                        add_named[Some("no-results")] = &ndl::StatusPage {
                                             set_icon_name: Some("system-search-symbolic"),
                                             #[watch]
                                             set_title: {
@@ -1432,6 +1468,7 @@ impl Component for AppModel {
                                         // does nothing.
                                         #[watch]
                                         set_visible_child_name: model.page(),
+                                    },
                                     },
                                     },
                                 },
@@ -1521,7 +1558,7 @@ impl Component for AppModel {
         // Popping is the user's business (back button, swipe, Escape), so the
         // stack is told about it rather than driving it. Resolving by tag keeps
         // the id-not-index rule intact even here.
-        let nav = adw::NavigationView::new();
+        let nav = ndl::NavigationView::new();
         let popped = sender.clone();
         nav.connect_popped(move |_, page| {
             if let Some(id) = page.tag().and_then(|t| t.parse::<u64>().ok()) {
@@ -1586,6 +1623,7 @@ impl Component for AppModel {
             ignore_search_echo: 0,
             animated_shown: std::cell::Cell::new(None),
             section_spinners: Vec::new(),
+            section_counts: Vec::new(),
             pin_labels: Vec::new(),
             pins_dirty: false,
             selected_row: None,
@@ -1684,14 +1722,14 @@ impl Component for AppModel {
             refresh_nav_headers: false,
             pending_files: Vec::new(),
             locale_tick: 0,
-            primary_menu: gtk::gio::Menu::new(),
+            primary_menu: gtk::PopoverMenu::from_model(None::<&gtk::gio::MenuModel>),
             last_item: None,
             menu_sender: sender.clone(),
             daemon: None,
             redials: 0,
             daemon_session: 0,
             switching_source: false,
-            toaster: adw::ToastOverlay::new(),
+            toaster: ndl::ToastOverlay::new(),
             volume_osd: osd::VolumeOsd::new(),
             osd_shown: false,
             osd_timer: None,
@@ -1705,9 +1743,8 @@ impl Component for AppModel {
             notified_for: None,
             notify_when_art_lands: None,
         };
-        let primary_menu = gtk::gio::Menu::new();
+        let primary_menu = model.primary_menu.clone();
         AppModel::fill_primary_menu(&primary_menu, model.settings.provider);
-        model.primary_menu = primary_menu.clone();
 
         let toaster = &model.toaster;
         let now_playing_bar = model.now_playing.widget();
@@ -1919,6 +1956,17 @@ impl AppModel {
         for (view, spinner) in &self.section_spinners {
             spinner.set_visible(self.loading_in(*view));
         }
+        for (view, label) in &self.section_counts {
+            let count = match view {
+                View::Songs => self.all_tracks.len(),
+                View::Albums => self.albums.len(),
+                View::Artists => self.artists.len(),
+                View::Playlists => self.playlists.len(),
+                _ => 0,
+            };
+            label.set_label(&count.to_string());
+            label.set_visible(count > 0 && !self.loading_in(*view));
+        }
     }
 
     fn sync_animated(&self, widgets: &<Self as relm4::Component>::Widgets) {
@@ -1948,7 +1996,7 @@ impl AppModel {
         &mut self,
         msg: AppMsg,
         sender: &ComponentSender<Self>,
-        root: &adw::ApplicationWindow,
+        root: &ndl::ApplicationWindow,
     ) {
         let sender = sender.clone();
         match msg {
@@ -2345,7 +2393,12 @@ impl AppModel {
                 sender.oneshot_command(async move {
                     match vinilo_core::lastfm::begin_auth(&cfg).await {
                         Ok((token, url)) => {
-                            let _ = std::process::Command::new("xdg-open").arg(&url).spawn();
+                            let opener = if cfg!(target_os = "macos") {
+                                "open"
+                            } else {
+                                "xdg-open"
+                            };
+                            let _ = std::process::Command::new(opener).arg(&url).spawn();
                             CommandMsg::LastFmAuth {
                                 token: Some(token),
                                 error: None,
@@ -2798,7 +2851,7 @@ impl AppModel {
         &mut self,
         msg: CommandMsg,
         sender: &ComponentSender<Self>,
-        _root: &adw::ApplicationWindow,
+        _root: &ndl::ApplicationWindow,
     ) {
         let sender = sender.clone();
         match msg {
@@ -3063,7 +3116,7 @@ impl AppModel {
     /// change, a hook attaching, and signing out — and three of them would have
     /// been easy to forget. Catalogue sources use the same gate: unconfigured
     /// means the Sign In window, exactly as SignedOut means Apple's.
-    fn sync_onboarding(&mut self, sender: &ComponentSender<Self>, root: &adw::ApplicationWindow) {
+    fn sync_onboarding(&mut self, sender: &ComponentSender<Self>, root: &ndl::ApplicationWindow) {
         if !self.settings.language_chosen || !self.settings.provider_chosen {
             return;
         }
@@ -3096,7 +3149,7 @@ impl AppModel {
     fn sync_language_picker(
         &mut self,
         sender: &ComponentSender<Self>,
-        root: &adw::ApplicationWindow,
+        root: &ndl::ApplicationWindow,
     ) {
         match (self.settings.language_chosen, &self.language_picker) {
             (false, None) => {
@@ -3113,7 +3166,7 @@ impl AppModel {
     fn sync_provider_picker(
         &mut self,
         sender: &ComponentSender<Self>,
-        root: &adw::ApplicationWindow,
+        root: &ndl::ApplicationWindow,
     ) {
         if !self.settings.language_chosen {
             return;
@@ -3142,7 +3195,7 @@ impl AppModel {
         &mut self,
         provider: vinilo_core::provider::Provider,
         sender: &ComponentSender<Self>,
-        root: &adw::ApplicationWindow,
+        root: &ndl::ApplicationWindow,
     ) {
         if self.settings.provider_chosen && self.settings.provider == provider {
             return;
@@ -3250,7 +3303,7 @@ impl AppModel {
     }
 
     fn toast(&self, text: &str) {
-        self.toaster.add_toast(adw::Toast::new(text));
+        self.toaster.add_toast(ndl::Toast::new(text));
     }
 }
 

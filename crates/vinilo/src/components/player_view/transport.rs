@@ -15,8 +15,8 @@
 //! its parent's private fields, so `refresh_transport` stays an inherent
 //! method on [`PlayerView`] reading `snap` and `bits` directly.
 
-use relm4::adw;
-use relm4::adw::prelude::*;
+use nodalia_gtk as ndl;
+use nodalia_gtk::prelude::*;
 use relm4::gtk;
 use relm4::prelude::*;
 
@@ -67,7 +67,7 @@ pub(super) fn build_transport(into: &gtk::Box, sender: &ComponentSender<PlayerVi
     // for "up to this wide, then centre", and using it keeps the ceiling out of
     // the widget's own minimum, so the compact layout still shrinks freely.
     into.append(
-        &adw::Clamp::builder()
+        &ndl::Clamp::builder()
             .maximum_size(SCRUB_MAX_W)
             .child(&scrubber_row)
             .build(),
@@ -144,6 +144,7 @@ pub(super) fn build_transport(into: &gtk::Box, sender: &ComponentSender<PlayerVi
         .adjustment(&gtk::Adjustment::new(0.0, 0.0, 1.0, VOLUME_STEP, 0.1, 0.0))
         .build();
     voice.set_visible(false);
+    crate::nodalix::slider_only(&voice);
     let voice_handler = {
         let sender = sender.clone();
         voice.connect_value_changed(move |_, v| {
@@ -160,6 +161,7 @@ pub(super) fn build_transport(into: &gtk::Box, sender: &ComponentSender<PlayerVi
         .css_classes(["flat", "circular", "nodalix-scale"])
         .adjustment(&gtk::Adjustment::new(1.0, 0.0, 1.0, VOLUME_STEP, 0.1, 0.0))
         .build();
+    crate::nodalix::slider_only(&volume);
     // The id is kept, not discarded: `refresh` blocks this handler while it
     // writes. See the note there.
     let volume_handler = {

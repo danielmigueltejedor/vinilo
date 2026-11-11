@@ -7,7 +7,6 @@ license.workspace = true
 
 [dependencies]
 # Volume lives on the audio server's stream, not inside MusicKit — see mixer.rs.
-libpulse-binding = { version = "2", default-features = false }
 vinilo-core = { path = "../vinilo-core" }
 # Local files. MusicKit cannot open a path; this is the decoder that can.
 rodio = { version = "0.19", features = [
@@ -39,3 +38,7 @@ serde_json.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# The stream volume lives in PulseAudio/PipeWire on Linux; macOS has neither.
+[target.'cfg(target_os = "linux")'.dependencies]
+libpulse-binding = { version = "2", default-features = false }

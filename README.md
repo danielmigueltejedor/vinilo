@@ -14,12 +14,13 @@ SPDX-License-Identifier: GPL-3.0-or-later
   <br><br>
   <img src="https://raw.githubusercontent.com/danielmigueltejedor/vinilo/main/data/icons/hicolor/512x512/apps/dev.danielmiguelt.Vinilo.png" width="200" alt="Vinilo">
   <h1>Vinilo</h1>
-  <p><strong>A native GNOME music player for Linux.</strong></p>
+  <p><strong>A native music player for Linux, drawn in the Nodalia Design Language.</strong></p>
 
   <p>
-    <img src="https://img.shields.io/badge/version-1.1.5-4a86cf" alt="Version 1.1.5">
+    <img src="https://img.shields.io/badge/version-2.0.0-4a86cf" alt="Version 2.0.0">
     <img src="https://img.shields.io/badge/platform-Linux%20x86__64-fcc624?logo=linux&logoColor=black" alt="Linux x86_64">
-    <img src="https://img.shields.io/badge/GTK4%20%2F%20libadwaita-4a86cf" alt="GTK4 and libadwaita">
+    <img src="https://img.shields.io/badge/platform-macOS%20arm64-000000?logo=apple&logoColor=white" alt="macOS arm64">
+    <img src="https://img.shields.io/badge/GTK4%20%2F%20Nodalia%20Design-4a86cf" alt="GTK4 and Nodalia Design">
     <img src="https://img.shields.io/badge/Rust-dea584?logo=rust&logoColor=black" alt="Written in Rust">
     <img src="https://img.shields.io/badge/interface-System%20%7C%20English%20%7C%20Español-8a63d2" alt="System, English and Spanish">
     <a href="./COPYING"><img src="https://img.shields.io/badge/license-GPL--3.0--or--later-2ea44f" alt="GPL-3.0-or-later"></a>
@@ -40,7 +41,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 ---
 
 Vinilo is a native front-end for the music you already pay for, not a website
-wrapped in a window. The interface is GTK4 and libadwaita. Apple Music still
+wrapped in a window. The interface is GTK4 drawn in the Nodalia Design Language. Apple Music still
 needs Apple's own player and Google's official Widevine CDM, so a small
 Chromium process stays hidden after sign-in. Local files never touch it.
 
@@ -60,20 +61,20 @@ closing the window does not stop the music.
 ## Preview
 
 <p align="center">
-  <img src="docs/screenshots/library.webp" width="48%" alt="Listen Now in Vinilo">
-  <img src="docs/screenshots/player.webp" width="48%" alt="Expanded player with lyrics">
+  <img src="docs/screenshots/library.webp" width="48%" alt="Listen Now in Vinilo 2.0: islands, Sora titles and NDL icons">
+  <img src="docs/screenshots/player.webp" width="48%" alt="Expanded player with the queue">
 </p>
 
 <p align="center">
   <img src="docs/screenshots/playlist.webp" width="48%" alt="Playlist page">
-  <img src="docs/screenshots/albums.webp" width="48%" alt="Spotify playlist in Vinilo">
+  <img src="docs/screenshots/albums.webp" width="48%" alt="An album page">
 </p>
 
 ## Why Vinilo
 
 | Interface | Playback | Desktop |
 | --- | --- | --- |
-| A GNOME app, not a website in a frame | Gapless playback, queue, lyrics and karaoke with a voice level on catalogue tracks | Play, pause and skip from the top bar, lock screen or media keys |
+| A native app in the Nodalia Design Language, not a website in a frame | Gapless playback, queue, lyrics and karaoke with a voice level on catalogue tracks | Play, pause and skip from the top bar, lock screen or media keys |
 | Your library: songs, albums, artists and playlists | The catalogues you already use, searchable from one place | Music keeps going when you close the window |
 | English or Spanish, or the system language | Crossfade, local listening stats, optional Last.fm scrobbling | Open audio files straight from the file manager |
 
@@ -117,7 +118,7 @@ into `~/.local` (no `sudo`).
 1. Install the build and runtime packages:
 
    ```bash
-   sudo pacman -S --needed base-devel pkgconf rustup gtk4 libadwaita librsvg \
+   sudo pacman -S --needed base-devel pkgconf rustup gtk4 librsvg \
                            nodejs npm libpulse alsa-lib yt-dlp ffmpeg webkitgtk-6.0
    rustup default stable   # Vinilo needs Rust ≥ 1.93 (edition 2024)
    ```
@@ -152,6 +153,21 @@ reinstalls. If the grid still launches nothing, the desktop file must read
 `Exec=/home/YOU/.local/bin/vinilo-desktop`. Log out once if an icon or launcher
 looks stale.
 
+### macOS (Apple Silicon)
+
+Download `Vinilo-<version>-macos-arm64.dmg` from the
+[latest release](https://github.com/danielmigueltejedor/vinilo/releases/latest),
+open it and drag Vinilo to Applications. The app is signed ad-hoc, not
+notarized, so the first time macOS refuses to open it: right-click Vinilo in
+Applications, choose **Open**, and confirm.
+
+YouTube Music, Tidal and links play through `yt-dlp` and `ffmpeg`:
+`brew install yt-dlp ffmpeg`. Those sources sign in through your browser, and
+Vinilo reads the session back when you press Done.
+
+To build it yourself: `brew install gtk4 librsvg adwaita-icon-theme pkgconf node`,
+then `cargo build --release && make sidecar && packaging/macos/bundle.sh dist/macos`.
+
 ### Default player for files
 
 In Files: right-click a track → **Open With** → Vinilo → **Always**. Or:
@@ -165,7 +181,7 @@ xdg-mime default dev.danielmiguelt.Vinilo.desktop audio/ogg
 ### Development
 
 ```bash
-cargo run                 # GNOME app
+cargo run                 # the app
 make sidecar-run          # hidden player, window visible (DRM isolation)
 make check                # fmt + clippy + tests
 ```
@@ -188,7 +204,7 @@ tokens are never written to disk.
 
 ```
                ┌────────────────────────────┐
-               │  Vinilo  GTK4 / libadwaita │
+               │  Vinilo  GTK4 / Nodalia    │
                │  library · search · player │
                └─────────────┬──────────────┘
                              │ JSON on a Unix socket
@@ -216,6 +232,8 @@ Vinilo does not strip DRM, cache decrypted audio, or offer downloads.
 | x86_64 only for Apple Music | Linux ARM Widevine is not a stable target |
 | Spotify and Apple Music are ready; YouTube Music is **Beta**; Tidal is **Alpha** | Catalogue clients are still settling |
 | Karaoke voice attenuation is catalogue / local only | MusicKit never hands Vinilo samples |
+| Apple Music on macOS needs Widevine VMP signing | Without it Apple's licence server can refuse playback; local files and Spotify are unaffected |
+| macOS: no media keys or Now Playing yet | The shell controls are MPRIS, which is Linux's |
 
 ## Contributing
 
@@ -275,7 +293,7 @@ tag is unsupported.
 
 - Use [GitHub Issues](https://github.com/danielmigueltejedor/vinilo/issues) for
   reproducible bugs and focused feature requests.
-- Include the Vinilo version (`1.1.5`), distribution, GTK/libadwaita versions
+- Include the Vinilo version (`2.0.0`), distribution, GTK version
   and the source (Apple Music, local, Spotify, YouTube Music or Tidal).
 - Never paste tokens, cookies, `settings.ini` or `lastfm.json` into an issue.
 

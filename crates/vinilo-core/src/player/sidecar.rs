@@ -223,6 +223,19 @@ pub fn locate() -> Result<PathBuf> {
         tried.push(p);
     }
 
+    // A macOS app bundle carries it in `Contents/Resources`, beside the
+    // `Contents/MacOS` the binaries run from.
+    if cfg!(target_os = "macos")
+        && let Some(p) = std::env::current_exe()
+            .ok()
+            .and_then(|exe| Some(exe.parent()?.parent()?.join("Resources/sidecar")))
+    {
+        if p.join("main.js").is_file() {
+            return Ok(p);
+        }
+        tried.push(p);
+    }
+
     // Per-user first, then system-wide. `XDG_DATA_DIRS` is what makes a
     // packaged install work at all: `make install` puts the sidecar under
     // `~/.local/share`, but a distribution package puts it in
@@ -290,7 +303,11 @@ fn dirs_data_home() -> Option<PathBuf> {
 /// the latter is a Node shim, which adds a process between us and the child and
 /// can print to stdout — and stdout is protocol (CLAUDE.md).
 fn electron_binary(sidecar: &Path) -> Result<PathBuf> {
-    let direct = sidecar.join("node_modules/electron/dist/electron");
+    let direct = sidecar.join(if cfg!(target_os = "macos") {
+        "node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+    } else {
+        "node_modules/electron/dist/electron"
+    });
     if direct.is_file() {
         return Ok(direct);
     }

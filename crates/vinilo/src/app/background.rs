@@ -3,11 +3,13 @@
 
 //! Closing the window, and staying alive when that is the right thing to do.
 
+use nodalia_gtk as ndl;
 use relm4::ComponentSender;
-use relm4::adw;
 use relm4::gtk::prelude::*;
 
-use super::{AppModel, CommandMsg};
+use super::AppModel;
+#[cfg(target_os = "linux")]
+use super::CommandMsg;
 
 impl AppModel {
     /// The close button. **Not a quit** — or not always.
@@ -30,7 +32,7 @@ impl AppModel {
     /// quit.
     pub(super) fn close_window(
         &mut self,
-        root: &adw::ApplicationWindow,
+        root: &ndl::ApplicationWindow,
         sender: &ComponentSender<Self>,
     ) {
         // The queue, not the playback state: paused-with-a-queue is still "you
@@ -65,6 +67,10 @@ impl AppModel {
     /// Quick Settings → Background Apps, so a failure costs discoverability, not
     /// function.
     fn request_background(&self, sender: &ComponentSender<Self>) {
+        // The portal is a Linux desktop thing; elsewhere there is nothing to ask.
+        #[cfg(not(target_os = "linux"))]
+        let _ = sender;
+        #[cfg(target_os = "linux")]
         sender.oneshot_command(async {
             // `auto_start` is deliberately **not set**, rather than set to
             // false. Sending the option at all makes the portal attempt
