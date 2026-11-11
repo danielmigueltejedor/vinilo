@@ -629,11 +629,18 @@ mod tests {
         let css = backdrop_css(Some("#c42828"), true);
         assert!(css.contains(".np-bar"), "the bar was left out: {css}");
         assert!(css.contains(".np-sheet"), "the drawer was left out: {css}");
-        assert_eq!(
-            css.matches("#c42828").count(),
-            8,
-            "each surface needs all four gradient stops"
-        );
+        for surface in [".np-bar {", ".np-sheet {"] {
+            let rule = css.lines().find(|l| l.starts_with(surface)).unwrap();
+            assert_eq!(
+                rule.matches("#c42828").count(),
+                4,
+                "{surface} needs all four gradient stops"
+            );
+        }
+        // An open drawer carries the colour up to the window's top: headers, frame, dimming.
+        for open in [".np-chrome-header", "> .ndl-sheet", ".ndl-scrim"] {
+            assert!(css.contains(open), "{open} keeps a grey band: {css}");
+        }
         let cleared = backdrop_css(None, true);
         assert!(cleared.contains(".np-bar") && cleared.contains(".np-sheet"));
     }
