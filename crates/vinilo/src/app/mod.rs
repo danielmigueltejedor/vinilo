@@ -868,6 +868,11 @@ impl Component for AppModel {
                             #[wrap(Some)]
                             set_sidebar = &ndl::ToolbarView {
                                     add_top_bar = &ndl::HeaderBar {
+                                        // The content header always carries the
+                                        // end-side controls; NDL's header does
+                                        // not hide a second set by itself.
+                                        set_show_end_title_buttons: false,
+
                                         #[wrap(Some)]
                                         set_title_widget = &ndl::WindowTitle {
                                             set_title: WINDOW_TITLE,
