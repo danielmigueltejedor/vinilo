@@ -113,7 +113,6 @@ fn main() {
         settings.provider,
         style::Accent::parse(&settings.accent),
     );
-    nodalix::init();
     app.run::<app::AppModel>(settings);
 }
 

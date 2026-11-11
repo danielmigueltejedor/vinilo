@@ -261,6 +261,9 @@ pub struct AppModel {
     /// `sync_section_spinners` is what replaces it. Apple Music has no entry:
     /// it has nothing of its own to load.
     section_spinners: Vec<(View, ndl::Spinner)>,
+    /// How many songs, albums, artists or playlists each library row leads to,
+    /// built beside the spinners and kept current the same way.
+    section_counts: Vec<(View, gtk::Label)>,
     /// Which library row currently carries the play marker.
     marked_playing: Option<String>,
     /// Icons of the library rows currently on screen, so the marker can move
@@ -750,6 +753,14 @@ fn map_player_output(out: NowPlayingOutput) -> AppMsg {
     }
 }
 
+/// A menu entry with its icon. Every row of a Vinilo menu carries one, so a
+/// menu reads at a glance the way the sidebar does.
+pub(crate) fn menu_item(label: &str, action: &str, icon: &str) -> gtk::gio::MenuItem {
+    let item = gtk::gio::MenuItem::new(Some(label), Some(action));
+    item.set_icon(&gtk::gio::ThemedIcon::new(icon));
+    item
+}
+
 #[relm4::component(pub)]
 impl Component for AppModel {
     type Init = Settings;
@@ -1237,7 +1248,32 @@ impl Component for AppModel {
                                     },
 
                                     #[wrap(Some)]
-                                    set_content = &gtk::Stack {
+                                    set_content = &gtk::Box {
+                                    set_orientation: gtk::Orientation::Vertical,
+
+                                    // The section's name, large, over what it
+                                    // holds: where you are reads before what is
+                                    // there. Pages that title themselves (a
+                                    // status page, search) leave it out.
+                                    gtk::Label {
+                                        add_css_class: "ndl-view-title",
+                                        set_xalign: 0.0,
+                                        set_margin_start: 28,
+                                        set_margin_end: 28,
+                                        set_margin_top: 12,
+                                        set_margin_bottom: 8,
+                                        set_ellipsize: gtk::pango::EllipsizeMode::End,
+                                        #[watch]
+                                        set_visible: model.titles_its_page(),
+                                        #[watch]
+                                        set_label: {
+                                            let _ = model.locale_tick;
+                                            model.view.sidebar_label()
+                                        },
+                                    },
+
+                                    gtk::Stack {
+                                        set_vexpand: true,
                                         set_transition_type: gtk::StackTransitionType::Crossfade,
                                         set_transition_duration: 200,
                                         add_named[Some("status")] = &ndl::StatusPage {
@@ -1441,6 +1477,7 @@ impl Component for AppModel {
                                         set_visible_child_name: model.page(),
                                     },
                                     },
+                                    },
                                 },
                             },
                         },
@@ -1593,6 +1630,7 @@ impl Component for AppModel {
             ignore_search_echo: 0,
             animated_shown: std::cell::Cell::new(None),
             section_spinners: Vec::new(),
+            section_counts: Vec::new(),
             pin_labels: Vec::new(),
             pins_dirty: false,
             selected_row: None,
@@ -1925,6 +1963,17 @@ impl AppModel {
     fn sync_section_spinners(&self) {
         for (view, spinner) in &self.section_spinners {
             spinner.set_visible(self.loading_in(*view));
+        }
+        for (view, label) in &self.section_counts {
+            let count = match view {
+                View::Songs => self.all_tracks.len(),
+                View::Albums => self.albums.len(),
+                View::Artists => self.artists.len(),
+                View::Playlists => self.playlists.len(),
+                _ => 0,
+            };
+            label.set_label(&count.to_string());
+            label.set_visible(count > 0 && !self.loading_in(*view));
         }
     }
 

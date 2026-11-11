@@ -118,6 +118,17 @@ fn sidebar_rows(model: &mut AppModel, widgets: &Widgets, sender: &ComponentSende
         // Apple Music has nothing of its own to load: a catalog search reports
         // through the content pane, not through a sidebar row. A pin has no
         // spinner either — it opens a page, which carries its own.
+        if let SidebarRow::Section(
+            view @ (View::Songs | View::Albums | View::Artists | View::Playlists),
+        ) = entry
+        {
+            let count = gtk::Label::new(None);
+            count.add_css_class("ndl-count");
+            count.set_visible(false);
+            content.append(&count);
+            model.section_counts.push((view, count));
+        }
+
         if let SidebarRow::Section(view) = entry
             && view != View::Search
         {
@@ -191,6 +202,7 @@ pub(super) fn rebuild_sidebar(
 
     widgets.nav_list.remove_all();
     model.section_spinners.clear();
+    model.section_counts.clear();
     model.pin_labels.clear();
     sidebar_rows(model, widgets, sender);
     model.refresh_pin_names();
@@ -258,10 +270,9 @@ fn sidebar_headers(widgets: &Widgets, library_row: i32, playlists_row: i32) {
         let label = gtk::Label::new(Some(title));
         label.set_xalign(0.0);
         label.set_margin_start(16);
-        label.set_margin_top(if row.index() == 0 { 6 } else { 12 });
-        label.set_margin_bottom(2);
-        label.add_css_class("heading");
-        label.add_css_class("dim-label");
+        label.set_margin_top(if row.index() == 0 { 8 } else { 18 });
+        label.set_margin_bottom(6);
+        label.add_css_class("ndl-micro");
         row.set_header(Some(&label));
     });
 }

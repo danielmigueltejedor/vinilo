@@ -2259,7 +2259,7 @@ dependencies = [
 [[package]]
 name = "nodalia-gtk"
 version = "0.1.0-alpha.1"
-source = "git+https://github.com/danielmigueltejedor/nodalia-design?rev=e39b5fea4ab51e078ade84a067bc014866932156#e39b5fea4ab51e078ade84a067bc014866932156"
+source = "git+https://github.com/danielmigueltejedor/nodalia-design?rev=9a4c80feabb0349bffff94b5513e79d05f63e4a5#9a4c80feabb0349bffff94b5513e79d05f63e4a5"
 dependencies = [
  "gtk4",
 ]

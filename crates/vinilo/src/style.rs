@@ -242,7 +242,7 @@ fn set_colors(colors: Option<(&'static str, &'static str)>) {
          .np-progress,
          .np-progress > trough,
          .np-progress > trough > progress {{
-             min-height: 4px;
+             min-height: 3px;
              border-radius: 0;
              margin: 0;
              padding: 0;
@@ -250,7 +250,6 @@ fn set_colors(colors: Option<(&'static str, &'static str)>) {
          .np-progress > trough {{ background-color: alpha(currentColor, 0.12); }}
          .np-progress > trough > progress {{
              background-color: @accent_bg_color;
-             box-shadow: 0 0 10px alpha(@accent_bg_color, 0.55);
          }}
 
          {COVER_LAYOUT}

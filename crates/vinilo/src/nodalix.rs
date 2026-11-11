@@ -8,9 +8,8 @@
 //! and it reads NDL's `--ndl-*` variables rather than carrying numbers, so a
 //! change of density or theme reaches it too.
 //!
-//! Adwaita's icons are used regardless of the system icon theme.
-
-use relm4::gtk;
+//! Icons come from NDL's own theme, which `nodalia-gtk` installs: the names
+//! used here are the standard ones, and that theme answers them.
 
 /// CSS the rest of the suite can paste. Variables first, then the chrome that
 /// reads them — one file, one look.
@@ -61,9 +60,20 @@ pub(crate) const CHROME: &str = r#"
 .nodalix .np-row {
     padding: var(--ndl-space-md) var(--ndl-space-lg);
 }
+/* Play is the one solid shape in the player, in the text colour: the accent
+   is kept for what moves (the progress line) and for focus. */
 .nodalix .np-row button.suggested-action {
     min-width: 40px;
     min-height: 40px;
+}
+.nodalix .np-row button.suggested-action,
+.nodalix button.suggested-action.circular {
+    background-color: var(--ndl-color-text-primary);
+    color: var(--ndl-color-surface-window);
+}
+.nodalix .np-row button.suggested-action:hover,
+.nodalix button.suggested-action.circular:hover {
+    background-color: var(--ndl-color-text-secondary);
 }
 .nodalix button.page-play {
     min-width: 128px;
@@ -106,14 +116,7 @@ pub(crate) const CHROME: &str = r#"
 }
 "#;
 
-/// Use Adwaita icons inside Vinilo regardless of the desktop icon theme.
-pub fn init() {
-    if let Some(settings) = gtk::Settings::default() {
-        settings.set_gtk_icon_theme_name(Some("Adwaita"));
-    }
-}
-
-/// Native GNOME/Adwaita icon handling.
+/// An icon by its standard name; NDL's icon theme draws it.
 pub fn icon(name: &'static str) -> &'static str {
     name
 }
@@ -129,7 +132,7 @@ pub fn volume_icons() -> [&'static str; 4] {
 }
 
 /// The sidebar toggle. The button's pressed state already says whether the
-/// sidebar is open, so both states share Adwaita's glyph.
+/// sidebar is open, so both states share one glyph.
 pub fn sidebar_toggle_icon(_shown: bool) -> &'static str {
     "sidebar-show-symbolic"
 }

@@ -134,6 +134,15 @@ impl AppModel {
         }
     }
 
+    /// Whether the content opens with the section's name as a big title: the
+    /// pages that list something do, the ones that explain themselves do not.
+    pub(super) fn titles_its_page(&self) -> bool {
+        matches!(
+            self.page(),
+            "library" | "albums" | "artists" | "playlists" | "discover" | "stats"
+        )
+    }
+
     pub(super) fn page(&self) -> &'static str {
         // Only the *first* load takes over the screen. A reload with content
         // already on show keeps it up and just disables the refresh button —

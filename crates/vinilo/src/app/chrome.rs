@@ -1003,23 +1003,36 @@ impl AppModel {
         menu: &gtk::gio::Menu,
         provider: vinilo_core::provider::Provider,
     ) {
+        use super::menu_item as item;
         menu.remove_all();
         let section = gtk::gio::Menu::new();
-        section.append(Some(t(Key::Preferences)), Some("win.preferences"));
-        section.append(Some(t(Key::KeyboardShortcuts)), Some("win.shortcuts"));
-        section.append(Some(t(Key::About)), Some("win.about"));
+        section.append_item(&item(
+            t(Key::Preferences),
+            "win.preferences",
+            "emblem-system-symbolic",
+        ));
+        section.append_item(&item(
+            t(Key::KeyboardShortcuts),
+            "win.shortcuts",
+            "ndl-key-symbolic",
+        ));
+        section.append_item(&item(t(Key::About), "win.about", "help-about-symbolic"));
         menu.append_section(None, &section);
 
         if provider.needs_apple()
             || (provider.is_catalog() && vinilo_core::setup::is_configured(provider))
         {
             let account = gtk::gio::Menu::new();
-            account.append(Some(t(Key::SignOut)), Some("win.sign-out"));
+            account.append_item(&item(
+                t(Key::SignOut),
+                "win.sign-out",
+                "system-log-out-symbolic",
+            ));
             menu.append_section(None, &account);
         }
 
         let quit = gtk::gio::Menu::new();
-        quit.append(Some(t(Key::Quit)), Some("app.quit"));
+        quit.append_item(&item(t(Key::Quit), "app.quit", "ndl-power-symbolic"));
         menu.append_section(None, &quit);
     }
 }
