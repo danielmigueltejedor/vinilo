@@ -447,7 +447,7 @@ fn wash_of(path: &std::path::Path) -> Option<String> {
 /// of the window colour is mixed in.
 fn backdrop_css(color: Option<&str>, dark: bool) -> String {
     let Some(color) = color else {
-        return ".np-bar, .np-sheet { background-image: none; background-color: transparent; }"
+        return ".np-bar, .np-sheet, .np-open .np-chrome-header { background-image: none; background-color: transparent; }"
             .into();
     };
     // A touch richer than before so the sleeve reads as atmosphere rather than
@@ -462,11 +462,18 @@ fn backdrop_css(color: Option<&str>, dark: bool) -> String {
             "background-color: @window_bg_color; background-image: linear-gradient({direction}, alpha({color}, {strong}) 0%, alpha({color}, {middle}) 42%, alpha({color}, {tail}) 72%, alpha({color}, 0.0) 100%); background-repeat: no-repeat;"
         )
     };
+    // The headers above an open drawer carry the colour the drawer starts with, so the wash
+    // reaches the top of the window. Their top corners follow the island's.
     format!(
         ".np-bar {{ {} }}
-.np-sheet {{ {} }}",
+.np-sheet {{ {} }}
+.np-open .np-chrome-header {{ background-color: @window_bg_color; background-image: linear-gradient({top}, {top}); border-radius: var(--ndl-component-panel-radius) var(--ndl-component-panel-radius) 0 0; }}
+.np-open ndl-bottom-sheet > .ndl-sheet {{ background-color: @window_bg_color; background-image: linear-gradient({top}, {top}); }}
+.np-open ndl-bottom-sheet .ndl-scrim {{ background-color: alpha({color}, {veil}); }}",
         gradient("to right", bar),
-        gradient("to bottom", sheet)
+        gradient("to bottom", sheet),
+        top = format!("alpha({color}, {})", sheet.0),
+        veil = sheet.0 / 2.0,
     )
 }
 
