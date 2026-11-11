@@ -275,6 +275,7 @@ pub enum Key {
     ProviderBody,
     ProviderApple,
     ProviderAppleSub,
+    ProviderAppleNotHere,
     ProviderLocal,
     ProviderLocalSub,
     ProviderSpotify,
@@ -562,6 +563,9 @@ fn en(key: Key) -> &'static str {
         Key::ProviderApple => "Apple Music",
         Key::ProviderAppleSub => {
             "Your library and the catalogue. Works well; the hidden player is still a full Chromium."
+        }
+        Key::ProviderAppleNotHere => {
+            "Not on macOS yet: it needs a signature Vinilo is waiting for. Until then, a Mac plays only 90-second previews."
         }
         Key::ProviderLocal => "This computer",
         Key::ProviderLocalSub => "Files you open, and folders you drop on Vinilo",
@@ -875,6 +879,9 @@ fn es(key: Key) -> &'static str {
         Key::ProviderApple => "Apple Music",
         Key::ProviderAppleSub => {
             "Tu biblioteca y el catálogo. Funciona bien; el reproductor oculto sigue siendo Chromium."
+        }
+        Key::ProviderAppleNotHere => {
+            "Aún no en macOS: necesita una firma que Vinilo está esperando. Hasta entonces, en un Mac solo suenan avances de 90 segundos."
         }
         Key::ProviderLocal => "Este equipo",
         Key::ProviderLocalSub => "Archivos que abras y carpetas que sueltes en Vinilo",

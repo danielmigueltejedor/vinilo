@@ -80,8 +80,11 @@ impl Provider {
         Self::ALL.iter().position(|p| *p == self).unwrap_or(0) as u32
     }
 
+    /// Whether this source can play on this system. Apple Music on macOS needs Widevine's
+    /// VMP signature, which Vinilo does not have yet: without it MusicKit only plays 90-second
+    /// previews that cannot be skipped, so the source is not offered there.
     pub fn is_available(self) -> bool {
-        true
+        !(self == Self::AppleMusic && cfg!(target_os = "macos"))
     }
 
     /// Whether MusicKit (and therefore the Chromium sidecar) is required.
@@ -150,6 +153,19 @@ pub fn save(provider: Provider) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn apple_music_is_offered_except_on_macos() {
+        assert_eq!(
+            Provider::AppleMusic.is_available(),
+            !cfg!(target_os = "macos")
+        );
+        for provider in Provider::ALL {
+            if provider != Provider::AppleMusic {
+                assert!(provider.is_available(), "{provider:?}");
+            }
+        }
+    }
+
     use super::*;
 
     #[test]

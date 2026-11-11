@@ -734,12 +734,18 @@ impl AppModel {
             .selected(self.settings.provider.index())
             .build();
         {
+            let current = self.settings.provider.index();
             let sender = sender.clone();
             let armed = Rc::new(Cell::new(false));
             source_row.connect_selected_notify({
                 let armed = armed.clone();
                 move |row| {
                     if !armed.get() {
+                        return;
+                    }
+                    // A source this system cannot play goes back to the one in use.
+                    if !vinilo_core::provider::Provider::from_index(row.selected()).is_available() {
+                        row.set_selected(current);
                         return;
                     }
                     sender.input(AppMsg::SetProvider(row.selected()));
@@ -971,10 +977,17 @@ impl AppModel {
             .width_request(380)
             .build();
 
+        // Shown but not offered where it cannot play (Apple Music on macOS), with the reason.
+        let apple_here = Provider::AppleMusic.is_available();
         let apple = ndl::ActionRow::builder()
             .title(t(Key::ProviderApple))
-            .subtitle(t(Key::ProviderAppleSub))
-            .activatable(true)
+            .subtitle(t(if apple_here {
+                Key::ProviderAppleSub
+            } else {
+                Key::ProviderAppleNotHere
+            }))
+            .activatable(apple_here)
+            .sensitive(apple_here)
             .build();
         apple.add_prefix(&gtk::Image::from_icon_name("folder-music-symbolic"));
         apple.add_suffix(&gtk::Image::from_icon_name("go-next-symbolic"));

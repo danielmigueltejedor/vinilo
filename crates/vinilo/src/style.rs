@@ -447,7 +447,7 @@ fn wash_of(path: &std::path::Path) -> Option<String> {
 /// of the window colour is mixed in.
 fn backdrop_css(color: Option<&str>, dark: bool) -> String {
     let Some(color) = color else {
-        return ".np-bar, .np-sheet, .np-open .np-chrome-header { background-image: none; background-color: transparent; }"
+        return ".np-bar, .np-sheet { background-image: none; background-color: transparent; }"
             .into();
     };
     // A touch richer than before so the sleeve reads as atmosphere rather than
@@ -462,18 +462,15 @@ fn backdrop_css(color: Option<&str>, dark: bool) -> String {
             "background-color: @window_bg_color; background-image: linear-gradient({direction}, alpha({color}, {strong}) 0%, alpha({color}, {middle}) 42%, alpha({color}, {tail}) 72%, alpha({color}, 0.0) 100%); background-repeat: no-repeat;"
         )
     };
-    // The headers above an open drawer carry the colour the drawer starts with, so the wash
-    // reaches the top of the window. Their top corners follow the island's.
+    // The drawer's own frame (the strip with the handle) takes the colour the drawer starts
+    // with; what is behind the open drawer keeps its own colours.
     format!(
         ".np-bar {{ {} }}
 .np-sheet {{ {} }}
-.np-open .np-chrome-header {{ background-color: @window_bg_color; background-image: linear-gradient({top}, {top}); border-radius: var(--ndl-component-panel-radius) var(--ndl-component-panel-radius) 0 0; }}
-.np-open ndl-bottom-sheet > .ndl-sheet {{ background-color: @window_bg_color; background-image: linear-gradient({top}, {top}); }}
-.np-open ndl-bottom-sheet .ndl-scrim {{ background-color: alpha({color}, {veil}); }}",
+ndl-bottom-sheet > .ndl-sheet {{ background-color: @window_bg_color; background-image: linear-gradient({top}, {top}); }}",
         gradient("to right", bar),
         gradient("to bottom", sheet),
         top = format!("alpha({color}, {})", sheet.0),
-        veil = sheet.0 / 2.0,
     )
 }
 
@@ -637,10 +634,15 @@ mod tests {
                 "{surface} needs all four gradient stops"
             );
         }
-        // An open drawer carries the colour up to the window's top: headers, frame, dimming.
-        for open in [".np-chrome-header", "> .ndl-sheet", ".ndl-scrim"] {
-            assert!(css.contains(open), "{open} keeps a grey band: {css}");
-        }
+        // The drawer's handle strip is part of the player; what is behind it is not tinted.
+        assert!(
+            css.contains("> .ndl-sheet"),
+            "the handle strip stays grey: {css}"
+        );
+        assert!(
+            !css.contains(".ndl-scrim") && !css.contains("np-chrome-header"),
+            "{css}"
+        );
         let cleared = backdrop_css(None, true);
         assert!(cleared.contains(".np-bar") && cleared.contains(".np-sheet"));
     }

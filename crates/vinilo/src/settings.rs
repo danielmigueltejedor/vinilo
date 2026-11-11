@@ -379,6 +379,12 @@ impl Settings {
             settings.provider = Provider::AppleMusic;
             settings.provider_chosen = true;
         }
+        // A source this system cannot play (Apple Music on macOS) sends the person back to the
+        // picker, instead of a library that plays only previews.
+        if settings.provider_chosen && !settings.provider.is_available() {
+            settings.provider = Provider::Local;
+            settings.provider_chosen = false;
+        }
         tracing::debug!(?settings, "loaded settings");
         settings
     }
