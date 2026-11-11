@@ -19,15 +19,18 @@ cp data/icons/hicolor/128x128/apps/dev.danielmiguelt.Vinilo.png docs/screenshots
 
 | File | Shows |
 | --- | --- |
-| `library.webp` | Listen Now — recently played, Made for You, the Now Playing bar |
-| `player.webp` | The expanded player: artwork, transport, the queue |
-| `playlist.webp` | A playlist page: Play and Shuffle, tracks |
-| `albums.webp` | An album page |
+| `player.webp` | The open player, dark theme: the cover's colour from the headers down |
+| `queue.webp` | The queue inside the open player, light theme |
+| `preferences.webp` | Preferences, dark theme |
+| `about.webp` | About, dark theme |
+
+The music in them is a demo collection: invented albums with covers drawn for the
+shots, so no account, real cover art or personal library appears.
 
 ## Taking them
 
-- **Dark theme**, since that is what the app looks like on a default GNOME
-  install and what every shot here uses.
+- **Dark theme** for most of them, since that is what the app looks like on a
+  default GNOME install; one light shot shows the other mode.
 - Capture the **window, not the screen** — `Alt`+`PrtSc` — with its rounded
   corners transparent around it: the window's own shape is part of the
   Nodalia look.
