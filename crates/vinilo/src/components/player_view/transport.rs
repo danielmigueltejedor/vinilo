@@ -144,6 +144,7 @@ pub(super) fn build_transport(into: &gtk::Box, sender: &ComponentSender<PlayerVi
         .adjustment(&gtk::Adjustment::new(0.0, 0.0, 1.0, VOLUME_STEP, 0.1, 0.0))
         .build();
     voice.set_visible(false);
+    crate::nodalix::slider_only(&voice);
     let voice_handler = {
         let sender = sender.clone();
         voice.connect_value_changed(move |_, v| {
@@ -160,6 +161,7 @@ pub(super) fn build_transport(into: &gtk::Box, sender: &ComponentSender<PlayerVi
         .css_classes(["flat", "circular", "nodalix-scale"])
         .adjustment(&gtk::Adjustment::new(1.0, 0.0, 1.0, VOLUME_STEP, 0.1, 0.0))
         .build();
+    crate::nodalix::slider_only(&volume);
     // The id is kept, not discarded: `refresh` blocks this handler while it
     // writes. See the note there.
     let volume_handler = {

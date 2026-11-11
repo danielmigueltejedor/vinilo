@@ -274,6 +274,7 @@ impl RelmListItem for LibraryItem {
 
                     #[name = "title"]
                     gtk::Label {
+                        add_css_class: "track-title",
                         set_xalign: 0.0,
                         set_ellipsize: gtk::pango::EllipsizeMode::End,
                         // Names are plain text. Left as markup, anything with

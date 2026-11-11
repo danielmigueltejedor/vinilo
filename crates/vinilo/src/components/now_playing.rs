@@ -610,6 +610,7 @@ impl SimpleComponent for NowPlaying {
             locale_tick: 0,
         };
         let widgets = view_output!();
+        crate::nodalix::slider_only(&widgets.volume);
 
         // Connected here rather than in `view!` because the handler's id is the
         // point: `post_view` blocks it while writing, and the macro gives no

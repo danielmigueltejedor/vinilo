@@ -197,6 +197,64 @@ pub(super) fn register_actions(
     app.set_accelerators_for_action::<FocusSearchAction>(&["<Control>f"]);
 
     group.register_for_widget(window);
+    global_menu(&app, window);
+}
+
+/// The menus the shell shows in its top bar. The in-window primary menu stays:
+/// not every shell shows an app's menus.
+fn global_menu(app: &gtk::Application, window: &ndl::ApplicationWindow) {
+    let app_name = t(Key::AppName);
+    ndl::global_menu(
+        app,
+        window.upcast_ref(),
+        &[
+            (
+                app_name,
+                &[
+                    &[(t(Key::About), "win.about")],
+                    &[
+                        (t(Key::Preferences), "win.preferences"),
+                        (t(Key::KeyboardShortcuts), "win.shortcuts"),
+                    ],
+                    &[(t(Key::SignOut), "win.sign-out")],
+                    &[(t(Key::Quit), "app.quit")],
+                ],
+            ),
+            (
+                t(Key::Playback),
+                &[
+                    &[
+                        (t(Key::PlayPause), "win.play-pause"),
+                        (t(Key::Next), "win.next"),
+                        (t(Key::Previous), "win.previous"),
+                    ],
+                    &[
+                        (t(Key::VolumeUp), "win.volume-up"),
+                        (t(Key::VolumeDown), "win.volume-down"),
+                    ],
+                    &[(t(Key::Queue), "win.toggle-queue")],
+                ],
+            ),
+            (
+                t(Key::MenuView),
+                &[&[
+                    (t(Key::ToggleSidebar), "win.toggle-sidebar"),
+                    (t(Key::Search), "win.focus-search"),
+                ]],
+            ),
+            (
+                t(Key::MenuWindow),
+                &[&[(t(Key::CloseWindow), "win.close-window")]],
+            ),
+            (
+                t(Key::MenuHelp),
+                &[&[
+                    (t(Key::KeyboardShortcuts), "win.shortcuts"),
+                    (t(Key::About), "win.about"),
+                ]],
+            ),
+        ],
+    );
 }
 
 /// Check an icon name against the theme, falling back if it is missing.
