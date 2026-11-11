@@ -19,9 +19,10 @@
 //! an artist page twenty-odd albums, and a header that scrolls away with the
 //! content is worth more than recycling thirty rows.
 
+use nodalia_gtk as ndl;
+use relm4::gtk;
 use relm4::gtk::prelude::*;
 use relm4::typed_view::list::TypedListView;
-use relm4::{adw, gtk};
 
 use crate::components::cover::Cover;
 use crate::components::grid_item::{ArtRegistry, ArtRequest};
@@ -132,12 +133,12 @@ pub struct DetailPage {
     /// What the list currently shows. The caller reads this to build a queue.
     pub entries: Vec<Entry>,
 
-    page: adw::NavigationPage,
+    page: ndl::NavigationPage,
     list: TypedListView<LibraryItem, gtk::NoSelection>,
     state: RowState,
     registry: RowRegistry<LibraryRowWidgets>,
 
-    header: adw::HeaderBar,
+    header: ndl::HeaderBar,
     sidebar_toggle: gtk::ToggleButton,
     stack: gtk::Stack,
     cover: Cover,
@@ -145,8 +146,8 @@ pub struct DetailPage {
     subtitle: gtk::Label,
     meta: gtk::Label,
     actions: gtk::Box,
-    error: adw::StatusPage,
-    empty: adw::StatusPage,
+    error: ndl::StatusPage,
+    empty: ndl::StatusPage,
     backdrop: gtk::CssProvider,
     backdrop_class: String,
     last_backdrop: std::cell::RefCell<Option<std::path::PathBuf>>,
@@ -248,7 +249,7 @@ impl DetailPage {
         let content = gtk::ScrolledWindow::builder()
             .vexpand(true)
             .hscrollbar_policy(gtk::PolicyType::Never)
-            .child(&adw::Clamp::builder().maximum_size(800).child(&body).build())
+            .child(&ndl::Clamp::builder().maximum_size(800).child(&body).build())
             .build();
 
         let spinner = gtk::Box::builder()
@@ -257,13 +258,13 @@ impl DetailPage {
             .valign(gtk::Align::Center)
             .build();
         spinner.append(
-            &adw::Spinner::builder()
+            &ndl::Spinner::builder()
                 .width_request(42)
                 .height_request(42)
                 .build(),
         );
 
-        let error = adw::StatusPage::builder()
+        let error = ndl::StatusPage::builder()
             .icon_name("network-offline-symbolic")
             .title(vinilo_core::i18n::t(
                 vinilo_core::i18n::Key::CouldNotLoadPage,
@@ -273,7 +274,7 @@ impl DetailPage {
         // Distinct from `error`: a playlist you have not put anything in yet
         // loaded perfectly well. Without this it renders as a header floating
         // over nothing, which reads as a failure.
-        let empty = adw::StatusPage::builder()
+        let empty = ndl::StatusPage::builder()
             .icon_name("folder-music-symbolic")
             .title(vinilo_core::i18n::t(vinilo_core::i18n::Key::NothingHereYet))
             .build();
@@ -285,7 +286,7 @@ impl DetailPage {
         stack.add_named(&empty, Some("empty"));
         stack.set_visible_child_name("loading");
 
-        let header = adw::HeaderBar::new();
+        let header = ndl::HeaderBar::new();
 
         // **Only a destination shows this.** A page pushed from a grid tile has
         // a back button and the sidebar is still behind it; a page *chosen* in
@@ -301,7 +302,7 @@ impl DetailPage {
         sidebar_toggle.connect_clicked(move |_| on_toggle_sidebar());
         header.pack_start(&sidebar_toggle);
 
-        let toolbar = adw::ToolbarView::new();
+        let toolbar = ndl::ToolbarView::new();
         toolbar.add_css_class("page-sheet");
         let backdrop_class = crate::style::page_backdrop_class(id);
         toolbar.add_css_class(&backdrop_class);
@@ -310,7 +311,7 @@ impl DetailPage {
         toolbar.add_top_bar(&header);
         toolbar.set_content(Some(&stack));
 
-        let page = adw::NavigationPage::builder()
+        let page = ndl::NavigationPage::builder()
             .title(heading)
             // The tag is how a pop finds its way back to this struct. An id,
             // not a depth — see the module docs.
@@ -341,7 +342,7 @@ impl DetailPage {
         }
     }
 
-    pub fn widget(&self) -> &adw::NavigationPage {
+    pub fn widget(&self) -> &ndl::NavigationPage {
         &self.page
     }
 
@@ -428,7 +429,7 @@ impl DetailPage {
     /// Fill an artist page: portrait, genres, and their albums.
     pub fn show_artist(&mut self, artist: &Artist, albums: Vec<Entry>) {
         // A round portrait, the way every other GNOME app shows a person —
-        // and an `adw::Avatar`, which is the only way to actually get one. See
+        // and an `ndl::Avatar`, which is the only way to actually get one. See
         // `components::cover`.
         self.cover.round(&artist.name);
         self.head(&artist.name, &artist.genres, artist.artwork.as_ref());
@@ -445,7 +446,7 @@ impl DetailPage {
     fn head(&mut self, title: &str, subtitle: &str, artwork: Option<&Artwork>) {
         // Spelled out: `set_title` also exists on the window trait in scope,
         // and there it means the *window* title.
-        adw::prelude::NavigationPageExt::set_title(&self.page, title);
+        self.page.set_title(title);
         self.title.set_label(title);
         self.subtitle.set_label(subtitle);
         self.subtitle.set_visible(!subtitle.is_empty());

@@ -30,8 +30,8 @@ longer only GTK:
 
 - **The sidecar** owns DRM playback. Hidden Chromium, singleton by construction —
   one Widevine CDM, one profile lock. Everything else is a client of it.
-- **The GTK client** targets GNOME and should be indistinguishable from a
-  first-party GNOME application. That is a rule *about this client*, not about
+- **The GTK client** is drawn in the Nodalia Design Language (since 2.0.0)
+  and should be indistinguishable from a first-party Nodalia application. That is a rule *about this client*, not about
   the project: a design decision that would make it look like an Electron app or
   a generic Qt tool is the wrong decision **here**.
 - **Other frontends** are legitimate. A terminal client is planned. Anything the
@@ -187,8 +187,8 @@ Two Linux facts that follow, and that you must not design around:
 
 | Layer          | Crate                  | Version                                    |
 | -------------- | ---------------------- | ------------------------------------------ |
-| UI framework   | `relm4`                | 0.11 (features: `libadwaita`, `gnome_49`)  |
-| Widgets        | `gtk4`, `libadwaita`   | via relm4 (do **not** add directly)        |
+| UI framework   | `relm4`                | 0.11 (no default features; `macros`)       |
+| Widgets        | `gtk4`, `nodalia-gtk`  | gtk4 0.11 (`v4_20`); `nodalia-gtk` pinned by `rev` |
 | MPRIS          | `mpris-server`         | 0.10                                       |
 | HTTP           | `reqwest`              | 0.12 (`json`, `rustls-tls`, no default features) |
 | Serde          | `serde`, `serde_json`  | 1                                          |
@@ -197,9 +197,16 @@ Two Linux facts that follow, and that you must not design around:
 | Sidecar shell  | castLabs ECS           | `github:castlabs/electron-releases#v43.0.0+wvcus` |
 
 Rust edition 2024, plus `anyhow` 1 (rule 5) and `tracing-subscriber` 0.3 with
-`env-filter` for `RUST_LOG`. Toolchain ≥ 1.93 (relm4 0.11's MSRV); libadwaita
-≥ 1.8 / GTK ≥ 4.20 (the `gnome_49` floor). Verified on this machine: rustc
-1.98.0, GTK 4.22.4, libadwaita 1.9.2, node v26.4.0, PipeWire 1.6.8.
+`env-filter` for `RUST_LOG`. Toolchain ≥ 1.93 (relm4 0.11's MSRV); GTK ≥ 4.20
+(the `nodalia-gtk` floor). Verified on this machine: rustc 1.98.0, GTK 4.22.4,
+node v26.4.0, PipeWire 1.6.8.
+
+**No libadwaita since 2.0.0.** The interface is the Nodalia Design Language
+(`nodalia-gtk`, from the `nodalia-design` repo), consumed as a pinned git
+`rev`, never as copied files. Its widgets keep libadwaita's names under `ndl::`
+(`use nodalia_gtk as ndl;`). Never reintroduce `adw::`, and never enable a
+relm4 `gnome_*` or `libadwaita` feature: each pulls libadwaita back in. A widget
+NDL lacks is added to `nodalia-gtk`, then the pin moves.
 
 **Keep this machine on the same stable CI is.** Nothing pins a toolchain, so
 both follow stable — and when they drift, `make check` passes here and the
@@ -275,7 +282,7 @@ it **tiny and defensive**:
 
 - Feature-detect every property (`MusicKit?.getInstance?.()`), never assume.
 - Poll for readiness with a timeout, then **fail loudly** — a
-  `sidecar/hook-failed` event that becomes an `adw::Toast` naming the fix
+  `sidecar/hook-failed` event that becomes an `ndl::Toast` naming the fix
   ("Apple Music changed; Vinilo needs an update"). Never degrade silently into
   a dead player with a spinning UI.
 - Do not scrape the DOM. Only `MusicKit.getInstance()` and its documented events.
@@ -284,7 +291,7 @@ it **tiny and defensive**:
 ### 5. No `.unwrap()` / `.expect()` outside `main.rs` and tests
 
 The sidecar can die, the network can drop, Apple can 403 a stale token. Every
-failure becomes an `adw::Toast` or a state, never a crash. `anyhow::Result`
+failure becomes an `ndl::Toast` or a state, never a crash. `anyhow::Result`
 internally.
 
 ### 6. The sidecar is supervised, not fired-and-forgotten
@@ -364,7 +371,7 @@ Rule 10 removes the crutch; this is why it is not missed.
 
 ```
 ┌──────────────────────────────────────────────────┐
-│  Vinilo — Rust · relm4 · libadwaita             │  ← 100% of what the user sees
+│  Vinilo — Rust · relm4 · Nodalia (nodalia-gtk)  │  ← 100% of what the user sees
 │  library · search · queue · Now Playing          │
 │  MPRIS · notifications · media keys · artwork    │
 │  HTTPS ─────────────────► api.music.apple.com    │
@@ -743,7 +750,7 @@ crates/vinilo/        # the GTK client. One frontend of several to come.
       transport.rs   # its scrubber and buttons, built by hand because they
                      # *move* between layouts — a child module so construction
                      # and refresh cannot land in different files
-    track_row.rs     # FactoryComponent → adw::ActionRow
+    track_row.rs     # FactoryComponent → ndl::ActionRow
     queue_view/
       mod.rs         # the component: the visible list, which is not the queue
       row.rs         # a track or the history disclosure; drag, drop, and no
@@ -792,7 +799,7 @@ struct AppModel {
     query: String,
     mpris: Option<mpris_server::Server<ViniloPlayer>>,
     settings: Settings,
-    toast_overlay: adw::ToastOverlay,
+    toast_overlay: ndl::ToastOverlay,
 }
 
 enum AppMsg {
@@ -819,7 +826,7 @@ This is Redux with a compiler: actions in, one reducer, view derived from state.
 
 ## UI shape
 
-- `adw::ApplicationWindow` > `adw::ToolbarView` > `adw::HeaderBar`, with a
+- `ndl::ApplicationWindow` > `ndl::ToolbarView` > `ndl::HeaderBar`, with a
   **persistent bottom bar** (`add_bottom_bar`) that is the Now Playing strip:
   artwork, title + artist, a clock, prev / play-pause / next, and volume, with
   the track's progress as a thin line across the top of the bar. That line is
@@ -827,10 +834,10 @@ This is Redux with a compiler: actions in, one reducer, view derived from state.
   aim in, and the bar is what runs out of room first when the window is tiled
   narrow. Scrubbing lives in the drawer, which has the width for it. The bar is
   visible on every page — it is the app.
-- Main content: `adw::NavigationView` over an `adw::ViewStack` (clamped) —
+- Main content: `ndl::NavigationView` over an `ndl::ViewStack` (clamped) —
   **Library** (playlists / albums / songs) and **Search**. The queue is an
-  `adw::Dialog` or a sidebar sheet from the bottom bar, not a page.
-- Rows are `adw::ActionRow` with artwork as prefix; activating a row sends
+  `ndl::Dialog` or a sidebar sheet from the bottom bar, not a page.
+- Rows are `ndl::ActionRow` with artwork as prefix; activating a row sends
   `PlayTrack` with the **whole containing list** as the queue and the row's index
   as `start` — never a single-track queue (rule 3).
 - **Lists are `gtk::ListView` via relm4's `TypedListView`, never
@@ -959,8 +966,8 @@ This is Redux with a compiler: actions in, one reducer, view derived from state.
 
   Both diagnoses of this bug came from that, and neither from reasoning.
 - **The app stylesheet is `style.rs`, and it is the sanctioned CSS.** An accent
-  colour is not a widget: libadwaita 1.6 exposes it only as CSS variables
-  (`--accent-bg-color` and friends), so a `CssProvider` is the only route.
+  colour is not a widget: `ndl::StyleManager::set_accent` sets the NDL accent
+  tokens, and anything else app-specific goes through a `CssProvider`.
   Two providers, kept apart — a **base** one replaced when the accent
   preference changes, and a **backdrop** one carrying the cover behind the
   player, replaced on every track — so a new cover does not reparse the accent
@@ -996,10 +1003,11 @@ This is Redux with a compiler: actions in, one reducer, view derived from state.
   This replaced a **tonal scrim**, a flat wash of the sleeve's dominant colour.
   The colour analysis went with it — `artwork::tint`, `dominant`, `hsl`, `rgb`
   — and is in the history if the neutral scrim ever wants tinting.
-- **Use libadwaita widgets, not raw GTK.** `adw::ActionRow`,
-  `adw::PreferencesGroup`, `adw::AboutDialog`, `adw::StatusPage`,
-  `adw::ToastOverlay`. That's where the native feel comes from. No custom CSS
-  unless there is no libadwaita widget for the job — say why before adding any.
+- **Use Nodalia widgets, not raw GTK.** `ndl::ActionRow`,
+  `ndl::PreferencesGroup`, `ndl::AboutDialog`, `ndl::StatusPage`,
+  `ndl::ToastOverlay`. That's where the consistent look comes from. No custom
+  CSS unless there is no NDL widget for the job — say why before adding any, and
+  colours only through `--ndl-*` tokens.
 - **First run**: a **modal that cannot be dismissed**, wearing the app's own
   icon, saying what Vinilo is, that it needs an active subscription, and —
   before the button, not after — that Apple's own sign-in page opens in a
@@ -1028,7 +1036,7 @@ This is Redux with a compiler: actions in, one reducer, view derived from state.
   The unplayable-id cache stays, because that is a fact about Apple's catalog
   rather than about the user.
 - Sidecar restarting, no subscription, offline, no results: distinct
-  `adw::StatusPage`s. Errors: `adw::Toast`.
+  `ndl::StatusPage`s. Errors: `ndl::Toast`.
 
 ## MPRIS (the v1 bar)
 
@@ -1204,7 +1212,7 @@ make check                                   # sizes + fmt + clippy + test
 System deps (CachyOS / Arch):
 
 ```bash
-sudo pacman -S --needed base-devel pkgconf rust gtk4 libadwaita librsvg nodejs npm
+sudo pacman -S --needed base-devel pkgconf rust gtk4 librsvg nodejs npm
 # A keyring provider must be running for oo7 (gnome-keyring is default on GNOME).
 # playerctl is handy for testing MPRIS.
 ```

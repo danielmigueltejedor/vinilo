@@ -1,6 +1,6 @@
 [package]
 name = "vinilo"
-description = "A native GNOME client for Apple Music"
+description = "A native Apple Music client for Linux"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -17,11 +17,19 @@ serde_json.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 
-# `gnome_49` == libadwaita 1.8 / GTK 4.20. Take gtk4/libadwaita *through* relm4
-# so their versions can never drift apart; do not add them as direct deps.
-relm4 = { version = "0.11", features = ["libadwaita", "gnome_49"] }
+# No libadwaita since 2.0.0: the widgets and the look come from Nodalia Design
+# Language's `nodalia-gtk`. relm4's `gnome_*` features would switch libadwaita
+# back on, so GTK's version floor is set on the direct `gtk4` dependency instead.
+relm4 = { version = "0.11", default-features = false, features = ["macros"] }
+gtk = { package = "gtk4", version = "0.11", features = ["v4_20"] }
+# The Nodalia Design Language for GTK, without libadwaita. Pinned: the crate is alpha.
+nodalia-gtk = { git = "https://github.com/danielmigueltejedor/nodalia-design", rev = "ef71d09b53db4f40aabdf2fd6811cc1ae8e57c97" }
 
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Linux desktop integrations: the Background portal and the WebKit sign-in
+# window. macOS signs in through the user's browser instead.
+[target.'cfg(target_os = "linux")'.dependencies]
 ashpd = { version = "0.13.13", default-features = false, features = [
     "background",
     "tokio",

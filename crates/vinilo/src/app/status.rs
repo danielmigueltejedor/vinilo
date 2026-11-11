@@ -134,6 +134,15 @@ impl AppModel {
         }
     }
 
+    /// Whether the content opens with the section's name as a big title: the
+    /// pages that list something do, the ones that explain themselves do not.
+    pub(super) fn titles_its_page(&self) -> bool {
+        matches!(
+            self.page(),
+            "library" | "albums" | "artists" | "playlists" | "discover" | "stats"
+        )
+    }
+
     pub(super) fn page(&self) -> &'static str {
         // Only the *first* load takes over the screen. A reload with content
         // already on show keeps it up and just disables the refresh button —
@@ -260,7 +269,7 @@ impl AppModel {
             Stage::Ready => self
                 .mirror
                 .now_playing()
-                // adw::StatusPage always parses its description as Pango
+                // ndl::StatusPage always parses its description as Pango
                 // markup — there is no use-markup to turn off — so a track like
                 // "Mercury - Acts 1 & 2" has to be escaped. It warns even while
                 // this page is behind the library, because #[watch] still runs.

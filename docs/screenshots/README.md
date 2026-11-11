@@ -20,17 +20,17 @@ cp data/icons/hicolor/128x128/apps/dev.danielmiguelt.Vinilo.png docs/screenshots
 | File | Shows |
 | --- | --- |
 | `library.webp` | Listen Now — recently played, Made for You, the Now Playing bar |
-| `player.webp` | The expanded player: artwork, transport, lyrics |
+| `player.webp` | The expanded player: artwork, transport, the queue |
 | `playlist.webp` | A playlist page: Play and Shuffle, tracks |
-| `albums.webp` | A Spotify playlist — the same shell on another source |
+| `albums.webp` | An album page |
 
 ## Taking them
 
 - **Dark theme**, since that is what the app looks like on a default GNOME
   install and what every shot here uses.
-- Capture the **window, not the screen** — `Alt`+`PrtSc`. GNOME's shadow and
-  rounded corners come along with it, which is what makes a GTK4 app look like
-  one.
+- Capture the **window, not the screen** — `Alt`+`PrtSc` — with its rounded
+  corners transparent around it: the window's own shape is part of the
+  Nodalia look.
 - Play something first, and keep the *same* track across the set. A Now Playing
   bar reading "Nothing playing" undersells every screenshot it appears in, and a
   different track in each one reads as four unrelated apps.

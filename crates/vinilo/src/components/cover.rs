@@ -5,7 +5,7 @@
 //! person.
 //!
 //! Two widgets, one visible at a time, because **a round portrait is an
-//! `adw::Avatar`**. The obvious-looking alternative does not work: `circular`
+//! `ndl::Avatar`**. The obvious-looking alternative does not work: `circular`
 //! is a libadwaita *button* style and has no rule matching a `GtkImage`, so
 //! there is no border radius for `overflow: hidden` to clip to and the portrait
 //! stays square. Reaching for custom CSS to invent one would be the wrong call
@@ -17,8 +17,9 @@ use std::cell::Cell;
 use std::path::Path;
 use std::rc::Rc;
 
+use nodalia_gtk as ndl;
+use relm4::gtk;
 use relm4::gtk::prelude::*;
-use relm4::{adw, gtk};
 
 /// How much of an empty sleeve the disc inside it takes up.
 ///
@@ -46,7 +47,7 @@ pub struct Cover {
     /// visible either way.
     stack: gtk::Stack,
     image: gtk::Image,
-    avatar: adw::Avatar,
+    avatar: ndl::Avatar,
     /// The empty sleeve, kept as a page of its own so it can fade rather than
     /// being the same widget with its icon swapped underneath you.
     sleeve: gtk::Image,
@@ -75,7 +76,7 @@ impl Cover {
             .overflow(gtk::Overflow::Hidden)
             .build();
 
-        let avatar = adw::Avatar::builder()
+        let avatar = ndl::Avatar::builder()
             .size(size)
             .show_initials(true)
             .halign(gtk::Align::Center)

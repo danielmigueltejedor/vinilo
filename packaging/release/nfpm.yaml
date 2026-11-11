@@ -21,7 +21,6 @@ overrides:
     depends:
       - libgtk-4-1 (>= 4.20)
       - libgtk-3-0t64
-      - libadwaita-1-0 (>= 1.8)
       - libpulse0
       - libwebkitgtk-6.0-4
       - libnss3
@@ -38,7 +37,6 @@ overrides:
     depends:
       - gtk4 >= 4.20
       - gtk3
-      - libadwaita >= 1.8
       - pulseaudio-libs
       - webkitgtk6.0
       - nss
@@ -55,7 +53,6 @@ overrides:
     depends:
       - gtk4
       - gtk3
-      - libadwaita
       - libpulse
       - webkitgtk-6.0
       - nss

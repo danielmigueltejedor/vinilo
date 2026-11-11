@@ -241,14 +241,21 @@ pub enum Key {
     About,
     SignOut,
     Quit,
+    MenuView,
+    MenuWindow,
+    MenuHelp,
+    PlayPause,
+    VolumeUp,
+    VolumeDown,
+    CloseWindow,
     Appearance,
     Theme,
     ThemeSystem,
     ThemeLight,
     ThemeDark,
     AccentColour,
+    AccentNodalia,
     AccentAppleRed,
-    AccentSystem,
     AccentBlue,
     AccentPurple,
     AccentGreen,
@@ -284,6 +291,7 @@ pub enum Key {
     CatalogSignInNote,
     CatalogLoginDone,
     CatalogOpenBrowser,
+    CatalogBrowserSignIn,
     CatalogSignOutTitle,
     CatalogSignOutBody,
     SearchSpotifyBody,
@@ -513,14 +521,21 @@ fn en(key: Key) -> &'static str {
         Key::About => "_About Vinilo",
         Key::SignOut => "_Sign Out",
         Key::Quit => "_Quit",
+        Key::MenuView => "View",
+        Key::MenuWindow => "Window",
+        Key::MenuHelp => "Help",
+        Key::PlayPause => "Play or Pause",
+        Key::VolumeUp => "Volume Up",
+        Key::VolumeDown => "Volume Down",
+        Key::CloseWindow => "Close Window",
         Key::Appearance => "Appearance",
         Key::Theme => "Theme",
         Key::ThemeSystem => "Follow System",
         Key::ThemeLight => "Light",
         Key::ThemeDark => "Dark",
         Key::AccentColour => "Accent Colour",
+        Key::AccentNodalia => "Nodalia Teal",
         Key::AccentAppleRed => "Apple Music Red",
-        Key::AccentSystem => "Follow System",
         Key::AccentBlue => "Blue",
         Key::AccentPurple => "Purple",
         Key::AccentGreen => "Green",
@@ -574,6 +589,9 @@ fn en(key: Key) -> &'static str {
         }
         Key::CatalogLoginDone => "Done",
         Key::CatalogOpenBrowser => "Open in browser",
+        Key::CatalogBrowserSignIn => {
+            "Sign in in the browser window that just opened, then come back and press Done."
+        }
         Key::CatalogSignOutTitle => "Sign out of this catalogue?",
         Key::CatalogSignOutBody => {
             "Vinilo will forget this session. Signing back in opens the login window again."
@@ -593,7 +611,7 @@ fn en(key: Key) -> &'static str {
         Key::NotifyTrackChangeSub => "When a new song starts and Vinilo is not in focus",
         Key::WelcomeTitle => "Welcome to Vinilo",
         Key::WelcomeBody => {
-            "Vinilo plays your Apple Music library natively on GNOME. \
+            "Vinilo plays your Apple Music library natively on Linux. \
              It needs an active Apple Music subscription."
         }
         Key::SignIn => "Sign In to Apple Music",
@@ -677,7 +695,7 @@ fn en(key: Key) -> &'static str {
         Key::EmptyArtist => "This artist has no albums.",
         Key::EmptyPlaylist => "This playlist has no songs.",
         Key::AboutComments => {
-            "A native GNOME music player for Linux.\n\n\
+            "A native music player for Linux.\n\n\
              Apple Music plays through Apple's MusicKit player using \
              Google's Widevine CDM, in a hidden helper process. Files on this \
              computer play natively. Spotify plays through librespot \
@@ -809,14 +827,21 @@ fn es(key: Key) -> &'static str {
         Key::About => "_Acerca de Vinilo",
         Key::SignOut => "_Cerrar sesión",
         Key::Quit => "_Salir",
+        Key::MenuView => "Ver",
+        Key::MenuWindow => "Ventana",
+        Key::MenuHelp => "Ayuda",
+        Key::PlayPause => "Reproducir o pausar",
+        Key::VolumeUp => "Subir volumen",
+        Key::VolumeDown => "Bajar volumen",
+        Key::CloseWindow => "Cerrar ventana",
         Key::Appearance => "Apariencia",
         Key::Theme => "Tema",
         Key::ThemeSystem => "Seguir el sistema",
         Key::ThemeLight => "Claro",
         Key::ThemeDark => "Oscuro",
         Key::AccentColour => "Color de acento",
+        Key::AccentNodalia => "Turquesa Nodalia",
         Key::AccentAppleRed => "Rojo de Apple Music",
-        Key::AccentSystem => "Seguir el sistema",
         Key::AccentBlue => "Azul",
         Key::AccentPurple => "Morado",
         Key::AccentGreen => "Verde",
@@ -874,6 +899,9 @@ fn es(key: Key) -> &'static str {
         }
         Key::CatalogLoginDone => "Listo",
         Key::CatalogOpenBrowser => "Abrir en el navegador",
+        Key::CatalogBrowserSignIn => {
+            "Inicia sesión en la ventana del navegador que se acaba de abrir y vuelve para pulsar Listo."
+        }
         Key::CatalogSignOutTitle => "¿Cerrar sesión de este catálogo?",
         Key::CatalogSignOutBody => {
             "Vinilo olvidará esta sesión. Volver a entrar abre otra vez la ventana de inicio de sesión."
@@ -895,7 +923,7 @@ fn es(key: Key) -> &'static str {
         }
         Key::WelcomeTitle => "Bienvenido a Vinilo",
         Key::WelcomeBody => {
-            "Vinilo reproduce tu biblioteca de Apple Music de forma nativa en GNOME. \
+            "Vinilo reproduce tu biblioteca de Apple Music de forma nativa en Linux. \
              Necesitas una suscripción activa a Apple Music."
         }
         Key::SignIn => "Iniciar sesión en Apple Music",
@@ -984,7 +1012,7 @@ fn es(key: Key) -> &'static str {
         Key::EmptyArtist => "Este artista no tiene álbumes.",
         Key::EmptyPlaylist => "Esta lista no tiene canciones.",
         Key::AboutComments => {
-            "Un reproductor nativo de GNOME para Linux.\n\n\
+            "Un reproductor de música nativo para Linux.\n\n\
              Apple Music pasa por el reproductor MusicKit de Apple con el CDM \
              Widevine de Google, en un proceso auxiliar oculto. Los archivos \
              de este equipo se reproducen de forma nativa. Spotify suena \

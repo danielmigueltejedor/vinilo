@@ -20,8 +20,9 @@
 //! inherit a pill from. So `style.rs` carries one rule of two properties, which
 //! is the argument that rule has to make.
 
+use nodalia_gtk as ndl;
+use relm4::gtk;
 use relm4::gtk::prelude::*;
-use relm4::{adw, gtk};
 
 use super::{AppModel, AppMsg};
 
@@ -116,9 +117,9 @@ impl VolumeOsd {
     /// Every page's header is the same height, so following one is enough; the
     /// panel floats above the whole window rather than inside a page, which is
     /// what keeps it over the drawer instead of under it.
-    pub(super) fn sit_below_the_header(&self, bars: &adw::ToolbarView) {
+    pub(super) fn sit_below_the_header(&self, bars: &ndl::ToolbarView) {
         let revealer = self.revealer.clone();
-        let apply = move |bars: &adw::ToolbarView| {
+        let apply = move |bars: &ndl::ToolbarView| {
             revealer.set_margin_top(bars.top_bar_height() + 12);
         };
         apply(bars);

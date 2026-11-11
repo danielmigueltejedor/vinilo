@@ -10,8 +10,9 @@
 
 use std::rc::Rc;
 
+use nodalia_gtk as ndl;
+use relm4::gtk;
 use relm4::gtk::prelude::*;
-use relm4::{adw, gtk};
 
 use crate::components::cover::Cover;
 use crate::components::grid_item::{ArtRegistry, ArtRequest, TILE_PX, apply_cached_art, register};
@@ -65,7 +66,7 @@ pub struct DiscoverView {
     /// identifier, which is how the grids are attached).
     pub stack: gtk::Stack,
     body: gtk::Box,
-    empty: adw::StatusPage,
+    empty: ndl::StatusPage,
     pub(crate) registry: ArtRegistry,
     request: ArtRequest,
     on_activate: DiscoverHandler,
@@ -83,12 +84,12 @@ impl DiscoverView {
             .margin_end(22)
             .build();
 
-        let content = adw::Clamp::builder()
+        let content = ndl::Clamp::builder()
             .maximum_size(1160)
             .child(&body)
             .build();
 
-        let empty = adw::StatusPage::builder()
+        let empty = ndl::StatusPage::builder()
             .icon_name("folder-music-symbolic")
             .title(i18n::t(Key::DiscoverEmpty))
             .description(i18n::t(Key::DiscoverEmptyBody))
