@@ -1,14 +1,14 @@
 # Maintainer: Daniel Miguel Tejedor
 #
-# Vinilo is a fork of Slipmat. Until this tree is tagged on its own remote,
-# the source URL below still points at upstream Slipmat for reference.
+# pkgver and sha256sums are set for each release, from the tagged tarball
+# (updpkgsums), before scripts/aur-publish.sh.
 
 pkgbase=vinilo
 pkgname=('vinilo-daemon' 'vinilo')
 pkgver=0.11.0
 pkgrel=1
 arch=('x86_64')          # Widevine on Linux is x86_64 only
-url="https://github.com/SoftARV/Slipmat"
+url="https://github.com/danielmigueltejedor/vinilo"
 license=('GPL-3.0-or-later')
 makedepends=('cargo' 'nodejs' 'npm' 'git' 'pkgconf' 'librsvg'
              'gtk4' 'libpulse' 'webkitgtk-6.0')

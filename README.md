@@ -302,8 +302,9 @@ tag is unsupported.
 
 ## Credits
 
-Vinilo is a fork of [Slipmat](https://github.com/SoftARV/Slipmat)
-(GPL-3.0-or-later) by Miguel Rincon. Linux Apple Music playback through
+Vinilo is a Nodalia app. Parts of its source come from
+[Slipmat](https://github.com/SoftARV/Slipmat) (GPL-3.0-or-later) by Miguel
+Rincon, and keep his copyright notices. Linux Apple Music playback through
 castLabs Electron follows the path opened by Sidra and Cider.
 
 ## License

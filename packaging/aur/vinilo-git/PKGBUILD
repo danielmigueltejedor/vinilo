@@ -15,8 +15,7 @@ _pkgname=vinilo
 pkgver=0.10.0.r0.g0000000
 pkgrel=1
 arch=('x86_64')          # Widevine on Linux is x86_64 only
-# Fork of Slipmat. Point `url` at your own remote when you publish.
-url="https://github.com/SoftARV/Slipmat"
+url="https://github.com/danielmigueltejedor/vinilo"
 license=('GPL-3.0-or-later')
 # `libpulse` is needed to *build*, not only to run: the daemon links against
 # it. A missing runtime dependency fails at launch; a missing build
