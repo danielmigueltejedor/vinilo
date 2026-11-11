@@ -61,20 +61,20 @@ closing the window does not stop the music.
 ## Preview
 
 <p align="center">
-  <img src="docs/screenshots/library.webp" width="48%" alt="Listen Now in Vinilo">
-  <img src="docs/screenshots/player.webp" width="48%" alt="Expanded player with lyrics">
+  <img src="docs/screenshots/library.webp" width="48%" alt="Listen Now in Vinilo 2.0: islands, Sora titles and NDL icons">
+  <img src="docs/screenshots/player.webp" width="48%" alt="Expanded player with the queue">
 </p>
 
 <p align="center">
   <img src="docs/screenshots/playlist.webp" width="48%" alt="Playlist page">
-  <img src="docs/screenshots/albums.webp" width="48%" alt="Spotify playlist in Vinilo">
+  <img src="docs/screenshots/albums.webp" width="48%" alt="An album page">
 </p>
 
 ## Why Vinilo
 
 | Interface | Playback | Desktop |
 | --- | --- | --- |
-| A GNOME app, not a website in a frame | Gapless playback, queue, lyrics and karaoke with a voice level on catalogue tracks | Play, pause and skip from the top bar, lock screen or media keys |
+| A native app in the Nodalia Design Language, not a website in a frame | Gapless playback, queue, lyrics and karaoke with a voice level on catalogue tracks | Play, pause and skip from the top bar, lock screen or media keys |
 | Your library: songs, albums, artists and playlists | The catalogues you already use, searchable from one place | Music keeps going when you close the window |
 | English or Spanish, or the system language | Crossfade, local listening stats, optional Last.fm scrobbling | Open audio files straight from the file manager |
 
@@ -181,7 +181,7 @@ xdg-mime default dev.danielmiguelt.Vinilo.desktop audio/ogg
 ### Development
 
 ```bash
-cargo run                 # GNOME app
+cargo run                 # the app
 make sidecar-run          # hidden player, window visible (DRM isolation)
 make check                # fmt + clippy + tests
 ```
