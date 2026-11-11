@@ -983,16 +983,19 @@ async fn client(stream: UnixStream, daemon: Rc<Daemon>) -> Result<()> {
     loop {
         // Either the client says something, or — once subscribed — the daemon
         // does. `biased` so a request is never starved by a busy event stream.
-        let outgoing = tokio::select! {
+        let outgoing: Vec<Event> = tokio::select! {
             biased;
             line = lines.next_line() => match line? {
-                Some(line) => answer(&line, &daemon, &mut feed),
+                Some(line) => answer(&line, &daemon, &mut feed).into_iter().collect(),
                 None => return Ok(()), // client hung up
             },
-            event = recv(&mut feed) => Some(event?),
+            event = recv(&mut feed) => match event? {
+                Some(event) => vec![event],
+                None => resync(&daemon, &mut feed),
+            },
         };
 
-        if let Some(event) = outgoing {
+        for event in outgoing {
             let mut line = serde_json::to_vec(&event)?;
             line.push(b'\n');
             write.write_all(&line).await?;
@@ -1003,12 +1006,47 @@ async fn client(stream: UnixStream, daemon: Rc<Daemon>) -> Result<()> {
 /// Wait on the event feed, or forever if this client has not subscribed.
 ///
 /// `select!` needs both arms to be futures; a client that never subscribes
-/// simply has one that never completes.
-async fn recv(feed: &mut Option<broadcast::Receiver<Event>>) -> Result<Event> {
+/// simply has one that never completes. `None` means the client fell behind
+/// the backlog (a burst of volume changes, say) and has to be brought up to date.
+async fn recv(feed: &mut Option<broadcast::Receiver<Event>>) -> Result<Option<Event>> {
     match feed {
-        Some(rx) => Ok(rx.recv().await?),
+        Some(rx) => match rx.recv().await {
+            Ok(event) => Ok(Some(event)),
+            Err(broadcast::error::RecvError::Lagged(missed)) => {
+                tracing::debug!(missed, "a subscriber fell behind — resyncing it");
+                Ok(None)
+            }
+            Err(err) => Err(err.into()),
+        },
         None => std::future::pending().await,
     }
+}
+
+/// Where things stand, for a subscriber that missed events: each of these replaces what it
+/// carried before, so losing the burst in between costs nothing. Dropping the client instead
+/// left its requests unanswered until it reconnected.
+///
+/// The feed moves to the newest event first: what is still buffered predates this state and
+/// would otherwise arrive after it, rolling the client back.
+fn resync(daemon: &Daemon, feed: &mut Option<broadcast::Receiver<Event>>) -> Vec<Event> {
+    if let Some(rx) = feed.as_mut() {
+        *rx = rx.resubscribe();
+    }
+    let model = daemon.model.borrow();
+    let (items, position) = model.queue();
+    let mut state = vec![
+        Event::Stage(model.stage.clone()),
+        Event::Queue { items, position },
+        Event::Snapshot(model.snapshot()),
+    ];
+    // The library may have changed, or started or finished refreshing, in what was missed.
+    if !model.library.is_empty() {
+        state.push(Event::LibraryChanged);
+    }
+    state.push(Event::LibraryRefreshing {
+        refreshing: daemon.refreshing.get().is_some(),
+    });
+    state
 }
 
 fn answer(
@@ -3978,6 +4016,36 @@ mod tests {
         );
 
         assert_eq!(daemon.refreshing.get(), Some(0));
+    }
+
+    #[test]
+    fn a_subscriber_that_falls_behind_is_resynced_not_dropped() {
+        let daemon = daemon();
+        let mut feed = Some(daemon.events.subscribe());
+        daemon.refreshing.set(Some(1));
+        for _ in 0..BACKLOG + 8 {
+            daemon.publish_snapshot();
+        }
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
+        let lagged = runtime
+            .block_on(recv(&mut feed))
+            .expect("lag is not an error");
+        assert!(lagged.is_none());
+        let state = resync(&daemon, &mut feed);
+        assert!(matches!(state[0], Event::Stage(_)));
+        assert!(matches!(state[1], Event::Queue { .. }));
+        assert!(matches!(state[2], Event::Snapshot(_)));
+        // A refresh that began in the missed burst is not left without its spinner.
+        assert!(matches!(
+            state.last(),
+            Some(Event::LibraryRefreshing { refreshing: true })
+        ));
+        // The stale backlog is gone: the next event is the first one after the resync.
+        daemon.publish(Event::LibraryChanged);
+        let next = runtime.block_on(recv(&mut feed)).unwrap();
+        assert!(matches!(next, Some(Event::LibraryChanged)));
     }
 
     #[test]
