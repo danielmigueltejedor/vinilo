@@ -852,6 +852,10 @@ fn es(key: Key) -> &'static str {
         Key::AccentPurple => "Morado",
         Key::AccentGreen => "Verde",
         Key::AccentOrange => "Naranja",
+        Key::SystemWindowControls => "Controles de ventana del sistema",
+        Key::SystemWindowControlsSub => {
+            "Usa los botones de minimizar, maximizar y cerrar de tu escritorio en lugar de los de Nodalia. Se aplica al reiniciar Vinilo"
+        }
         Key::AlbumArtBackdrop => "Color de la portada",
         Key::AlbumArtBackdropSub => {
             "Un tinte con el color principal del disco, detrás del reproductor"
@@ -859,10 +863,6 @@ fn es(key: Key) -> &'static str {
         Key::SourceTint => "Teñir según la fuente",
         Key::SourceTintSub => {
             "Rojo de Apple Music, verde de Spotify, rojo de YouTube, cian de Tidal"
-        }
-        Key::SystemWindowControls => "Controles de ventana del sistema",
-        Key::SystemWindowControlsSub => {
-            "Usa los botones de minimizar, maximizar y cerrar de tu escritorio en lugar de los de Nodalia. Se aplica al reiniciar Vinilo"
         }
         Key::Language => "Idioma",
         Key::LanguageSub => "Idioma de la interfaz. Se aplica al momento.",
