@@ -4273,7 +4273,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "vinilo"
-version = "2.0.0"
+version = "2.0.1-dev"
 dependencies = [
  "anyhow",
  "ashpd",
@@ -4292,7 +4292,7 @@ dependencies = [
 
 [[package]]
 name = "vinilo-core"
-version = "2.0.0"
+version = "2.0.1-dev"
 dependencies = [
  "anyhow",
  "hmac",
@@ -4310,7 +4310,7 @@ dependencies = [
 
 [[package]]
 name = "vinilod"
-version = "2.0.0"
+version = "2.0.1-dev"
 dependencies = [
  "anyhow",
  "libpulse-binding",
