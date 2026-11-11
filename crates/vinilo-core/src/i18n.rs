@@ -597,7 +597,7 @@ fn en(key: Key) -> &'static str {
         Key::NotifyTrackChangeSub => "When a new song starts and Vinilo is not in focus",
         Key::WelcomeTitle => "Welcome to Vinilo",
         Key::WelcomeBody => {
-            "Vinilo plays your Apple Music library natively on GNOME. \
+            "Vinilo plays your Apple Music library natively on Linux. \
              It needs an active Apple Music subscription."
         }
         Key::SignIn => "Sign In to Apple Music",
@@ -681,7 +681,7 @@ fn en(key: Key) -> &'static str {
         Key::EmptyArtist => "This artist has no albums.",
         Key::EmptyPlaylist => "This playlist has no songs.",
         Key::AboutComments => {
-            "A native GNOME music player for Linux.\n\n\
+            "A native music player for Linux.\n\n\
              Apple Music plays through Apple's MusicKit player using \
              Google's Widevine CDM, in a hidden helper process. Files on this \
              computer play natively. Spotify plays through librespot \
@@ -902,7 +902,7 @@ fn es(key: Key) -> &'static str {
         }
         Key::WelcomeTitle => "Bienvenido a Vinilo",
         Key::WelcomeBody => {
-            "Vinilo reproduce tu biblioteca de Apple Music de forma nativa en GNOME. \
+            "Vinilo reproduce tu biblioteca de Apple Music de forma nativa en Linux. \
              Necesitas una suscripción activa a Apple Music."
         }
         Key::SignIn => "Iniciar sesión en Apple Music",
@@ -991,7 +991,7 @@ fn es(key: Key) -> &'static str {
         Key::EmptyArtist => "Este artista no tiene álbumes.",
         Key::EmptyPlaylist => "Esta lista no tiene canciones.",
         Key::AboutComments => {
-            "Un reproductor nativo de GNOME para Linux.\n\n\
+            "Un reproductor de música nativo para Linux.\n\n\
              Apple Music pasa por el reproductor MusicKit de Apple con el CDM \
              Widevine de Google, en un proceso auxiliar oculto. Los archivos \
              de este equipo se reproducen de forma nativa. Spotify suena \

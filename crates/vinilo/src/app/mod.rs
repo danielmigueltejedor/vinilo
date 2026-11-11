@@ -146,7 +146,8 @@ pub struct AppModel {
     pending_files: Vec<PathBuf>,
     /// Bumped when the interface language changes so `#[watch]` labels refresh.
     locale_tick: u32,
-    primary_menu: gtk::gio::Menu,
+    /// The primary menu's popover, owned so a refill can rebuild its rows.
+    primary_menu: gtk::PopoverMenu,
 
     /// The last track MusicKit reported, kept so the bar can hold it through a
     /// queue reload — see `push_snapshot::showing`.
@@ -753,14 +754,6 @@ fn map_player_output(out: NowPlayingOutput) -> AppMsg {
     }
 }
 
-/// A menu entry with its icon. Every row of a Vinilo menu carries one, so a
-/// menu reads at a glance the way the sidebar does.
-pub(crate) fn menu_item(label: &str, action: &str, icon: &str) -> gtk::gio::MenuItem {
-    let item = gtk::gio::MenuItem::new(Some(label), Some(action));
-    item.set_icon(&gtk::gio::ThemedIcon::new(icon));
-    item
-}
-
 #[relm4::component(pub)]
 impl Component for AppModel {
     type Init = Settings;
@@ -898,7 +891,7 @@ impl Component for AppModel {
                                                 let _ = model.locale_tick;
                                                 i18n::t(Key::MainMenu)
                                             }),
-                                            set_menu_model: Some(&primary_menu),
+                                            set_popover: Some(&primary_menu),
                                         },
                                     },
 
@@ -1729,7 +1722,7 @@ impl Component for AppModel {
             refresh_nav_headers: false,
             pending_files: Vec::new(),
             locale_tick: 0,
-            primary_menu: gtk::gio::Menu::new(),
+            primary_menu: gtk::PopoverMenu::from_model(None::<&gtk::gio::MenuModel>),
             last_item: None,
             menu_sender: sender.clone(),
             daemon: None,
@@ -1750,9 +1743,8 @@ impl Component for AppModel {
             notified_for: None,
             notify_when_art_lands: None,
         };
-        let primary_menu = gtk::gio::Menu::new();
+        let primary_menu = model.primary_menu.clone();
         AppModel::fill_primary_menu(&primary_menu, model.settings.provider);
-        model.primary_menu = primary_menu.clone();
 
         let toaster = &model.toaster;
         let now_playing_bar = model.now_playing.widget();

@@ -1,6 +1,6 @@
 [package]
 name = "vinilo"
-description = "A native GNOME client for Apple Music"
+description = "A native Apple Music client for Linux"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -23,7 +23,7 @@ tracing.workspace = true
 relm4 = { version = "0.11", default-features = false, features = ["macros"] }
 gtk = { package = "gtk4", version = "0.11", features = ["v4_20"] }
 # The Nodalia Design Language for GTK, without libadwaita. Pinned: the crate is alpha.
-nodalia-gtk = { git = "https://github.com/danielmigueltejedor/nodalia-design", rev = "9a4c80feabb0349bffff94b5513e79d05f63e4a5" }
+nodalia-gtk = { git = "https://github.com/danielmigueltejedor/nodalia-design", rev = "239aaa73c28ee109afad5f634e539e4156fbed97" }
 
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 

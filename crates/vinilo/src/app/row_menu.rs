@@ -13,6 +13,7 @@
 //! for a track already saved, or "Favourite" for one already starred, is a menu
 //! that lies about the state of things.
 
+use nodalia_gtk as ndl;
 use relm4::gtk;
 use relm4::gtk::prelude::ToVariant;
 use relm4::gtk::prelude::*;
@@ -104,30 +105,55 @@ impl AppModel {
         let menu = gtk::gio::Menu::new();
 
         let queue = gtk::gio::Menu::new();
-        queue.append(Some(i18n::t(Key::PlayNext)), Some("row.play-next"));
-        queue.append(Some(i18n::t(Key::AddToQueue)), Some("row.play-later"));
+        queue.append_item(&ndl::menu_item(
+            i18n::t(Key::PlayNext),
+            "row.play-next",
+            "ndl-forward-symbolic",
+        ));
+        queue.append_item(&ndl::menu_item(
+            i18n::t(Key::AddToQueue),
+            "row.play-later",
+            "ndl-playlist-symbolic",
+        ));
         menu.append_section(None, &queue);
 
         let account = gtk::gio::Menu::new();
         if req.in_library {
-            account.append(
-                Some(i18n::t(Key::RemoveFromLibrary)),
-                Some("row.remove-from-library"),
-            );
+            account.append_item(&ndl::menu_item(
+                i18n::t(Key::RemoveFromLibrary),
+                "row.remove-from-library",
+                "ndl-minus-symbolic",
+            ));
         } else {
-            account.append(Some(i18n::t(Key::AddToLibrary)), Some("row.add-to-library"));
+            account.append_item(&ndl::menu_item(
+                i18n::t(Key::AddToLibrary),
+                "row.add-to-library",
+                "ndl-plus-symbolic",
+            ));
         }
         if req.favorite {
-            account.append(Some(i18n::t(Key::RemoveFavourite)), Some("row.unfavorite"));
+            account.append_item(&ndl::menu_item(
+                i18n::t(Key::RemoveFavourite),
+                "row.unfavorite",
+                "ndl-star-symbolic",
+            ));
         } else {
-            account.append(Some(i18n::t(Key::Favourite)), Some("row.favorite"));
+            account.append_item(&ndl::menu_item(
+                i18n::t(Key::Favourite),
+                "row.favorite",
+                "ndl-star-symbolic",
+            ));
         }
         if account.n_items() > 0 {
             menu.append_section(None, &account);
         }
 
         let lists = gtk::gio::Menu::new();
-        lists.append(Some(i18n::t(Key::NewPlaylist)), Some("row.new-playlist"));
+        lists.append_item(&ndl::menu_item(
+            i18n::t(Key::NewPlaylist),
+            "row.new-playlist",
+            "ndl-plus-symbolic",
+        ));
         for (id, name) in self.writable_playlists().into_iter().take(24) {
             // Spotify/YTM ids contain colons (`sp:playlist:…`). GLib parses
             // `action::target` as a GVariant print, so a detailed name never
@@ -143,6 +169,8 @@ impl AppModel {
         });
 
         let popover = gtk::PopoverMenu::from_model(Some(&menu));
+
+        ndl::menu_rows(&popover);
         popover.set_has_arrow(false);
         popover.set_halign(gtk::Align::Start);
         popover.set_pointing_to(Some(&gtk::gdk::Rectangle::new(req.at.0, req.at.1, 1, 1)));
@@ -274,17 +302,22 @@ impl AppModel {
     fn show_playlist_add_menu(&self, playlist_id: String, at: (i32, i32), over: gtk::Widget) {
         let pinned = self.settings.pinned_playlists.contains(&playlist_id);
         let menu = gtk::gio::Menu::new();
-        menu.append(
-            Some(if pinned {
+        menu.append_item(&ndl::menu_item(
+            if pinned {
                 i18n::t(Key::RemoveFromSidebar)
             } else {
                 i18n::t(Key::AddToSidebar)
-            }),
-            Some("tile.toggle-pin"),
-        );
+            },
+            "tile.toggle-pin",
+            "ndl-pin-symbolic",
+        ));
 
         let lists = gtk::gio::Menu::new();
-        lists.append(Some(i18n::t(Key::NewPlaylist)), Some("tile.new-playlist"));
+        lists.append_item(&ndl::menu_item(
+            i18n::t(Key::NewPlaylist),
+            "tile.new-playlist",
+            "ndl-plus-symbolic",
+        ));
         for (id, name) in self.writable_playlists().into_iter().take(48) {
             if id == playlist_id {
                 continue;
@@ -300,6 +333,8 @@ impl AppModel {
         });
 
         let popover = gtk::PopoverMenu::from_model(Some(&menu));
+
+        ndl::menu_rows(&popover);
         popover.set_has_arrow(false);
         popover.set_halign(gtk::Align::Start);
         popover.set_pointing_to(Some(&gtk::gdk::Rectangle::new(at.0, at.1, 1, 1)));

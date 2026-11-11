@@ -1000,11 +1000,11 @@ impl AppModel {
     }
 
     pub(super) fn fill_primary_menu(
-        menu: &gtk::gio::Menu,
+        popover: &gtk::PopoverMenu,
         provider: vinilo_core::provider::Provider,
     ) {
-        use super::menu_item as item;
-        menu.remove_all();
+        use ndl::menu_item as item;
+        let menu = gtk::gio::Menu::new();
         let section = gtk::gio::Menu::new();
         section.append_item(&item(
             t(Key::Preferences),
@@ -1023,7 +1023,7 @@ impl AppModel {
             || (provider.is_catalog() && vinilo_core::setup::is_configured(provider))
         {
             let account = gtk::gio::Menu::new();
-            account.append_item(&item(
+            account.append_item(&ndl::menu_item_danger(
                 t(Key::SignOut),
                 "win.sign-out",
                 "system-log-out-symbolic",
@@ -1034,5 +1034,7 @@ impl AppModel {
         let quit = gtk::gio::Menu::new();
         quit.append_item(&item(t(Key::Quit), "app.quit", "ndl-power-symbolic"));
         menu.append_section(None, &quit);
+        popover.set_menu_model(Some(&menu));
+        ndl::menu_rows(popover);
     }
 }

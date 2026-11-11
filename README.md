@@ -14,7 +14,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
   <br><br>
   <img src="https://raw.githubusercontent.com/danielmigueltejedor/vinilo/main/data/icons/hicolor/512x512/apps/dev.danielmiguelt.Vinilo.png" width="200" alt="Vinilo">
   <h1>Vinilo</h1>
-  <p><strong>A native GNOME music player for Linux.</strong></p>
+  <p><strong>A native music player for Linux, drawn in the Nodalia Design Language.</strong></p>
 
   <p>
     <img src="https://img.shields.io/badge/version-2.0.0-4a86cf" alt="Version 2.0.0">

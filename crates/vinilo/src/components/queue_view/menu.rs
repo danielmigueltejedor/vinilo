@@ -13,6 +13,7 @@
 //! `ListView` recycles the widget underneath the popover while it is open, so it
 //! is parented, shown and unparented per click rather than living in the tree.
 
+use nodalia_gtk as ndl;
 use relm4::gtk;
 use relm4::gtk::prelude::*;
 
@@ -73,13 +74,18 @@ pub fn show(
 
     let queue = gtk::gio::Menu::new();
     if movable {
-        queue.append(Some(i18n::t(Key::PlayNext)), Some("queue-row.play-next"));
+        queue.append_item(&ndl::menu_item(
+            i18n::t(Key::PlayNext),
+            "queue-row.play-next",
+            "ndl-forward-symbolic",
+        ));
     }
     if removable {
-        queue.append(
-            Some(i18n::t(Key::RemoveFromQueue)),
-            Some("queue-row.remove"),
-        );
+        queue.append_item(&ndl::menu_item(
+            i18n::t(Key::RemoveFromQueue),
+            "queue-row.remove",
+            "ndl-minus-symbolic",
+        ));
     }
     if queue.n_items() > 0 {
         menu.append_section(None, &queue);
@@ -91,12 +97,22 @@ pub fn show(
     // worse than one that is not there.
     if catalog_id.is_some() {
         let browse = gtk::gio::Menu::new();
-        browse.append(Some(i18n::t(Key::GoToAlbum)), Some("queue-row.album"));
-        browse.append(Some(i18n::t(Key::GoToArtist)), Some("queue-row.artist"));
+        browse.append_item(&ndl::menu_item(
+            i18n::t(Key::GoToAlbum),
+            "queue-row.album",
+            "ndl-disc-symbolic",
+        ));
+        browse.append_item(&ndl::menu_item(
+            i18n::t(Key::GoToArtist),
+            "queue-row.artist",
+            "ndl-user-symbolic",
+        ));
         menu.append_section(None, &browse);
     }
 
     let popover = gtk::PopoverMenu::from_model(Some(&menu));
+
+    ndl::menu_rows(&popover);
     popover.set_has_arrow(false);
     popover.set_halign(gtk::Align::Start);
     popover.set_pointing_to(Some(&gtk::gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
