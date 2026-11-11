@@ -264,6 +264,8 @@ pub enum Key {
     AlbumArtBackdropSub,
     SourceTint,
     SourceTintSub,
+    SystemWindowControls,
+    SystemWindowControlsSub,
     Language,
     LanguageSub,
     LanguageSystem,
@@ -544,6 +546,10 @@ fn en(key: Key) -> &'static str {
         Key::AlbumArtBackdropSub => "A wash of the album's main colour behind the player",
         Key::SourceTint => "Tint from music source",
         Key::SourceTintSub => "Apple Music red, Spotify green, YouTube red, Tidal cyan",
+        Key::SystemWindowControls => "Desktop window controls",
+        Key::SystemWindowControlsSub => {
+            "Use your desktop's minimise, maximise and close buttons instead of Nodalia's. Applies after restarting Vinilo"
+        }
         Key::Language => "Language",
         Key::LanguageSub => "Interface language. Takes effect immediately.",
         Key::LanguageSystem => "System",
@@ -701,8 +707,7 @@ fn en(key: Key) -> &'static str {
              computer play natively. Spotify plays through librespot \
              when you have Premium; YouTube Music (Beta) prefers InnerTube \
              audio; Tidal (Alpha) still uses yt-dlp. Each catalogue keeps a \
-             cookie sign-in for library and search.\n\n\
-             Fork of Slipmat by Miguel Rincon."
+             cookie sign-in for library and search."
         }
         Key::RefreshingLibrary => "Refreshing library…",
         Key::ToastAddLibrary => "Adding to your library…",
@@ -846,6 +851,10 @@ fn es(key: Key) -> &'static str {
         Key::AccentPurple => "Morado",
         Key::AccentGreen => "Verde",
         Key::AccentOrange => "Naranja",
+        Key::SystemWindowControls => "Controles de ventana del sistema",
+        Key::SystemWindowControlsSub => {
+            "Usa los botones de minimizar, maximizar y cerrar de tu escritorio en lugar de los de Nodalia. Se aplica al reiniciar Vinilo"
+        }
         Key::AlbumArtBackdrop => "Color de la portada",
         Key::AlbumArtBackdropSub => {
             "Un tinte con el color principal del disco, detrás del reproductor"
@@ -1018,8 +1027,7 @@ fn es(key: Key) -> &'static str {
              de este equipo se reproducen de forma nativa. Spotify suena \
              con librespot si tienes Premium; YouTube Music (Beta) prefiere \
              audio InnerTube; Tidal (Alpha) aún usa yt-dlp. Cada catálogo \
-             guarda un inicio de sesión con cookies para biblioteca y búsqueda.\n\n\
-             Fork de Slipmat, de Miguel Rincon."
+             guarda un inicio de sesión con cookies para biblioteca y búsqueda."
         }
         Key::RefreshingLibrary => "Actualizando la biblioteca…",
         Key::ToastAddLibrary => "Añadiendo a tu biblioteca…",

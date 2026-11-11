@@ -131,6 +131,9 @@ pub struct Settings {
     /// green, YouTube red, Tidal cyan). On by default: that is the look the
     /// source picker is asking for.
     pub source_tint: bool,
+    /// The desktop's window controls instead of Nodalia's (Linux). Off by default; read once at
+    /// startup, before nodalia-gtk draws anything.
+    pub system_window_controls: bool,
     /// Notify when the track changes. Off by default (`bool`'s default).
     pub notify_track_change: bool,
     /// Crossfade between catalogue / local tracks, in milliseconds. Zero is off.
@@ -249,6 +252,7 @@ impl Default for Settings {
             // #145 explicitly asked for it to stay on for everyone else.
             player_backdrop: true,
             source_tint: true,
+            system_window_controls: false,
             notify_track_change: false,
             crossfade_ms: 0,
             // Nothing pinned until somebody pins something. An app that
@@ -303,6 +307,9 @@ impl Settings {
         }
         if let Ok(on) = file.boolean(GROUP, "source-tint") {
             settings.source_tint = on;
+        }
+        if let Ok(on) = file.boolean(GROUP, "system-window-controls") {
+            settings.system_window_controls = on;
         }
         if let Ok(accent) = file.string(GROUP, "accent") {
             settings.accent = accent.into();
@@ -394,6 +401,7 @@ impl Settings {
         file.set_boolean(GROUP, "show-sidebar", self.show_sidebar);
         file.set_boolean(GROUP, "player-backdrop", self.player_backdrop);
         file.set_boolean(GROUP, "source-tint", self.source_tint);
+        file.set_boolean(GROUP, "system-window-controls", self.system_window_controls);
         file.set_string(GROUP, "accent", &self.accent);
         file.set_string(GROUP, "sort", &self.sort);
         file.set_boolean(GROUP, "sort-reversed", self.sort_reversed);

@@ -200,61 +200,86 @@ pub(super) fn register_actions(
     global_menu(&app, window);
 }
 
-/// The menus the shell shows in its top bar. The in-window primary menu stays:
-/// not every shell shows an app's menus.
-fn global_menu(app: &gtk::Application, window: &ndl::ApplicationWindow) {
-    let app_name = t(Key::AppName);
-    ndl::global_menu(
-        app,
-        window.upcast_ref(),
-        &[
-            (
-                app_name,
-                &[
-                    &[(t(Key::About), "win.about")],
-                    &[
-                        (t(Key::Preferences), "win.preferences"),
-                        (t(Key::KeyboardShortcuts), "win.shortcuts"),
-                    ],
-                    &[(t(Key::SignOut), "win.sign-out")],
-                    &[(t(Key::Quit), "app.quit")],
-                ],
-            ),
-            (
-                t(Key::Playback),
-                &[
-                    &[
-                        (t(Key::PlayPause), "win.play-pause"),
-                        (t(Key::Next), "win.next"),
-                        (t(Key::Previous), "win.previous"),
-                    ],
-                    &[
-                        (t(Key::VolumeUp), "win.volume-up"),
-                        (t(Key::VolumeDown), "win.volume-down"),
-                    ],
-                    &[(t(Key::Queue), "win.toggle-queue")],
-                ],
-            ),
-            (
-                t(Key::MenuView),
-                &[&[
-                    (t(Key::ToggleSidebar), "win.toggle-sidebar"),
-                    (t(Key::Search), "win.focus-search"),
-                ]],
-            ),
-            (
-                t(Key::MenuWindow),
-                &[&[(t(Key::CloseWindow), "win.close-window")]],
-            ),
-            (
-                t(Key::MenuHelp),
-                &[&[
+/// One top-bar menu: its title, then its sections of (label, action).
+type TopMenuLayout = (&'static str, Vec<Vec<(&'static str, &'static str)>>);
+
+/// The menus the shell shows in its top bar, in the current language: each
+/// title with its sections of (label, action). The in-window primary menu
+/// stays: not every shell shows an app's menus.
+fn global_menu_layout() -> Vec<TopMenuLayout> {
+    vec![
+        (
+            t(Key::AppName),
+            vec![
+                vec![(t(Key::About), "win.about")],
+                vec![
+                    (t(Key::Preferences), "win.preferences"),
                     (t(Key::KeyboardShortcuts), "win.shortcuts"),
-                    (t(Key::About), "win.about"),
-                ]],
-            ),
-        ],
-    );
+                ],
+                vec![(t(Key::SignOut), "win.sign-out")],
+                vec![(t(Key::Quit), "app.quit")],
+            ],
+        ),
+        (
+            t(Key::Playback),
+            vec![
+                vec![
+                    (t(Key::PlayPause), "win.play-pause"),
+                    (t(Key::Next), "win.next"),
+                    (t(Key::Previous), "win.previous"),
+                ],
+                vec![
+                    (t(Key::VolumeUp), "win.volume-up"),
+                    (t(Key::VolumeDown), "win.volume-down"),
+                ],
+                vec![(t(Key::Queue), "win.toggle-queue")],
+            ],
+        ),
+        (
+            t(Key::MenuView),
+            vec![vec![
+                (t(Key::ToggleSidebar), "win.toggle-sidebar"),
+                (t(Key::Search), "win.focus-search"),
+            ]],
+        ),
+        (
+            t(Key::MenuWindow),
+            vec![vec![(t(Key::CloseWindow), "win.close-window")]],
+        ),
+        (
+            t(Key::MenuHelp),
+            vec![vec![
+                (t(Key::KeyboardShortcuts), "win.shortcuts"),
+                (t(Key::About), "win.about"),
+            ]],
+        ),
+    ]
+}
+
+fn global_menu(app: &gtk::Application, window: &ndl::ApplicationWindow) {
+    let layout = global_menu_layout();
+    let sections: Vec<Vec<&[ndl::MenuEntry<'_>]>> = layout
+        .iter()
+        .map(|(_, sections)| sections.iter().map(Vec::as_slice).collect())
+        .collect();
+    let menus: Vec<ndl::TopMenu<'_>> = layout
+        .iter()
+        .zip(&sections)
+        .map(|((title, _), sections)| (*title, sections.as_slice()))
+        .collect();
+    ndl::global_menu(app, window.upcast_ref(), &menus);
+}
+
+/// Rebuilds the top-bar menus in the language just chosen.
+pub(super) fn relocalize_global_menu() {
+    let app = relm4::main_application();
+    if let Some(window) = app
+        .windows()
+        .into_iter()
+        .find_map(|w| w.downcast::<ndl::ApplicationWindow>().ok())
+    {
+        global_menu(&app, &window);
+    }
 }
 
 /// Check an icon name against the theme, falling back if it is missing.
@@ -647,6 +672,20 @@ impl AppModel {
             });
         }
         appearance.add(&backdrop);
+
+        // Linux only: elsewhere the system always draws the window's frame.
+        if cfg!(target_os = "linux") {
+            let controls = ndl::SwitchRow::builder()
+                .title(t(Key::SystemWindowControls))
+                .subtitle(t(Key::SystemWindowControlsSub))
+                .active(self.settings.system_window_controls)
+                .build();
+            let sender = sender.clone();
+            controls.connect_active_notify(move |row| {
+                sender.input(AppMsg::SetSystemWindowControls(row.is_active()));
+            });
+            appearance.add(&controls);
+        }
 
         let language = ndl::PreferencesGroup::builder()
             .title(t(Key::Language))
@@ -1089,4 +1128,27 @@ fn present_bare_dialog(
         .build();
     dialog.present(Some(parent));
     dialog
+}
+
+#[cfg(test)]
+mod tests {
+    use super::global_menu_layout;
+    use vinilo_core::i18n::{Locale, set_current};
+
+    /// The top-bar menus follow a change of language, as the window's do.
+    #[test]
+    fn the_global_menu_is_built_in_the_current_language() {
+        set_current(Locale::English);
+        let english: Vec<_> = global_menu_layout()
+            .into_iter()
+            .map(|(title, _)| title)
+            .collect();
+        set_current(Locale::Spanish);
+        let spanish: Vec<_> = global_menu_layout()
+            .into_iter()
+            .map(|(title, _)| title)
+            .collect();
+        assert_eq!(english[2..], ["View", "Window", "Help"]);
+        assert_eq!(spanish[2..], ["Ver", "Ventana", "Ayuda"]);
+    }
 }

@@ -636,6 +636,8 @@ pub enum AppMsg {
     SetSourceTint(bool),
     /// Whether the cover is painted behind the player (#145).
     SetPlayerBackdrop(bool),
+    /// Takes effect on the next start: see `Settings::system_window_controls`.
+    SetSystemWindowControls(bool),
     /// The colour scheme flipped; page backdrops have to be re-veiled.
     ThemeFlipped,
     /// Files or folders this process was asked to play.
@@ -823,6 +825,15 @@ impl Component for AppModel {
                         // Dragged shut, or clicked away from — the model has to
                         // learn about it or the next toggle fights the widget.
                         connect_open_notify[sender] => move |sheet| {
+                            // The headers above the drawer take its wash while it is open, so
+                            // the colour runs to the top of the window without a grey band.
+                            if let Some(root) = sheet.root() {
+                                if sheet.is_open() {
+                                    root.add_css_class("np-open");
+                                } else {
+                                    root.remove_css_class("np-open");
+                                }
+                            }
                             sender.input(AppMsg::PlayerDrawer(sheet.is_open()));
                         },
 
@@ -872,6 +883,8 @@ impl Component for AppModel {
                             #[wrap(Some)]
                             set_sidebar = &ndl::ToolbarView {
                                     add_top_bar = &ndl::HeaderBar {
+                                        // Tinted with the player's wash while the drawer is open.
+                                        add_css_class: "np-chrome-header",
                                         // The content header always carries the
                                         // end-side controls; NDL's header does
                                         // not hide a second set by itself.
@@ -962,6 +975,8 @@ impl Component for AppModel {
                                     #[name = "content_bars"]
                                     set_child = &ndl::ToolbarView {
                                     add_top_bar = &ndl::HeaderBar {
+                                        // Tinted with the player's wash while the drawer is open.
+                                        add_css_class: "np-chrome-header",
                                         // The sidebar's own header carries the
                                         // start-side window controls while it
                                         // is open, so this header only shows
@@ -2687,6 +2702,10 @@ impl AppModel {
                 self.settings.save();
                 self.apply_live_accent();
             }
+            AppMsg::SetSystemWindowControls(on) => {
+                self.settings.system_window_controls = on;
+                self.settings.save();
+            }
             AppMsg::SetPlayerBackdrop(on) => {
                 self.settings.player_backdrop = on;
                 self.settings.save();
@@ -3295,6 +3314,7 @@ impl AppModel {
         }
         self.locale_tick = self.locale_tick.wrapping_add(1);
         Self::fill_primary_menu(&self.primary_menu, self.settings.provider);
+        chrome::relocalize_global_menu();
         self.pins_dirty = true;
         self.now_playing.emit(NowPlayingInput::Relocalize);
         self.queue_view.emit(QueueViewInput::Relocalize);

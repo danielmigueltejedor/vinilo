@@ -703,12 +703,15 @@ fn retry_without_dead_tracks(daemon: &Daemon, detail: &str) -> bool {
     );
     *daemon.pending_start.borrow_mut() = wanted.clone();
     *daemon.last_queue.borrow_mut() = Some((retry.clone(), wanted));
-    daemon.send(Command::SetQueue {
-        songs: retry,
-        start_position: position,
-        start_playing: true,
-        start_time_ms: 0,
-    });
+    send_queue(
+        daemon,
+        Command::SetQueue {
+            songs: retry,
+            start_position: position,
+            start_playing: true,
+            start_time_ms: 0,
+        },
+    );
     true
 }
 
@@ -1722,6 +1725,13 @@ pub(crate) fn route_transport(daemon: &Rc<Daemon>, transport: Transport) {
     }
     // A restored queue has no current item, so MusicKit's `play` does nothing
     // until the current queue entry has been opened.
+    // Without a stream mixer MusicKit's gain is the volume, and the sidecar
+    // resets it when it hooks in: restate it before anything plays.
+    if matches!(transport, Transport::Play | Transport::PlayPause)
+        && let Some(command) = sidecar_volume(daemon.mixer.is_some(), daemon.model.borrow().volume)
+    {
+        daemon.send(command);
+    }
     if matches!(transport, Transport::Play | Transport::PlayPause) && needs_opening(daemon) {
         let index = daemon.model.borrow().player.queue_position;
         tracing::info!(index, "nothing is open yet — opening the queue first");
@@ -1736,6 +1746,9 @@ pub(crate) fn route_transport(daemon: &Rc<Daemon>, transport: Transport) {
             let volume = volume.clamp(0.0, 1.0);
             if let Some(mixer) = &daemon.mixer {
                 mixer.set(volume);
+            }
+            if let Some(command) = sidecar_volume(daemon.mixer.is_some(), volume) {
+                daemon.send(command);
             }
             // Keep the requested value while no stream exists, and publish it
             // at once so paused clients can step from the new value.
@@ -3677,12 +3690,15 @@ fn play(daemon: &Daemon, ids: &[String], index: usize, start: Start) {
     if let Some(shuffle) = start.mode(true) {
         daemon.send(Command::SetShuffle { shuffle });
     }
-    daemon.send(Command::SetQueue {
-        songs,
-        start_position: position,
-        start_playing: true,
-        start_time_ms: 0,
-    });
+    send_queue(
+        daemon,
+        Command::SetQueue {
+            songs,
+            start_position: position,
+            start_playing: true,
+            start_time_ms: 0,
+        },
+    );
 }
 
 /// A row to open a shuffle on.
@@ -3740,12 +3756,15 @@ fn restore_session(daemon: &Daemon) {
     let wanted = session.songs.get(start).cloned();
     *daemon.pending_start.borrow_mut() = wanted.clone();
     *daemon.last_queue.borrow_mut() = Some((session.songs.clone(), wanted));
-    daemon.send(Command::SetQueue {
-        songs: session.songs,
-        start_position: start,
-        start_playing: false,
-        start_time_ms: session.position_ms,
-    });
+    send_queue(
+        daemon,
+        Command::SetQueue {
+            songs: session.songs,
+            start_position: start,
+            start_playing: false,
+            start_time_ms: session.position_ms,
+        },
+    );
 }
 
 /// The event's kind, for a log line that stays one line.
@@ -3787,6 +3806,31 @@ fn restart_selected_occurrence(daemon: &Daemon) -> Option<Command> {
     None
 }
 
+/// The volume for MusicKit itself: only when there is no stream mixer to own
+/// it (macOS), so the two never put two gains in series.
+/// The commands that start `queue`. Without a stream mixer MusicKit's gain is the volume, and
+/// a new queue plays at the sidecar's own gain, so the volume goes first: a track clicked after
+/// turning a local file down must not play louder than the slider.
+fn start_queue(has_mixer: bool, volume: f64, queue: Command) -> Vec<Command> {
+    sidecar_volume(has_mixer, volume)
+        .into_iter()
+        .chain(std::iter::once(queue))
+        .collect()
+}
+
+fn send_queue(daemon: &Daemon, queue: Command) {
+    let volume = daemon.model.borrow().volume;
+    for command in start_queue(daemon.mixer.is_some(), volume, queue) {
+        daemon.send(command);
+    }
+}
+
+fn sidecar_volume(has_mixer: bool, volume: f64) -> Option<Command> {
+    (!has_mixer).then(|| Command::SetVolume {
+        volume: volume.clamp(0.0, 1.0),
+    })
+}
+
 /// What the sidecar is told, if anything.
 ///
 /// **Volume is `None` on purpose.** It is applied to the audio stream instead
@@ -3811,6 +3855,38 @@ fn command_for(transport: Transport) -> Option<Command> {
 
 #[cfg(test)]
 mod tests {
+
+    /// Without a stream mixer (macOS) MusicKit's gain is the only volume, so
+    /// the sidecar is told; with one (Linux) it never is.
+    #[test]
+    fn volume_reaches_musickit_only_without_a_mixer() {
+        assert!(matches!(
+            sidecar_volume(false, 0.4),
+            Some(Command::SetVolume { volume }) if (volume - 0.4).abs() < f64::EPSILON
+        ));
+        assert!(matches!(
+            sidecar_volume(false, 3.0),
+            Some(Command::SetVolume { volume }) if (volume - 1.0).abs() < f64::EPSILON
+        ));
+        assert!(sidecar_volume(true, 0.4).is_none());
+    }
+
+    #[test]
+    fn a_new_queue_starts_at_the_sliders_volume() {
+        let queue = || Command::SetQueue {
+            songs: vec!["i.1".into()],
+            start_position: 0,
+            start_playing: true,
+            start_time_ms: 0,
+        };
+        let names = |commands: Vec<Command>| commands.iter().map(Command::name).collect::<Vec<_>>();
+        assert_eq!(
+            names(start_queue(false, 0.3, queue())),
+            ["setVolume", "setQueue"]
+        );
+        assert_eq!(names(start_queue(true, 0.3, queue())), ["setQueue"]);
+    }
+
     use super::*;
     use vinilo_core::music::types::{Track, TrackId};
     use vinilo_core::player::protocol::{Item, RepeatMode, Tokens};

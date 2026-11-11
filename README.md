@@ -196,6 +196,9 @@ make check                # fmt + clippy + tests
 4. The Apple Music library is cached for the next start. Local files play as
    soon as you open them.
 
+On Linux the window draws Nodalia's minimise, maximise and close buttons. To use your desktop's
+instead (GNOME, KDE…), turn on **Desktop window controls** in Preferences and restart Vinilo.
+
 Language lives in `~/.config/vinilo/locale`. The source lives in
 `~/.config/vinilo/provider`. Catalogue sessions stay in cookies next to that;
 tokens are never written to disk.
@@ -299,9 +302,9 @@ tag is unsupported.
 
 ## Credits
 
-Vinilo is a fork of [Slipmat](https://github.com/SoftARV/Slipmat)
-(GPL-3.0-or-later) by Miguel Rincon. Linux Apple Music playback through
-castLabs Electron follows the path opened by Sidra and Cider.
+Vinilo is a Nodalia app. Linux Apple Music playback through castLabs Electron
+follows the path opened by Sidra and Cider. Copyright notices for code by other
+authors are kept in the source files and listed in [`NOTICE`](NOTICE).
 
 ## License
 
