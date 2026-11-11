@@ -23,7 +23,7 @@ tracing.workspace = true
 relm4 = { version = "0.11", default-features = false, features = ["macros"] }
 gtk = { package = "gtk4", version = "0.11", features = ["v4_20"] }
 # The Nodalia Design Language for GTK, without libadwaita. Pinned: the crate is alpha.
-nodalia-gtk = { git = "https://github.com/danielmigueltejedor/nodalia-design", rev = "4c32e72fef864dded5e7949da07b6bc0113f8bc8" }
+nodalia-gtk = { git = "https://github.com/danielmigueltejedor/nodalia-design", rev = "5b0ac95c7f2f0c66c530c96036af610b3761391a" }
 
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
