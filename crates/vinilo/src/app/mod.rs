@@ -636,6 +636,8 @@ pub enum AppMsg {
     SetSourceTint(bool),
     /// Whether the cover is painted behind the player (#145).
     SetPlayerBackdrop(bool),
+    /// Takes effect on the next start: see `Settings::system_window_controls`.
+    SetSystemWindowControls(bool),
     /// The colour scheme flipped; page backdrops have to be re-veiled.
     ThemeFlipped,
     /// Files or folders this process was asked to play.
@@ -2686,6 +2688,10 @@ impl AppModel {
                 self.settings.source_tint = on;
                 self.settings.save();
                 self.apply_live_accent();
+            }
+            AppMsg::SetSystemWindowControls(on) => {
+                self.settings.system_window_controls = on;
+                self.settings.save();
             }
             AppMsg::SetPlayerBackdrop(on) => {
                 self.settings.player_backdrop = on;

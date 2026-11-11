@@ -264,6 +264,8 @@ pub enum Key {
     AlbumArtBackdropSub,
     SourceTint,
     SourceTintSub,
+    SystemWindowControls,
+    SystemWindowControlsSub,
     Language,
     LanguageSub,
     LanguageSystem,
@@ -544,6 +546,10 @@ fn en(key: Key) -> &'static str {
         Key::AlbumArtBackdropSub => "A wash of the album's main colour behind the player",
         Key::SourceTint => "Tint from music source",
         Key::SourceTintSub => "Apple Music red, Spotify green, YouTube red, Tidal cyan",
+        Key::SystemWindowControls => "Desktop window controls",
+        Key::SystemWindowControlsSub => {
+            "Use your desktop's minimise, maximise and close buttons instead of Nodalia's. Applies after restarting Vinilo"
+        }
         Key::Language => "Language",
         Key::LanguageSub => "Interface language. Takes effect immediately.",
         Key::LanguageSystem => "System",
@@ -853,6 +859,10 @@ fn es(key: Key) -> &'static str {
         Key::SourceTint => "Teñir según la fuente",
         Key::SourceTintSub => {
             "Rojo de Apple Music, verde de Spotify, rojo de YouTube, cian de Tidal"
+        }
+        Key::SystemWindowControls => "Controles de ventana del sistema",
+        Key::SystemWindowControlsSub => {
+            "Usa los botones de minimizar, maximizar y cerrar de tu escritorio en lugar de los de Nodalia. Se aplica al reiniciar Vinilo"
         }
         Key::Language => "Idioma",
         Key::LanguageSub => "Idioma de la interfaz. Se aplica al momento.",

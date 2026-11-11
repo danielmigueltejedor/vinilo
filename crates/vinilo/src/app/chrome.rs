@@ -673,6 +673,20 @@ impl AppModel {
         }
         appearance.add(&backdrop);
 
+        // Linux only: elsewhere the system always draws the window's frame.
+        if cfg!(target_os = "linux") {
+            let controls = ndl::SwitchRow::builder()
+                .title(t(Key::SystemWindowControls))
+                .subtitle(t(Key::SystemWindowControlsSub))
+                .active(self.settings.system_window_controls)
+                .build();
+            let sender = sender.clone();
+            controls.connect_active_notify(move |row| {
+                sender.input(AppMsg::SetSystemWindowControls(row.is_active()));
+            });
+            appearance.add(&controls);
+        }
+
         let language = ndl::PreferencesGroup::builder()
             .title(t(Key::Language))
             .build();

@@ -196,6 +196,9 @@ make check                # fmt + clippy + tests
 4. The Apple Music library is cached for the next start. Local files play as
    soon as you open them.
 
+On Linux the window draws Nodalia's minimise, maximise and close buttons. To use your desktop's
+instead (GNOME, KDE…), turn on **Desktop window controls** in Preferences and restart Vinilo.
+
 Language lives in `~/.config/vinilo/locale`. The source lives in
 `~/.config/vinilo/provider`. Catalogue sessions stay in cookies next to that;
 tokens are never written to disk.

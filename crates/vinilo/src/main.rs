@@ -70,6 +70,12 @@ fn main() {
 
     // `RelmApp::new` calls `gtk::init()`, which opens the display NDL's
     // stylesheets are installed on.
+    // Before NDL installs itself: the icon theme behind the window controls is written once.
+    nodalia_gtk::set_window_controls(if settings::Settings::load().system_window_controls {
+        nodalia_gtk::WindowControls::System
+    } else {
+        nodalia_gtk::WindowControls::Nodalia
+    });
     let app = RelmApp::new(APP_ID);
     nodalia_gtk::init();
     setup_icon();
