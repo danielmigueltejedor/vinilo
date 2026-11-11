@@ -2818,7 +2818,7 @@
     },
     {
         "type": "inline",
-        "contents": "[package]\nname = \"nodalia-gtk\"\nversion = \"0.1.0-alpha.1\"\nedition = \"2021\"\nrust-version = \"1.85\"\nlicense = \"MIT\"\ndescription = \"Nodalia Design Language for GTK 4 without libadwaita: the theme and the widgets an app needs.\"\nrepository = \"https://github.com/danielmigueltejedor/nodalia-design\"\npublish = false\n\n[dependencies.gtk]\npackage = \"gtk4\"\nversion = \"0.11\"\nfeatures = [\"v4_20\"]\n\n[workspace]\n",
+        "contents": "[package]\nname = \"nodalia-gtk\"\nversion = \"0.1.0-alpha.1\"\nedition = \"2021\"\nrust-version = \"1.85\"\nlicense = \"MIT\"\ndescription = \"Nodalia Design Language for GTK 4 without libadwaita: the theme and the widgets an app needs.\"\nrepository = \"https://github.com/danielmigueltejedor/nodalia-design\"\npublish = false\n\n[dependencies.gtk]\npackage = \"gtk4\"\nversion = \"0.11\"\nfeatures = [\"v4_20\"]\n\n[dependencies.pango]\nversion = \"0.22\"\nfeatures = [\"v1_56\"]\n\n[workspace]\n",
         "dest": "cargo/vendor/nodalia-gtk",
         "dest-filename": "Cargo.toml"
     },
