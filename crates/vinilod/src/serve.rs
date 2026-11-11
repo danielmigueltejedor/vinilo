@@ -991,7 +991,7 @@ async fn client(stream: UnixStream, daemon: Rc<Daemon>) -> Result<()> {
             },
             event = recv(&mut feed) => match event? {
                 Some(event) => vec![event],
-                None => resync(&daemon),
+                None => resync(&daemon, &mut feed),
             },
         };
 
@@ -1025,14 +1025,28 @@ async fn recv(feed: &mut Option<broadcast::Receiver<Event>>) -> Result<Option<Ev
 /// Where things stand, for a subscriber that missed events: each of these replaces what it
 /// carried before, so losing the burst in between costs nothing. Dropping the client instead
 /// left its requests unanswered until it reconnected.
-fn resync(daemon: &Daemon) -> Vec<Event> {
+///
+/// The feed moves to the newest event first: what is still buffered predates this state and
+/// would otherwise arrive after it, rolling the client back.
+fn resync(daemon: &Daemon, feed: &mut Option<broadcast::Receiver<Event>>) -> Vec<Event> {
+    if let Some(rx) = feed.as_mut() {
+        *rx = rx.resubscribe();
+    }
     let model = daemon.model.borrow();
     let (items, position) = model.queue();
-    vec![
+    let mut state = vec![
         Event::Stage(model.stage.clone()),
         Event::Queue { items, position },
         Event::Snapshot(model.snapshot()),
-    ]
+    ];
+    // The library may have changed, or started or finished refreshing, in what was missed.
+    if !model.library.is_empty() {
+        state.push(Event::LibraryChanged);
+    }
+    state.push(Event::LibraryRefreshing {
+        refreshing: daemon.refreshing.get().is_some(),
+    });
+    state
 }
 
 fn answer(
@@ -4008,6 +4022,7 @@ mod tests {
     fn a_subscriber_that_falls_behind_is_resynced_not_dropped() {
         let daemon = daemon();
         let mut feed = Some(daemon.events.subscribe());
+        daemon.refreshing.set(Some(1));
         for _ in 0..BACKLOG + 8 {
             daemon.publish_snapshot();
         }
@@ -4018,13 +4033,16 @@ mod tests {
             .block_on(recv(&mut feed))
             .expect("lag is not an error");
         assert!(lagged.is_none());
-        let state = resync(&daemon);
+        let state = resync(&daemon, &mut feed);
         assert!(matches!(state[0], Event::Stage(_)));
         assert!(matches!(state[1], Event::Queue { .. }));
         assert!(matches!(state[2], Event::Snapshot(_)));
-        // The feed carries on after the resync: what is still buffered, then what comes next.
-        let rx = feed.as_mut().unwrap();
-        while rx.try_recv().is_ok() {}
+        // A refresh that began in the missed burst is not left without its spinner.
+        assert!(matches!(
+            state.last(),
+            Some(Event::LibraryRefreshing { refreshing: true })
+        ));
+        // The stale backlog is gone: the next event is the first one after the resync.
         daemon.publish(Event::LibraryChanged);
         let next = runtime.block_on(recv(&mut feed)).unwrap();
         assert!(matches!(next, Some(Event::LibraryChanged)));
