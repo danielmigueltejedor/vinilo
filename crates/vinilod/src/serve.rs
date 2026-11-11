@@ -1026,11 +1026,19 @@ async fn recv(feed: &mut Option<broadcast::Receiver<Event>>) -> Result<Option<Ev
 /// carried before, so losing the burst in between costs nothing. Dropping the client instead
 /// left its requests unanswered until it reconnected.
 ///
-/// The feed moves to the newest event first: what is still buffered predates this state and
-/// would otherwise arrive after it, rolling the client back.
+/// What is still buffered is read now: its state events predate this state and are dropped
+/// (sent later, they would roll the client back), while answers to the client's requests
+/// (search results, rows, a page, lyrics, an error) are kept and follow the state.
 fn resync(daemon: &Daemon, feed: &mut Option<broadcast::Receiver<Event>>) -> Vec<Event> {
+    let mut answers = Vec::new();
     if let Some(rx) = feed.as_mut() {
-        *rx = rx.resubscribe();
+        loop {
+            match rx.try_recv() {
+                Ok(event) if !is_state(&event) => answers.push(event),
+                Ok(_) | Err(broadcast::error::TryRecvError::Lagged(_)) => {}
+                Err(_) => break,
+            }
+        }
     }
     let model = daemon.model.borrow();
     let (items, position) = model.queue();
@@ -1039,14 +1047,29 @@ fn resync(daemon: &Daemon, feed: &mut Option<broadcast::Receiver<Event>>) -> Vec
         Event::Queue { items, position },
         Event::Snapshot(model.snapshot()),
     ];
-    // The library may have changed, or started or finished refreshing, in what was missed.
-    if !model.library.is_empty() {
-        state.push(Event::LibraryChanged);
-    }
+    // The library may have changed (or been emptied), or started or finished refreshing, in
+    // what was missed.
+    state.push(Event::LibraryChanged);
+    state.extend(answers);
+    // Last: a client treats an Error as the end of a refresh, so a kept error must not switch
+    // off the spinner of a refresh that is still running.
     state.push(Event::LibraryRefreshing {
         refreshing: daemon.refreshing.get().is_some(),
     });
     state
+}
+
+/// An event that only says where things stand, which a resync restates.
+fn is_state(event: &Event) -> bool {
+    matches!(
+        event,
+        Event::Snapshot(_)
+            | Event::Queue { .. }
+            | Event::Stage(_)
+            | Event::LibraryChanged
+            | Event::LibraryRefreshing { .. }
+            | Event::Discover(_)
+    )
 }
 
 fn answer(
@@ -4026,6 +4049,10 @@ mod tests {
         for _ in 0..BACKLOG + 8 {
             daemon.publish_snapshot();
         }
+        // An answer to this client's request, still in the buffer when it falls behind.
+        daemon.publish(Event::Error {
+            detail: "answer".into(),
+        });
         let runtime = tokio::runtime::Builder::new_current_thread()
             .build()
             .unwrap();
@@ -4037,11 +4064,27 @@ mod tests {
         assert!(matches!(state[0], Event::Stage(_)));
         assert!(matches!(state[1], Event::Queue { .. }));
         assert!(matches!(state[2], Event::Snapshot(_)));
-        // A refresh that began in the missed burst is not left without its spinner.
+        // The library is restated even when empty, and a refresh that began in the missed burst
+        // is not left without its spinner.
+        assert!(state.iter().any(|e| matches!(e, Event::LibraryChanged)));
+        // The buffered answer is kept, after the state; the stale snapshots are not. The refresh
+        // state comes last, so the kept error cannot switch the spinner off.
+        let answer = state
+            .iter()
+            .position(|e| matches!(e, Event::Error { detail } if detail == "answer"))
+            .expect("the buffered answer was dropped");
+        assert!(answer > 2);
         assert!(matches!(
             state.last(),
             Some(Event::LibraryRefreshing { refreshing: true })
         ));
+        assert_eq!(
+            state
+                .iter()
+                .filter(|e| matches!(e, Event::Snapshot(_)))
+                .count(),
+            1
+        );
         // The stale backlog is gone: the next event is the first one after the resync.
         daemon.publish(Event::LibraryChanged);
         let next = runtime.block_on(recv(&mut feed)).unwrap();
