@@ -158,13 +158,19 @@ impl AppModel {
             // Spotify/YTM ids contain colons (`sp:playlist:…`). GLib parses
             // `action::target` as a GVariant print, so a detailed name never
             // activates. Set the target as a real string variant instead.
-            let item = gtk::gio::MenuItem::new(Some(&name), None);
+            let item = ndl::menu_item(&name, "row.add-to-playlist", "ndl-playlist-symbolic");
             item.set_action_and_target_value(Some("row.add-to-playlist"), Some(&id.to_variant()));
             lists.append_item(&item);
         }
+        // Its own menu rather than a submenu: GTK draws a submenu's row itself,
+        // without the icon every NDL row carries.
         menu.append_section(None, &{
             let section = gtk::gio::Menu::new();
-            section.append_submenu(Some(i18n::t(Key::AddToPlaylist)), &lists);
+            section.append_item(&ndl::menu_item(
+                i18n::t(Key::AddToPlaylist),
+                "row.choose-playlist",
+                "ndl-playlist-symbolic",
+            ));
             section
         });
 
@@ -177,6 +183,7 @@ impl AppModel {
         popover.set_parent(&req.over);
 
         let actions = gtk::gio::SimpleActionGroup::new();
+        actions.add_action(&choose_playlist(&lists, &req.over, req.at, &actions, "row"));
         for (name, next) in [("play-next", true), ("play-later", false)] {
             let action = gtk::gio::SimpleAction::new(name, None);
             let id = req.catalog_id.clone();
@@ -322,13 +329,19 @@ impl AppModel {
             if id == playlist_id {
                 continue;
             }
-            let item = gtk::gio::MenuItem::new(Some(&name), None);
+            let item = ndl::menu_item(&name, "tile.add-to-playlist", "ndl-playlist-symbolic");
             item.set_action_and_target_value(Some("tile.add-to-playlist"), Some(&id.to_variant()));
             lists.append_item(&item);
         }
+        // Its own menu rather than a submenu: GTK draws a submenu's row itself,
+        // without the icon every NDL row carries.
         menu.append_section(None, &{
             let section = gtk::gio::Menu::new();
-            section.append_submenu(Some(i18n::t(Key::AddToPlaylist)), &lists);
+            section.append_item(&ndl::menu_item(
+                i18n::t(Key::AddToPlaylist),
+                "tile.choose-playlist",
+                "ndl-playlist-symbolic",
+            ));
             section
         });
 
@@ -341,6 +354,7 @@ impl AppModel {
         popover.set_parent(&over);
 
         let actions = gtk::gio::SimpleActionGroup::new();
+        actions.add_action(&choose_playlist(&lists, &over, at, &actions, "tile"));
         {
             let action = gtk::gio::SimpleAction::new("toggle-pin", None);
             let id = playlist_id.clone();
@@ -386,4 +400,34 @@ impl AppModel {
         });
         popover.popup();
     }
+}
+
+/// The action behind "Add to a Playlist": a second menu, at the same spot, with
+/// the lists. It shares `actions`, so its rows run the same `prefix.*` actions
+/// the first menu would have.
+fn choose_playlist(
+    lists: &gtk::gio::Menu,
+    over: &gtk::Widget,
+    at: (i32, i32),
+    actions: &gtk::gio::SimpleActionGroup,
+    prefix: &'static str,
+) -> gtk::gio::SimpleAction {
+    let action = gtk::gio::SimpleAction::new("choose-playlist", None);
+    let (lists, over, group) = (lists.clone(), over.clone(), actions.downgrade());
+    action.connect_activate(move |_, _| {
+        let Some(group) = group.upgrade() else { return };
+        let popover = gtk::PopoverMenu::from_model(Some(&lists));
+        ndl::menu_rows(&popover);
+        popover.set_has_arrow(false);
+        popover.set_halign(gtk::Align::Start);
+        popover.set_pointing_to(Some(&gtk::gdk::Rectangle::new(at.0, at.1, 1, 1)));
+        popover.set_parent(&over);
+        popover.insert_action_group(prefix, Some(&group));
+        popover.connect_closed(|p| {
+            let p = p.clone();
+            gtk::glib::idle_add_local_once(move || p.unparent());
+        });
+        popover.popup();
+    });
+    action
 }
