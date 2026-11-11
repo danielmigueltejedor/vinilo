@@ -61,14 +61,17 @@ closing the window does not stop the music.
 ## Preview
 
 <p align="center">
-  <img src="docs/screenshots/library.webp" width="48%" alt="Listen Now in Vinilo 2.0: islands, Sora titles and NDL icons">
-  <img src="docs/screenshots/player.webp" width="48%" alt="Expanded player with the queue">
+  <img src="docs/screenshots/player.webp" width="48%" alt="The open player, tinted with the cover's colour from the headers down, in the dark theme">
+  <img src="docs/screenshots/queue.webp" width="48%" alt="The queue inside the open player, in the light theme">
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/playlist.webp" width="48%" alt="Playlist page">
-  <img src="docs/screenshots/albums.webp" width="48%" alt="An album page">
+  <img src="docs/screenshots/preferences.webp" width="48%" alt="Preferences: language, source, theme, accent and window controls">
+  <img src="docs/screenshots/about.webp" width="48%" alt="About Vinilo">
 </p>
+
+<sub>The music in these screenshots is a demo collection made for them: invented albums and
+covers, no account.</sub>
 
 ## Why Vinilo
 
