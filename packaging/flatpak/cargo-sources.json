@@ -8,8 +8,8 @@
     {
         "type": "git",
         "url": "https://github.com/danielmigueltejedor/nodalia-design",
-        "commit": "107ba4cf6d9b692719787cfd4fcfc6c21ae9ad5b",
-        "dest": "flatpak-cargo/git/nodalia-design-107ba4c"
+        "commit": "9be1a259fbcaa653c7f593f195572e4377eded72",
+        "dest": "flatpak-cargo/git/nodalia-design-9be1a25"
     },
     {
         "type": "archive",
@@ -2813,7 +2813,7 @@
     {
         "type": "shell",
         "commands": [
-            "cp -r --reflink=auto \"flatpak-cargo/git/nodalia-design-107ba4c/packages/gtk/crate\" \"cargo/vendor/nodalia-gtk\""
+            "cp -r --reflink=auto \"flatpak-cargo/git/nodalia-design-9be1a25/packages/gtk/crate\" \"cargo/vendor/nodalia-gtk\""
         ]
     },
     {
@@ -6392,7 +6392,7 @@
     },
     {
         "type": "inline",
-        "contents": "[source.vendored-sources]\ndirectory = \"cargo/vendor\"\n\n[source.crates-io]\nreplace-with = \"vendored-sources\"\n\n[source.\"https://github.com/danielmigueltejedor/vinilo\"]\ngit = \"https://github.com/danielmigueltejedor/vinilo\"\nreplace-with = \"vendored-sources\"\nrev = \"393463e6a072c8b6fbc046641acf2e0956da4d6e\"\n\n[source.\"https://github.com/danielmigueltejedor/nodalia-design\"]\ngit = \"https://github.com/danielmigueltejedor/nodalia-design\"\nreplace-with = \"vendored-sources\"\nrev = \"107ba4cf6d9b692719787cfd4fcfc6c21ae9ad5b\"\n",
+        "contents": "[source.vendored-sources]\ndirectory = \"cargo/vendor\"\n\n[source.crates-io]\nreplace-with = \"vendored-sources\"\n\n[source.\"https://github.com/danielmigueltejedor/vinilo\"]\ngit = \"https://github.com/danielmigueltejedor/vinilo\"\nreplace-with = \"vendored-sources\"\nrev = \"393463e6a072c8b6fbc046641acf2e0956da4d6e\"\n\n[source.\"https://github.com/danielmigueltejedor/nodalia-design\"]\ngit = \"https://github.com/danielmigueltejedor/nodalia-design\"\nreplace-with = \"vendored-sources\"\nrev = \"9be1a259fbcaa653c7f593f195572e4377eded72\"\n",
         "dest": "cargo",
         "dest-filename": "config"
     }
