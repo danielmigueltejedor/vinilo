@@ -350,6 +350,9 @@ const commands = {
   setVolume: ({ volume }) => {
     const v = Number(volume)
     if (!Number.isFinite(v)) throw new Error(`volume ${volume} is not a number`)
+    // Feature-detected like the other undocumented members: a build without it must say so,
+    // not take the assignment silently and leave the track at its own gain.
+    if (!('volume' in music)) throw new Error('this MusicKit build has no volume')
     music.volume = Math.min(1, Math.max(0, v))
   },
   // Move one item within the queue MusicKit already holds.
