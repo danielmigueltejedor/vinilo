@@ -148,39 +148,10 @@ impl AppModel {
             menu.append_section(None, &account);
         }
 
-        let lists = gtk::gio::Menu::new();
-        lists.append_item(&ndl::menu_item(
-            i18n::t(Key::NewPlaylist),
-            "row.new-playlist",
-            "ndl-plus-symbolic",
-        ));
-        for (id, name) in self.writable_playlists().into_iter().take(24) {
-            // Spotify/YTM ids contain colons (`sp:playlist:…`). GLib parses
-            // `action::target` as a GVariant print, so a detailed name never
-            // activates. Set the target as a real string variant instead.
-            let item = ndl::menu_item(&name, "row.add-to-playlist", "ndl-playlist-symbolic");
-            item.set_action_and_target_value(Some("row.add-to-playlist"), Some(&id.to_variant()));
-            lists.append_item(&item);
-        }
-        // Its own menu rather than a submenu: GTK draws a submenu's row itself,
-        // without the icon every NDL row carries.
-        menu.append_section(None, &{
-            let section = gtk::gio::Menu::new();
-            section.append_item(&ndl::menu_item(
-                i18n::t(Key::AddToPlaylist),
-                "row.choose-playlist",
-                "ndl-playlist-symbolic",
-            ));
-            section
-        });
-
-        let popover = gtk::PopoverMenu::from_model(Some(&menu));
-
-        ndl::menu_rows(&popover);
-        popover.set_has_arrow(false);
-        popover.set_halign(gtk::Align::Start);
-        popover.set_pointing_to(Some(&gtk::gdk::Rectangle::new(req.at.0, req.at.1, 1, 1)));
-        popover.set_parent(&req.over);
+        let playlists = self.writable_playlists().into_iter().take(24);
+        let lists = playlist_choices("row", playlists);
+        menu.append_section(None, &add_to_playlist_section("row"));
+        let popover = popover_at(&menu, &req.over, req.at);
 
         let actions = gtk::gio::SimpleActionGroup::new();
         actions.add_action(&choose_playlist(&lists, &req.over, req.at, &actions, "row"));
@@ -269,11 +240,7 @@ impl AppModel {
         }
         popover.insert_action_group("row", Some(&actions));
 
-        popover.connect_closed(|p| {
-            let p = p.clone();
-            gtk::glib::idle_add_local_once(move || p.unparent());
-        });
-        popover.popup();
+        show_until_closed(&popover);
     }
 
     /// Right-click on a Listen Now cover: songs get the row menu, playlists
@@ -319,39 +286,14 @@ impl AppModel {
             "ndl-pin-symbolic",
         ));
 
-        let lists = gtk::gio::Menu::new();
-        lists.append_item(&ndl::menu_item(
-            i18n::t(Key::NewPlaylist),
-            "tile.new-playlist",
-            "ndl-plus-symbolic",
-        ));
-        for (id, name) in self.writable_playlists().into_iter().take(48) {
-            if id == playlist_id {
-                continue;
-            }
-            let item = ndl::menu_item(&name, "tile.add-to-playlist", "ndl-playlist-symbolic");
-            item.set_action_and_target_value(Some("tile.add-to-playlist"), Some(&id.to_variant()));
-            lists.append_item(&item);
-        }
-        // Its own menu rather than a submenu: GTK draws a submenu's row itself,
-        // without the icon every NDL row carries.
-        menu.append_section(None, &{
-            let section = gtk::gio::Menu::new();
-            section.append_item(&ndl::menu_item(
-                i18n::t(Key::AddToPlaylist),
-                "tile.choose-playlist",
-                "ndl-playlist-symbolic",
-            ));
-            section
-        });
-
-        let popover = gtk::PopoverMenu::from_model(Some(&menu));
-
-        ndl::menu_rows(&popover);
-        popover.set_has_arrow(false);
-        popover.set_halign(gtk::Align::Start);
-        popover.set_pointing_to(Some(&gtk::gdk::Rectangle::new(at.0, at.1, 1, 1)));
-        popover.set_parent(&over);
+        let playlists = self
+            .writable_playlists()
+            .into_iter()
+            .filter(|(id, _)| *id != playlist_id)
+            .take(48);
+        let lists = playlist_choices("tile", playlists);
+        menu.append_section(None, &add_to_playlist_section("tile"));
+        let popover = popover_at(&menu, &over, at);
 
         let actions = gtk::gio::SimpleActionGroup::new();
         actions.add_action(&choose_playlist(&lists, &over, at, &actions, "tile"));
@@ -394,11 +336,7 @@ impl AppModel {
             actions.add_action(&action);
         }
         popover.insert_action_group("tile", Some(&actions));
-        popover.connect_closed(|p| {
-            let p = p.clone();
-            gtk::glib::idle_add_local_once(move || p.unparent());
-        });
-        popover.popup();
+        show_until_closed(&popover);
     }
 }
 
@@ -416,18 +354,65 @@ fn choose_playlist(
     let (lists, over, group) = (lists.clone(), over.clone(), actions.downgrade());
     action.connect_activate(move |_, _| {
         let Some(group) = group.upgrade() else { return };
-        let popover = gtk::PopoverMenu::from_model(Some(&lists));
-        ndl::menu_rows(&popover);
-        popover.set_has_arrow(false);
-        popover.set_halign(gtk::Align::Start);
-        popover.set_pointing_to(Some(&gtk::gdk::Rectangle::new(at.0, at.1, 1, 1)));
-        popover.set_parent(&over);
+        let popover = popover_at(&lists, &over, at);
         popover.insert_action_group(prefix, Some(&group));
-        popover.connect_closed(|p| {
-            let p = p.clone();
-            gtk::glib::idle_add_local_once(move || p.unparent());
-        });
-        popover.popup();
+        show_until_closed(&popover);
     });
     action
+}
+
+/// "New Playlist", then one entry per list, for the `prefix.*` actions.
+fn playlist_choices(
+    prefix: &str,
+    playlists: impl Iterator<Item = (String, String)>,
+) -> gtk::gio::Menu {
+    let lists = gtk::gio::Menu::new();
+    lists.append_item(&ndl::menu_item(
+        i18n::t(Key::NewPlaylist),
+        &format!("{prefix}.new-playlist"),
+        "ndl-plus-symbolic",
+    ));
+    let add = format!("{prefix}.add-to-playlist");
+    for (id, name) in playlists {
+        // Spotify/YTM ids contain colons (`sp:playlist:…`). GLib parses
+        // `action::target` as a GVariant print, so a detailed name never
+        // activates. Set the target as a real string variant instead.
+        let item = ndl::menu_item(&name, &add, "ndl-playlist-symbolic");
+        item.set_action_and_target_value(Some(&add), Some(&id.to_variant()));
+        lists.append_item(&item);
+    }
+    lists
+}
+
+/// "Add to a Playlist" as an NDL row of its own, not a submenu: GTK draws a
+/// submenu's row itself, without the icon every NDL row carries.
+fn add_to_playlist_section(prefix: &str) -> gtk::gio::Menu {
+    let section = gtk::gio::Menu::new();
+    section.append_item(&ndl::menu_item(
+        i18n::t(Key::AddToPlaylist),
+        &format!("{prefix}.choose-playlist"),
+        "ndl-playlist-symbolic",
+    ));
+    section
+}
+
+/// A menu for `model`, opening at `at` over `over`.
+fn popover_at(model: &gtk::gio::Menu, over: &gtk::Widget, at: (i32, i32)) -> gtk::PopoverMenu {
+    let popover = gtk::PopoverMenu::from_model(Some(model));
+    ndl::menu_rows(&popover);
+    popover.set_has_arrow(false);
+    popover.set_halign(gtk::Align::Start);
+    popover.set_pointing_to(Some(&gtk::gdk::Rectangle::new(at.0, at.1, 1, 1)));
+    popover.set_parent(over);
+    popover
+}
+
+/// Shows `popover` and lets it go once closed: it is built fresh for each
+/// click, and a closed one left parented would pile up under the row.
+fn show_until_closed(popover: &gtk::PopoverMenu) {
+    popover.connect_closed(|p| {
+        let p = p.clone();
+        gtk::glib::idle_add_local_once(move || p.unparent());
+    });
+    popover.popup();
 }

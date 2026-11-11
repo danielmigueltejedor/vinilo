@@ -908,22 +908,7 @@ impl AppModel {
         column.append(&note);
         page.set_child(Some(&column));
 
-        let view = ndl::ToolbarView::builder().content(&page).build();
-        let header = ndl::HeaderBar::builder()
-            .show_start_title_buttons(false)
-            .show_end_title_buttons(false)
-            .css_classes(["flat"])
-            .build();
-        header.set_title_widget(Some(&gtk::Label::new(None)));
-        view.add_top_bar(&header);
-
-        let dialog = ndl::Dialog::builder()
-            .child(&view)
-            .content_width(480)
-            .can_close(false)
-            .build();
-        dialog.present(Some(parent));
-        dialog
+        present_bare_dialog(&page, 480, parent)
     }
 
     /// First-run music source. Every catalogue is a real choice.
@@ -1039,22 +1024,7 @@ impl AppModel {
         column.append(&note);
         page.set_child(Some(&column));
 
-        let view = ndl::ToolbarView::builder().content(&page).build();
-        let header = ndl::HeaderBar::builder()
-            .show_start_title_buttons(false)
-            .show_end_title_buttons(false)
-            .css_classes(["flat"])
-            .build();
-        header.set_title_widget(Some(&gtk::Label::new(None)));
-        view.add_top_bar(&header);
-
-        let dialog = ndl::Dialog::builder()
-            .child(&view)
-            .content_width(520)
-            .can_close(false)
-            .build();
-        dialog.present(Some(parent));
-        dialog
+        present_bare_dialog(&page, 520, parent)
     }
 
     pub(super) fn fill_primary_menu(
@@ -1095,4 +1065,28 @@ impl AppModel {
         popover.set_menu_model(Some(&menu));
         ndl::menu_rows(popover);
     }
+}
+
+/// A first-run choice: `page` in a dialog that cannot be dismissed, under an
+/// empty header with no window controls.
+fn present_bare_dialog(
+    page: &impl IsA<gtk::Widget>,
+    width: i32,
+    parent: &ndl::ApplicationWindow,
+) -> ndl::Dialog {
+    let view = ndl::ToolbarView::builder().content(page).build();
+    let header = ndl::HeaderBar::builder()
+        .show_start_title_buttons(false)
+        .show_end_title_buttons(false)
+        .css_classes(["flat"])
+        .build();
+    header.set_title_widget(Some(&gtk::Label::new(None)));
+    view.add_top_bar(&header);
+    let dialog = ndl::Dialog::builder()
+        .child(&view)
+        .content_width(width)
+        .can_close(false)
+        .build();
+    dialog.present(Some(parent));
+    dialog
 }
