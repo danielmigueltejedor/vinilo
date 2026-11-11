@@ -299,7 +299,7 @@ tag is unsupported.
 
 - Use [GitHub Issues](https://github.com/danielmigueltejedor/vinilo/issues) for
   reproducible bugs and focused feature requests.
-- Include the Vinilo version (`2.0.1-dev`), distribution, GTK version
+- Include your installed Vinilo version, distribution, GTK version
   and the source (Apple Music, local, Spotify, YouTube Music or Tidal).
 - Never paste tokens, cookies, `settings.ini` or `lastfm.json` into an issue.
 
