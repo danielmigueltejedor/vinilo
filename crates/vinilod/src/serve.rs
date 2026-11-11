@@ -1050,10 +1050,12 @@ fn resync(daemon: &Daemon, feed: &mut Option<broadcast::Receiver<Event>>) -> Vec
     // The library may have changed (or been emptied), or started or finished refreshing, in
     // what was missed.
     state.push(Event::LibraryChanged);
+    state.extend(answers);
+    // Last: a client treats an Error as the end of a refresh, so a kept error must not switch
+    // off the spinner of a refresh that is still running.
     state.push(Event::LibraryRefreshing {
         refreshing: daemon.refreshing.get().is_some(),
     });
-    state.extend(answers);
     state
 }
 
@@ -4065,13 +4067,17 @@ mod tests {
         // The library is restated even when empty, and a refresh that began in the missed burst
         // is not left without its spinner.
         assert!(state.iter().any(|e| matches!(e, Event::LibraryChanged)));
-        assert!(
-            state
-                .iter()
-                .any(|e| matches!(e, Event::LibraryRefreshing { refreshing: true }))
-        );
-        // The buffered answer is kept, after the state; the stale snapshots are not.
-        assert!(matches!(state.last(), Some(Event::Error { detail }) if detail == "answer"));
+        // The buffered answer is kept, after the state; the stale snapshots are not. The refresh
+        // state comes last, so the kept error cannot switch the spinner off.
+        let answer = state
+            .iter()
+            .position(|e| matches!(e, Event::Error { detail } if detail == "answer"))
+            .expect("the buffered answer was dropped");
+        assert!(answer > 2);
+        assert!(matches!(
+            state.last(),
+            Some(Event::LibraryRefreshing { refreshing: true })
+        ));
         assert_eq!(
             state
                 .iter()
