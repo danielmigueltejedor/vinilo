@@ -707,8 +707,7 @@ fn en(key: Key) -> &'static str {
              computer play natively. Spotify plays through librespot \
              when you have Premium; YouTube Music (Beta) prefers InnerTube \
              audio; Tidal (Alpha) still uses yt-dlp. Each catalogue keeps a \
-             cookie sign-in for library and search.\n\n\
-             Includes code from Slipmat by Miguel Rincon (GPL-3.0)."
+             cookie sign-in for library and search."
         }
         Key::RefreshingLibrary => "Refreshing library…",
         Key::ToastAddLibrary => "Adding to your library…",
@@ -1028,8 +1027,7 @@ fn es(key: Key) -> &'static str {
              de este equipo se reproducen de forma nativa. Spotify suena \
              con librespot si tienes Premium; YouTube Music (Beta) prefiere \
              audio InnerTube; Tidal (Alpha) aún usa yt-dlp. Cada catálogo \
-             guarda un inicio de sesión con cookies para biblioteca y búsqueda.\n\n\
-             Incluye código de Slipmat, de Miguel Rincon (GPL-3.0)."
+             guarda un inicio de sesión con cookies para biblioteca y búsqueda."
         }
         Key::RefreshingLibrary => "Actualizando la biblioteca…",
         Key::ToastAddLibrary => "Añadiendo a tu biblioteca…",
