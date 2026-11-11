@@ -346,6 +346,12 @@ const commands = {
   next: () => music.skipToNextItem(),
   previous: () => music.skipToPreviousItem(),
   changeToIndex: ({ index }) => music.changeToMediaAtIndex(index),
+  // Only where the desktop has no stream mixer (macOS); elsewhere the stream owns volume.
+  setVolume: ({ volume }) => {
+    const v = Number(volume)
+    if (!Number.isFinite(v)) throw new Error(`volume ${volume} is not a number`)
+    music.volume = Math.min(1, Math.max(0, v))
+  },
   // Move one item within the queue MusicKit already holds.
   //
   // `splice` is undocumented — feature-detected rather than assumed, like

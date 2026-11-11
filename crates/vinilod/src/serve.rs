@@ -1722,6 +1722,13 @@ pub(crate) fn route_transport(daemon: &Rc<Daemon>, transport: Transport) {
     }
     // A restored queue has no current item, so MusicKit's `play` does nothing
     // until the current queue entry has been opened.
+    // Without a stream mixer MusicKit's gain is the volume, and the sidecar
+    // resets it when it hooks in: restate it before anything plays.
+    if matches!(transport, Transport::Play | Transport::PlayPause)
+        && let Some(command) = sidecar_volume(daemon.mixer.is_some(), daemon.model.borrow().volume)
+    {
+        daemon.send(command);
+    }
     if matches!(transport, Transport::Play | Transport::PlayPause) && needs_opening(daemon) {
         let index = daemon.model.borrow().player.queue_position;
         tracing::info!(index, "nothing is open yet — opening the queue first");
@@ -1736,6 +1743,9 @@ pub(crate) fn route_transport(daemon: &Rc<Daemon>, transport: Transport) {
             let volume = volume.clamp(0.0, 1.0);
             if let Some(mixer) = &daemon.mixer {
                 mixer.set(volume);
+            }
+            if let Some(command) = sidecar_volume(daemon.mixer.is_some(), volume) {
+                daemon.send(command);
             }
             // Keep the requested value while no stream exists, and publish it
             // at once so paused clients can step from the new value.
@@ -3787,6 +3797,14 @@ fn restart_selected_occurrence(daemon: &Daemon) -> Option<Command> {
     None
 }
 
+/// The volume for MusicKit itself: only when there is no stream mixer to own
+/// it (macOS), so the two never put two gains in series.
+fn sidecar_volume(has_mixer: bool, volume: f64) -> Option<Command> {
+    (!has_mixer).then(|| Command::SetVolume {
+        volume: volume.clamp(0.0, 1.0),
+    })
+}
+
 /// What the sidecar is told, if anything.
 ///
 /// **Volume is `None` on purpose.** It is applied to the audio stream instead
@@ -3811,6 +3829,22 @@ fn command_for(transport: Transport) -> Option<Command> {
 
 #[cfg(test)]
 mod tests {
+
+    /// Without a stream mixer (macOS) MusicKit's gain is the only volume, so
+    /// the sidecar is told; with one (Linux) it never is.
+    #[test]
+    fn volume_reaches_musickit_only_without_a_mixer() {
+        assert!(matches!(
+            sidecar_volume(false, 0.4),
+            Some(Command::SetVolume { volume }) if (volume - 0.4).abs() < f64::EPSILON
+        ));
+        assert!(matches!(
+            sidecar_volume(false, 3.0),
+            Some(Command::SetVolume { volume }) if (volume - 1.0).abs() < f64::EPSILON
+        ));
+        assert!(sidecar_volume(true, 0.4).is_none());
+    }
+
     use super::*;
     use vinilo_core::music::types::{Track, TrackId};
     use vinilo_core::player::protocol::{Item, RepeatMode, Tokens};

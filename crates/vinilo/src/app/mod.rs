@@ -3295,6 +3295,7 @@ impl AppModel {
         }
         self.locale_tick = self.locale_tick.wrapping_add(1);
         Self::fill_primary_menu(&self.primary_menu, self.settings.provider);
+        chrome::relocalize_global_menu();
         self.pins_dirty = true;
         self.now_playing.emit(NowPlayingInput::Relocalize);
         self.queue_view.emit(QueueViewInput::Relocalize);

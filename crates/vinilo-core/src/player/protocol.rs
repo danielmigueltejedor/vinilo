@@ -60,6 +60,11 @@ pub enum Command {
     #[serde(rename = "previous")]
     Previous,
 
+    /// MusicKit's own gain. Sent only where no desktop stream mixer exists
+    /// (macOS): there it is the one volume Apple Music has.
+    #[serde(rename = "setVolume")]
+    SetVolume { volume: f64 },
+
     /// Move within the *already loaded* queue. Never re-send `SetQueue` for this.
     #[serde(rename = "changeToIndex")]
     ChangeToIndex { index: usize },
@@ -159,6 +164,7 @@ impl Command {
             Self::PlayPause => "playPause",
             Self::Next => "next",
             Self::Previous => "previous",
+            Self::SetVolume { .. } => "setVolume",
             Self::ChangeToIndex { .. } => "changeToIndex",
             Self::MoveInQueue { .. } => "moveInQueue",
             Self::SyncQueuePosition { .. } => "syncQueuePosition",
