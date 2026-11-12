@@ -74,6 +74,9 @@ jobs:
           rustup default stable
           rustc --version
 
+      - name: Link against the macOS 26 SDK (Liquid Glass window controls)
+        run: ./packaging/macos/xcode_sdk.sh select
+
       - name: Cache cargo
         uses: actions/cache@v5
         with:
@@ -81,8 +84,8 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
-          restore-keys: cargo-${{ runner.os }}-
+          key: cargo-${{ runner.os }}-sdk26-${{ hashFiles('Cargo.lock') }}
+          restore-keys: cargo-${{ runner.os }}-sdk26-
 
       - name: clippy
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
@@ -102,6 +105,7 @@ jobs:
           set -euxo pipefail
           cargo build --release --locked
           make sidecar
+          ./packaging/macos/xcode_sdk.sh check target/release/vinilo
           ./packaging/macos/bundle.sh dist/macos
           VERSION=$(awk -F\" '/^version = / {print $2; exit}' Cargo.toml)
           ./packaging/macos/create_dmg.sh "dist/macos/Vinilo Nodalia.app" "dist/Vinilo-${VERSION}-nodalia-macos-arm64.dmg"

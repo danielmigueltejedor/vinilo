@@ -304,6 +304,9 @@ jobs:
           brew install gtk4 librsvg adwaita-icon-theme pkgconf node
           rustup default stable
 
+      - name: Link against the macOS 26 SDK (Liquid Glass window controls)
+        run: ./packaging/macos/xcode_sdk.sh select
+
       - name: Build Vinilo Nodalia.app and the DMG
         env:
           # castLabs EVS, for the Widevine VMP signature Apple Music needs on macOS.
@@ -318,6 +321,7 @@ jobs:
           fi
           cargo build --release --locked
           make sidecar
+          ./packaging/macos/xcode_sdk.sh check target/release/vinilo
           ./packaging/macos/bundle.sh dist/macos
           ./packaging/macos/create_dmg.sh "dist/macos/Vinilo Nodalia.app" "dist/Vinilo-${VERSION}-nodalia-macos-arm64.dmg"
 
@@ -385,7 +389,7 @@ jobs:
         run: |
           set -euxo pipefail
           cd release
-          sha256sum \
+          sha256sum -- \
             *.deb \
             *.rpm \
             *.pkg.tar.zst \
@@ -394,7 +398,7 @@ jobs:
             *.dmg \
             > SHA256SUMS
           # One checksum file per DMG too, the shape the website looks for.
-          for dmg in *.dmg; do sha256sum "$dmg" > "$dmg.sha256"; done
+          for dmg in *.dmg; do sha256sum -- "$dmg" > "$dmg.sha256"; done
           cat SHA256SUMS
 
       - name: Publish GitHub Release
