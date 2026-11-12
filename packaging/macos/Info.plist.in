@@ -2,8 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>CFBundleName</key><string>Vinilo</string>
-  <key>CFBundleDisplayName</key><string>Vinilo</string>
+  <key>CFBundleName</key><string>@NAME@</string>
+  <key>CFBundleDisplayName</key><string>@NAME@</string>
   <key>CFBundleIdentifier</key><string>dev.danielmiguelt.Vinilo</string>
   <key>CFBundleVersion</key><string>@VERSION@</string>
   <key>CFBundleShortVersionString</key><string>@VERSION@</string>

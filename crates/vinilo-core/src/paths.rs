@@ -16,9 +16,10 @@ fn xdg(var: &str, fallback: &str) -> Option<PathBuf> {
     }
 }
 
-/// `$XDG_CACHE_HOME/vinilo`, else `~/.cache/vinilo`.
+/// `$XDG_CACHE_HOME/vinilo`, else `~/.cache/vinilo`. Another edition has a folder of its own
+/// (see [`crate::edition`]).
 pub fn cache_dir() -> Option<PathBuf> {
-    Some(xdg("XDG_CACHE_HOME", ".cache")?.join("vinilo"))
+    Some(xdg("XDG_CACHE_HOME", ".cache")?.join(crate::edition::dir_name()))
 }
 
 /// A cache file that belongs to the current music source.
@@ -50,12 +51,12 @@ pub fn artwork_dir() -> Option<PathBuf> {
 
 /// `$XDG_STATE_HOME/vinilo`, else `~/.local/state/vinilo`.
 pub fn state_dir() -> Option<PathBuf> {
-    Some(xdg("XDG_STATE_HOME", ".local/state")?.join("vinilo"))
+    Some(xdg("XDG_STATE_HOME", ".local/state")?.join(crate::edition::dir_name()))
 }
 
 /// `$XDG_CONFIG_HOME/vinilo`, else `~/.config/vinilo`.
 pub fn config_dir() -> Option<PathBuf> {
-    Some(xdg("XDG_CONFIG_HOME", ".config")?.join("vinilo"))
+    Some(xdg("XDG_CONFIG_HOME", ".config")?.join(crate::edition::dir_name()))
 }
 
 #[cfg(test)]
@@ -71,9 +72,9 @@ mod tests {
             state_dir().unwrap(),
             config_dir().unwrap(),
         );
-        assert!(cache.ends_with("vinilo"));
-        assert!(state.ends_with("vinilo"));
-        assert!(config.ends_with("vinilo"));
+        assert!(cache.ends_with(crate::edition::dir_name()));
+        assert!(state.ends_with(crate::edition::dir_name()));
+        assert!(config.ends_with(crate::edition::dir_name()));
         assert_ne!(cache, state);
         assert_ne!(config, cache);
         assert!(artwork_dir().unwrap().starts_with(&cache));

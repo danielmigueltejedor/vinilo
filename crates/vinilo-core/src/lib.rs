@@ -11,6 +11,7 @@ pub mod artwork;
 pub mod catalog;
 pub mod catalog_write;
 pub mod discover;
+pub mod edition;
 pub mod entry;
 pub mod i18n;
 pub mod ipc;

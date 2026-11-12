@@ -2,31 +2,33 @@
 # SPDX-FileCopyrightText: 2026 Daniel Miguel Tejedor
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
-# Wrap Vinilo.app in a compressed installer DMG: the Nodalia background, the
+# Wrap a Vinilo .app (either edition) in a compressed installer DMG: the Nodalia background, the
 # app on the left and a shortcut to /Applications on the right.
-# Usage: create_dmg.sh <Vinilo.app> <out.dmg>
+# Usage: create_dmg.sh <Vinilo*.app> <out.dmg>
 set -euo pipefail
 
 [[ "$(uname -s)" == "Darwin" ]] || { echo "DMG packaging requires macOS" >&2; exit 1; }
-[[ "$#" -eq 2 ]] || { echo "Usage: create_dmg.sh <Vinilo.app> <out.dmg>" >&2; exit 2; }
+[[ "$#" -eq 2 ]] || { echo "Usage: create_dmg.sh <Vinilo*.app> <out.dmg>" >&2; exit 2; }
 
 app="$1"
 out="$2"
 here="$(cd "$(dirname "$0")" && pwd)"
-[[ -x "$app/Contents/MacOS/vinilo" ]] || { echo "not a Vinilo.app: $app" >&2; exit 1; }
+[[ -d "$app/Contents/MacOS" && "$app" == *.app ]] || { echo "not an .app bundle: $app" >&2; exit 1; }
+app_file="$(basename "$app")"
+app_name="${app_file%.app}"
 for png in dmg-background.png dmg-background@2x.png; do
   [[ -f "$here/$png" ]] || { echo "Missing installer background: $here/$png" >&2; exit 1; }
 done
 
 version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")"
-volname="Vinilo $version"
+volname="$app_name $version"
 work="$(mktemp -d)"
 stage="$work/stage"
 rw="$work/vinilo-rw.dmg"
 trap 'rm -rf "$work" >/dev/null 2>&1 || true' EXIT
 
 mkdir -p "$stage/.background" "$(dirname "$out")"
-ditto "$app" "$stage/Vinilo.app"
+ditto "$app" "$stage/$app_file"
 ln -s /Applications "$stage/Applications"
 # render_dmg_background.py draws both sizes; Finder reads them as one TIFF.
 tiffutil -cathidpicheck "$here/dmg-background.png" "$here/dmg-background@2x.png" \
@@ -64,7 +66,7 @@ tell application "Finder"
     set text size of theViewOptions to 13
     set label position of theViewOptions to bottom
     set background picture of theViewOptions to file ".background:background.tiff"
-    set position of item "Vinilo.app" of container window to {160, 190}
+    set position of item "$app_file" of container window to {160, 190}
     set position of item "Applications" of container window to {500, 190}
     update without registering applications
     delay 2

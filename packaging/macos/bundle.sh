@@ -2,7 +2,8 @@
 # SPDX-FileCopyrightText: 2026 Daniel Miguel Tejedor
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
-# Build Vinilo.app from a release build and Homebrew's GTK.
+# Build "Vinilo Nodalia.app" (the GTK edition) from a release build and Homebrew's GTK.
+# The SwiftUI edition is built by platforms/apple/build.sh, with its own bundle and identifier.
 # Usage: packaging/macos/bundle.sh <out-dir>   (run from the repository root,
 # after `cargo build --release` and `make sidecar`)
 set -euo pipefail
@@ -15,15 +16,18 @@ brew="$(brew --prefix)"
 version="$(awk -F\" '/^version = / {print $2; exit}' Cargo.toml)"
 min_macos="${MACOSX_DEPLOYMENT_TARGET:-$(sw_vers -productVersion | cut -d. -f1).0}"
 appid="dev.danielmiguelt.Vinilo"
+# What the edition is called to people. The identifier stays the one every Nodalia-edition
+# install already has, so settings and caches do not move; the other edition has its own.
+name="Vinilo Nodalia"
 
 [[ -x target/release/vinilo && -x target/release/vinilod ]] || { echo "build first: cargo build --release" >&2; exit 1; }
 [[ -d sidecar/node_modules/electron/dist/Electron.app ]] || { echo "install the sidecar first: make sidecar" >&2; exit 1; }
 
-app="$out/Vinilo.app"
+app="$out/$name.app"
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources/share" "$app/Contents/Resources/lib"
 
-sed -e "s|@VERSION@|$version|g" -e "s|@MIN_MACOS@|$min_macos|g" "$here/Info.plist.in" > "$app/Contents/Info.plist"
+sed -e "s|@NAME@|$name|g" -e "s|@VERSION@|$version|g" -e "s|@MIN_MACOS@|$min_macos|g" "$here/Info.plist.in" > "$app/Contents/Info.plist"
 install -m755 "$here/launcher.sh" "$app/Contents/MacOS/Vinilo"
 install -m755 target/release/vinilo target/release/vinilod "$app/Contents/MacOS/"
 

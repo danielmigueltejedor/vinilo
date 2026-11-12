@@ -109,6 +109,12 @@ const TOKEN_NUDGES = 10
 // treat any window it does show as part of Vinilo rather than a stray second
 // app. Must be set before app.whenReady().
 app.setName('Vinilo')
+// Two editions installed side by side must not share a browser profile: Chromium locks it, so
+// the second to start would find the first's and quit. The default edition keeps its profile.
+const edition = (process.env.VINILO_EDITION || '').trim().toLowerCase()
+if (/^[a-z0-9][a-z0-9-]{0,15}$/.test(edition) && edition !== 'nodalia') {
+  app.setPath('userData', path.join(app.getPath('appData'), `Vinilo-${edition}`))
+}
 if (process.platform === 'linux') {
   app.setDesktopName('dev.danielmiguelt.Vinilo.desktop')
 }
