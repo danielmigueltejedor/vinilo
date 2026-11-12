@@ -8,8 +8,8 @@
     {
         "type": "git",
         "url": "https://github.com/danielmigueltejedor/nodalia-design",
-        "commit": "06090d8767eeea5a4653e08b5a1320fa1ec7eda4",
-        "dest": "flatpak-cargo/git/nodalia-design-06090d8"
+        "commit": "028be6db5ef2c269f911e589838443cc658bada1",
+        "dest": "flatpak-cargo/git/nodalia-design-028be6d"
     },
     {
         "type": "archive",
@@ -2839,7 +2839,7 @@
     {
         "type": "shell",
         "commands": [
-            "cp -r --reflink=auto \"flatpak-cargo/git/nodalia-design-06090d8/packages/gtk/crate\" \"cargo/vendor/nodalia-gtk\""
+            "cp -r --reflink=auto \"flatpak-cargo/git/nodalia-design-028be6d/packages/gtk/crate\" \"cargo/vendor/nodalia-gtk\""
         ]
     },
     {
@@ -2857,12 +2857,12 @@
     {
         "type": "shell",
         "commands": [
-            "cp -r --reflink=auto \"flatpak-cargo/git/nodalia-design-06090d8/packages/update/crate\" \"cargo/vendor/nodalia-update\""
+            "cp -r --reflink=auto \"flatpak-cargo/git/nodalia-design-028be6d/packages/update/crate\" \"cargo/vendor/nodalia-update\""
         ]
     },
     {
         "type": "inline",
-        "contents": "[package]\nname = \"nodalia-update\"\nversion = \"0.1.0-alpha.1\"\nedition = \"2021\"\nrust-version = \"1.85\"\nlicense = \"MIT\"\ndescription = \"In-app updates for Nodalia apps: check GitHub Releases, verify the package, replace the AppImage or the macOS app and restart.\"\nrepository = \"https://github.com/danielmigueltejedor/nodalia-design\"\npublish = false\n\n[dependencies]\nsha2 = \"0.10\"\nserde_json = \"1\"\n\n[dependencies.ureq]\nversion = \"3\"\nfeatures = [\"platform-verifier\"]\n\n[workspace]\n",
+        "contents": "[package]\nname = \"nodalia-update\"\nversion = \"0.1.0-alpha.1\"\nedition = \"2021\"\nrust-version = \"1.85\"\nlicense = \"MIT\"\ndescription = \"In-app updates for Nodalia apps: check GitHub Releases, verify the package, replace the AppImage or the macOS app and restart.\"\nrepository = \"https://github.com/danielmigueltejedor/nodalia-design\"\npublish = false\n\n[features]\negui = [\"dep:egui\"]\n\n[dependencies]\nsha2 = \"0.10\"\nserde_json = \"1\"\n\n[dependencies.egui]\nversion = \"0.37\"\ndefault-features = false\noptional = true\n\n[dependencies.ureq]\nversion = \"3\"\nfeatures = [\"platform-verifier\"]\n\n[workspace]\n",
         "dest": "cargo/vendor/nodalia-update",
         "dest-filename": "Cargo.toml"
     },
@@ -6527,7 +6527,7 @@
     },
     {
         "type": "inline",
-        "contents": "[source.vendored-sources]\ndirectory = \"cargo/vendor\"\n\n[source.crates-io]\nreplace-with = \"vendored-sources\"\n\n[source.\"https://github.com/danielmigueltejedor/vinilo\"]\ngit = \"https://github.com/danielmigueltejedor/vinilo\"\nreplace-with = \"vendored-sources\"\nrev = \"393463e6a072c8b6fbc046641acf2e0956da4d6e\"\n\n[source.\"https://github.com/danielmigueltejedor/nodalia-design\"]\ngit = \"https://github.com/danielmigueltejedor/nodalia-design\"\nreplace-with = \"vendored-sources\"\nrev = \"06090d8767eeea5a4653e08b5a1320fa1ec7eda4\"\n",
+        "contents": "[source.vendored-sources]\ndirectory = \"cargo/vendor\"\n\n[source.crates-io]\nreplace-with = \"vendored-sources\"\n\n[source.\"https://github.com/danielmigueltejedor/vinilo\"]\ngit = \"https://github.com/danielmigueltejedor/vinilo\"\nreplace-with = \"vendored-sources\"\nrev = \"393463e6a072c8b6fbc046641acf2e0956da4d6e\"\n\n[source.\"https://github.com/danielmigueltejedor/nodalia-design\"]\ngit = \"https://github.com/danielmigueltejedor/nodalia-design\"\nreplace-with = \"vendored-sources\"\nrev = \"028be6db5ef2c269f911e589838443cc658bada1\"\n",
         "dest": "cargo",
         "dest-filename": "config"
     }
