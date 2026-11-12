@@ -389,7 +389,7 @@ jobs:
         run: |
           set -euxo pipefail
           cd release
-          sha256sum \
+          sha256sum -- \
             *.deb \
             *.rpm \
             *.pkg.tar.zst \
@@ -398,7 +398,7 @@ jobs:
             *.dmg \
             > SHA256SUMS
           # One checksum file per DMG too, the shape the website looks for.
-          for dmg in *.dmg; do sha256sum "$dmg" > "$dmg.sha256"; done
+          for dmg in *.dmg; do sha256sum -- "$dmg" > "$dmg.sha256"; done
           cat SHA256SUMS
 
       - name: Publish GitHub Release
