@@ -308,7 +308,8 @@ jobs:
 
   macos:
     name: macOS DMG (Nodalia edition)
-    runs-on: blacksmith-6vcpu-macos-15
+    # Opt in to Blacksmith after checking the shared free allowance and disabling overages.
+    runs-on: ${{ vars.NODALIA_USE_BLACKSMITH_MACOS == 'true' && 'blacksmith-6vcpu-macos-15' || 'macos-15' }}
     steps:
       - uses: actions/checkout@v5
 
@@ -347,7 +348,8 @@ jobs:
 
   macos-native:
     name: macOS DMG (Native edition)
-    runs-on: blacksmith-6vcpu-macos-26
+    # The default macOS 26 GitHub runner remains free for this public repository.
+    runs-on: ${{ vars.NODALIA_USE_BLACKSMITH_MACOS == 'true' && 'blacksmith-6vcpu-macos-26' || 'macos-26' }}
     steps:
       - uses: actions/checkout@v5
 
