@@ -79,6 +79,7 @@ relm4::new_action_group!(AppMenuActionGroup, "win");
 relm4::new_stateless_action!(PreferencesAction, AppMenuActionGroup, "preferences");
 relm4::new_stateless_action!(ShortcutsAction, AppMenuActionGroup, "shortcuts");
 relm4::new_stateless_action!(AboutAction, AppMenuActionGroup, "about");
+relm4::new_stateless_action!(CheckUpdatesAction, AppMenuActionGroup, "check-updates");
 relm4::new_stateless_action!(PlayPauseAction, AppMenuActionGroup, "play-pause");
 relm4::new_stateless_action!(NextAction, AppMenuActionGroup, "next");
 relm4::new_stateless_action!(PreviousAction, AppMenuActionGroup, "previous");
@@ -115,6 +116,10 @@ pub(super) fn register_actions(
     let s = sender.clone();
     group.add_action(RelmAction::<AboutAction>::new_stateless(move |_| {
         s.input(AppMsg::ShowAbout)
+    }));
+    let s = sender.clone();
+    group.add_action(RelmAction::<CheckUpdatesAction>::new_stateless(move |_| {
+        s.input(AppMsg::CheckForUpdates)
     }));
     // **Application-scoped, not window-scoped.** A `win.` action resolves
     // through whatever currently holds focus, and the first-run gate is an
@@ -211,7 +216,10 @@ fn global_menu_layout() -> Vec<TopMenuLayout> {
         (
             t(Key::AppName),
             vec![
-                vec![(t(Key::About), "win.about")],
+                vec![
+                    (t(Key::About), "win.about"),
+                    (t(Key::CheckForUpdates), "win.check-updates"),
+                ],
                 vec![
                     (t(Key::Preferences), "win.preferences"),
                     (t(Key::KeyboardShortcuts), "win.shortcuts"),
@@ -250,6 +258,7 @@ fn global_menu_layout() -> Vec<TopMenuLayout> {
             t(Key::MenuHelp),
             vec![vec![
                 (t(Key::KeyboardShortcuts), "win.shortcuts"),
+                (t(Key::CheckForUpdates), "win.check-updates"),
                 (t(Key::About), "win.about"),
             ]],
         ),
@@ -785,6 +794,20 @@ impl AppModel {
         }
         notifications.add(&notify);
 
+        let updates = ndl::PreferencesGroup::builder().build();
+        let auto_update = ndl::SwitchRow::builder()
+            .title(t(Key::AutoUpdateCheck))
+            .subtitle(t(Key::AutoUpdateCheckSub))
+            .active(self.settings.auto_update_check)
+            .build();
+        {
+            let sender = sender.clone();
+            auto_update.connect_active_notify(move |row| {
+                sender.input(AppMsg::SetAutoUpdateCheck(row.is_active()));
+            });
+        }
+        updates.add(&auto_update);
+
         let playback = ndl::PreferencesGroup::builder()
             .title(t(Key::Playback))
             .build();
@@ -897,6 +920,7 @@ impl AppModel {
         page.add(&playback);
         page.add(&lastfm);
         page.add(&notifications);
+        page.add(&updates);
         dialog.add(&page);
         dialog.present(Some(parent));
     }
@@ -1104,6 +1128,11 @@ impl AppModel {
             "ndl-key-symbolic",
         ));
         section.append_item(&item(t(Key::About), "win.about", "help-about-symbolic"));
+        section.append_item(&item(
+            t(Key::CheckForUpdates),
+            "win.check-updates",
+            "view-refresh-symbolic",
+        ));
         menu.append_section(None, &section);
 
         if provider.needs_apple()

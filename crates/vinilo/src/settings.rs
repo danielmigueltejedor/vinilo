@@ -136,6 +136,11 @@ pub struct Settings {
     pub system_window_controls: bool,
     /// Notify when the track changes. Off by default (`bool`'s default).
     pub notify_track_change: bool,
+    /// Look for a new release when Vinilo starts, at most once a day. On by default, and only
+    /// ever offers: nothing is installed without a click.
+    pub auto_update_check: bool,
+    /// When the last automatic check ran, in Unix seconds. Zero is never.
+    pub last_update_check: u64,
     /// Crossfade between catalogue / local tracks, in milliseconds. Zero is off.
     pub crossfade_ms: u32,
     /// Playlists pinned to the sidebar, in the order they were put there.
@@ -254,6 +259,8 @@ impl Default for Settings {
             source_tint: true,
             system_window_controls: false,
             notify_track_change: false,
+            auto_update_check: true,
+            last_update_check: 0,
             crossfade_ms: 0,
             // Nothing pinned until somebody pins something. An app that
             // guesses which playlists matter to you gets it wrong.
@@ -292,6 +299,12 @@ impl Settings {
         }
         if let Ok(notify) = file.boolean(GROUP, "notify-track-change") {
             settings.notify_track_change = notify;
+        }
+        if let Ok(on) = file.boolean(GROUP, "auto-update-check") {
+            settings.auto_update_check = on;
+        }
+        if let Ok(at) = file.uint64(GROUP, "last-update-check") {
+            settings.last_update_check = at;
         }
         if let Ok(ms) = file.uint64(GROUP, "crossfade-ms") {
             settings.crossfade_ms = ms.min(12_000) as u32;
@@ -402,6 +415,8 @@ impl Settings {
         let file = KeyFile::new();
         file.set_string(GROUP, "theme", self.theme.as_str());
         file.set_boolean(GROUP, "notify-track-change", self.notify_track_change);
+        file.set_boolean(GROUP, "auto-update-check", self.auto_update_check);
+        file.set_uint64(GROUP, "last-update-check", self.last_update_check);
         file.set_uint64(GROUP, "crossfade-ms", u64::from(self.crossfade_ms));
         file.set_string(GROUP, "section", self.section.as_str());
         file.set_boolean(GROUP, "show-sidebar", self.show_sidebar);

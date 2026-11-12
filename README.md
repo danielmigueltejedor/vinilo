@@ -12,12 +12,12 @@ SPDX-License-Identifier: GPL-3.0-or-later
     </picture>
   </a>
   <br><br>
-  <img src="https://raw.githubusercontent.com/danielmigueltejedor/vinilo/main/data/icons/hicolor/512x512/apps/dev.danielmiguelt.Vinilo.png" width="200" alt="Vinilo">
+  <img src="https://raw.githubusercontent.com/danielmigueltejedor/vinilo/main/data/icons/hicolor/512x512/apps/dev.danielmiguelt.Vinilo.png" width="192" alt="Vinilo">
   <h1>Vinilo</h1>
   <p><strong>A native music player for Linux, drawn in the Nodalia Design Language.</strong></p>
 
   <p>
-    <img src="https://img.shields.io/badge/version-2.0.0-4a86cf" alt="Version 2.0.0">
+    <img src="https://img.shields.io/badge/version-2.0.1--dev-4a86cf" alt="Version 2.0.1-dev">
     <img src="https://img.shields.io/badge/platform-Linux%20x86__64-fcc624?logo=linux&logoColor=black" alt="Linux x86_64">
     <img src="https://img.shields.io/badge/platform-macOS%20arm64-000000?logo=apple&logoColor=white" alt="macOS arm64">
     <img src="https://img.shields.io/badge/GTK4%20%2F%20Nodalia%20Design-4a86cf" alt="GTK4 and Nodalia Design">
@@ -299,7 +299,7 @@ tag is unsupported.
 
 - Use [GitHub Issues](https://github.com/danielmigueltejedor/vinilo/issues) for
   reproducible bugs and focused feature requests.
-- Include the Vinilo version (`2.0.0`), distribution, GTK version
+- Include your installed Vinilo version, distribution, GTK version
   and the source (Apple Music, local, Spotify, YouTube Music or Tidal).
 - Never paste tokens, cookies, `settings.ini` or `lastfm.json` into an issue.
 

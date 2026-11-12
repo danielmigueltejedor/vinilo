@@ -8,8 +8,8 @@
     {
         "type": "git",
         "url": "https://github.com/danielmigueltejedor/nodalia-design",
-        "commit": "b69499cd01614a285c49b64a89de47d7643f9e59",
-        "dest": "flatpak-cargo/git/nodalia-design-b69499c"
+        "commit": "d18f7ea90b0ae47d15ac97eeea371863ce6ac52e",
+        "dest": "flatpak-cargo/git/nodalia-design-d18f7ea"
     },
     {
         "type": "archive",
@@ -2263,6 +2263,32 @@
     {
         "type": "archive",
         "archive-type": "tar-gzip",
+        "url": "https://static.crates.io/crates/jni/jni-0.22.4.crate",
+        "sha256": "5efd9a482cf3a427f00d6b35f14332adc7902ce91efb778580e180ff90fa3498",
+        "dest": "cargo/vendor/jni-0.22.4"
+    },
+    {
+        "type": "inline",
+        "contents": "{\"package\": \"5efd9a482cf3a427f00d6b35f14332adc7902ce91efb778580e180ff90fa3498\", \"files\": {}}",
+        "dest": "cargo/vendor/jni-0.22.4",
+        "dest-filename": ".cargo-checksum.json"
+    },
+    {
+        "type": "archive",
+        "archive-type": "tar-gzip",
+        "url": "https://static.crates.io/crates/jni-macros/jni-macros-0.22.4.crate",
+        "sha256": "a00109accc170f0bdb141fed3e393c565b6f5e072365c3bd58f5b062591560a3",
+        "dest": "cargo/vendor/jni-macros-0.22.4"
+    },
+    {
+        "type": "inline",
+        "contents": "{\"package\": \"a00109accc170f0bdb141fed3e393c565b6f5e072365c3bd58f5b062591560a3\", \"files\": {}}",
+        "dest": "cargo/vendor/jni-macros-0.22.4",
+        "dest-filename": ".cargo-checksum.json"
+    },
+    {
+        "type": "archive",
+        "archive-type": "tar-gzip",
         "url": "https://static.crates.io/crates/jni-sys/jni-sys-0.3.1.crate",
         "sha256": "41a652e1f9b6e0275df1f15b32661cf0d4b78d4d87ddec5e0c3c20f097433258",
         "dest": "cargo/vendor/jni-sys-0.3.1"
@@ -2813,7 +2839,7 @@
     {
         "type": "shell",
         "commands": [
-            "cp -r --reflink=auto \"flatpak-cargo/git/nodalia-design-b69499c/packages/gtk/crate\" \"cargo/vendor/nodalia-gtk\""
+            "cp -r --reflink=auto \"flatpak-cargo/git/nodalia-design-d18f7ea/packages/gtk/crate\" \"cargo/vendor/nodalia-gtk\""
         ]
     },
     {
@@ -2826,6 +2852,24 @@
         "type": "inline",
         "contents": "{\"package\": null, \"files\": {}}",
         "dest": "cargo/vendor/nodalia-gtk",
+        "dest-filename": ".cargo-checksum.json"
+    },
+    {
+        "type": "shell",
+        "commands": [
+            "cp -r --reflink=auto \"flatpak-cargo/git/nodalia-design-d18f7ea/packages/update/crate\" \"cargo/vendor/nodalia-update\""
+        ]
+    },
+    {
+        "type": "inline",
+        "contents": "[package]\nname = \"nodalia-update\"\nversion = \"0.1.0-alpha.1\"\nedition = \"2021\"\nrust-version = \"1.85\"\nlicense = \"MIT\"\ndescription = \"In-app updates for Nodalia apps: check GitHub Releases, verify the package, replace the AppImage or the macOS app and restart.\"\nrepository = \"https://github.com/danielmigueltejedor/nodalia-design\"\npublish = false\n\n[dependencies]\nsha2 = \"0.10\"\nserde_json = \"1\"\n\n[dependencies.ureq]\nversion = \"3\"\nfeatures = [\"platform-verifier\"]\n\n[workspace]\n",
+        "dest": "cargo/vendor/nodalia-update",
+        "dest-filename": "Cargo.toml"
+    },
+    {
+        "type": "inline",
+        "contents": "{\"package\": null, \"files\": {}}",
+        "dest": "cargo/vendor/nodalia-update",
         "dest-filename": ".cargo-checksum.json"
     },
     {
@@ -3949,6 +3993,32 @@
     {
         "type": "archive",
         "archive-type": "tar-gzip",
+        "url": "https://static.crates.io/crates/rustls-platform-verifier/rustls-platform-verifier-0.7.1.crate",
+        "sha256": "1167586491e2b18b8bfbb293e8180ec17c201c4f076d7cb3070ca964e7598f98",
+        "dest": "cargo/vendor/rustls-platform-verifier-0.7.1"
+    },
+    {
+        "type": "inline",
+        "contents": "{\"package\": \"1167586491e2b18b8bfbb293e8180ec17c201c4f076d7cb3070ca964e7598f98\", \"files\": {}}",
+        "dest": "cargo/vendor/rustls-platform-verifier-0.7.1",
+        "dest-filename": ".cargo-checksum.json"
+    },
+    {
+        "type": "archive",
+        "archive-type": "tar-gzip",
+        "url": "https://static.crates.io/crates/rustls-platform-verifier-android/rustls-platform-verifier-android-0.2.0.crate",
+        "sha256": "eec689c0bc40ff2458a5977b6619cb718087084a18e02a131c599b62d05e1a5f",
+        "dest": "cargo/vendor/rustls-platform-verifier-android-0.2.0"
+    },
+    {
+        "type": "inline",
+        "contents": "{\"package\": \"eec689c0bc40ff2458a5977b6619cb718087084a18e02a131c599b62d05e1a5f\", \"files\": {}}",
+        "dest": "cargo/vendor/rustls-platform-verifier-android-0.2.0",
+        "dest-filename": ".cargo-checksum.json"
+    },
+    {
+        "type": "archive",
+        "archive-type": "tar-gzip",
         "url": "https://static.crates.io/crates/rustls-webpki/rustls-webpki-0.103.16.crate",
         "sha256": "4443b1b6d39d7c663139942cc4558262562d2c84123bb6282ef177009ca8b281",
         "dest": "cargo/vendor/rustls-webpki-0.103.16"
@@ -4295,6 +4365,19 @@
         "type": "inline",
         "contents": "{\"package\": \"3a219298ac11a56ea9a6d2120044824d6f01aeb034955e7af7bc16858527deea\", \"files\": {}}",
         "dest": "cargo/vendor/simd-adler32-0.3.10",
+        "dest-filename": ".cargo-checksum.json"
+    },
+    {
+        "type": "archive",
+        "archive-type": "tar-gzip",
+        "url": "https://static.crates.io/crates/simd_cesu8/simd_cesu8-1.2.0.crate",
+        "sha256": "11031e251abf8611c80f460e19dbdeb54a66db918e49c65a7065b46ac7aec520",
+        "dest": "cargo/vendor/simd_cesu8-1.2.0"
+    },
+    {
+        "type": "inline",
+        "contents": "{\"package\": \"11031e251abf8611c80f460e19dbdeb54a66db918e49c65a7065b46ac7aec520\", \"files\": {}}",
+        "dest": "cargo/vendor/simd_cesu8-1.2.0",
         "dest-filename": ".cargo-checksum.json"
     },
     {
@@ -5197,6 +5280,32 @@
     {
         "type": "archive",
         "archive-type": "tar-gzip",
+        "url": "https://static.crates.io/crates/ureq/ureq-3.5.1.crate",
+        "sha256": "e7be76686bdf7198002062423ca0d8cf9b75a27c8e1de804513b97e97b555d9d",
+        "dest": "cargo/vendor/ureq-3.5.1"
+    },
+    {
+        "type": "inline",
+        "contents": "{\"package\": \"e7be76686bdf7198002062423ca0d8cf9b75a27c8e1de804513b97e97b555d9d\", \"files\": {}}",
+        "dest": "cargo/vendor/ureq-3.5.1",
+        "dest-filename": ".cargo-checksum.json"
+    },
+    {
+        "type": "archive",
+        "archive-type": "tar-gzip",
+        "url": "https://static.crates.io/crates/ureq-proto/ureq-proto-0.7.1.crate",
+        "sha256": "622dce33c252115466d83f63e9744a18f12b4406aae51a01c15ad8fcf1185eb3",
+        "dest": "cargo/vendor/ureq-proto-0.7.1"
+    },
+    {
+        "type": "inline",
+        "contents": "{\"package\": \"622dce33c252115466d83f63e9744a18f12b4406aae51a01c15ad8fcf1185eb3\", \"files\": {}}",
+        "dest": "cargo/vendor/ureq-proto-0.7.1",
+        "dest-filename": ".cargo-checksum.json"
+    },
+    {
+        "type": "archive",
+        "archive-type": "tar-gzip",
         "url": "https://static.crates.io/crates/url/url-2.5.8.crate",
         "sha256": "ff67a8a4397373c3ef660812acab3268222035010ab8680ec4215f38ba3d0eed",
         "dest": "cargo/vendor/url-2.5.8"
@@ -5218,6 +5327,19 @@
         "type": "inline",
         "contents": "{\"package\": \"09cc8ee72d2a9becf2f2febe0205bbed8fc6615b7cb429ad062dc7b7ddd036a9\", \"files\": {}}",
         "dest": "cargo/vendor/utf-8-0.7.6",
+        "dest-filename": ".cargo-checksum.json"
+    },
+    {
+        "type": "archive",
+        "archive-type": "tar-gzip",
+        "url": "https://static.crates.io/crates/utf8-zero/utf8-zero-0.8.1.crate",
+        "sha256": "b8c0a043c9540bae7c578c88f91dda8bd82e59ae27c21baca69c8b191aaf5a6e",
+        "dest": "cargo/vendor/utf8-zero-0.8.1"
+    },
+    {
+        "type": "inline",
+        "contents": "{\"package\": \"b8c0a043c9540bae7c578c88f91dda8bd82e59ae27c21baca69c8b191aaf5a6e\", \"files\": {}}",
+        "dest": "cargo/vendor/utf8-zero-0.8.1",
         "dest-filename": ".cargo-checksum.json"
     },
     {
@@ -5504,6 +5626,19 @@
         "type": "inline",
         "contents": "{\"package\": \"236078ce03ff041bf87904c8257e6a9b0e9e0f957267c15f9c1756aadcf02581\", \"files\": {}}",
         "dest": "cargo/vendor/webkit6-sys-0.6.0",
+        "dest-filename": ".cargo-checksum.json"
+    },
+    {
+        "type": "archive",
+        "archive-type": "tar-gzip",
+        "url": "https://static.crates.io/crates/webpki-root-certs/webpki-root-certs-1.0.12.crate",
+        "sha256": "293198dcebfb821155b5092ab94b5a82ff180eddd7241df3bd6e66a4ffd1a585",
+        "dest": "cargo/vendor/webpki-root-certs-1.0.12"
+    },
+    {
+        "type": "inline",
+        "contents": "{\"package\": \"293198dcebfb821155b5092ab94b5a82ff180eddd7241df3bd6e66a4ffd1a585\", \"files\": {}}",
+        "dest": "cargo/vendor/webpki-root-certs-1.0.12",
         "dest-filename": ".cargo-checksum.json"
     },
     {
@@ -6392,7 +6527,7 @@
     },
     {
         "type": "inline",
-        "contents": "[source.vendored-sources]\ndirectory = \"cargo/vendor\"\n\n[source.crates-io]\nreplace-with = \"vendored-sources\"\n\n[source.\"https://github.com/danielmigueltejedor/vinilo\"]\ngit = \"https://github.com/danielmigueltejedor/vinilo\"\nreplace-with = \"vendored-sources\"\nrev = \"393463e6a072c8b6fbc046641acf2e0956da4d6e\"\n\n[source.\"https://github.com/danielmigueltejedor/nodalia-design\"]\ngit = \"https://github.com/danielmigueltejedor/nodalia-design\"\nreplace-with = \"vendored-sources\"\nrev = \"b69499cd01614a285c49b64a89de47d7643f9e59\"\n",
+        "contents": "[source.vendored-sources]\ndirectory = \"cargo/vendor\"\n\n[source.crates-io]\nreplace-with = \"vendored-sources\"\n\n[source.\"https://github.com/danielmigueltejedor/vinilo\"]\ngit = \"https://github.com/danielmigueltejedor/vinilo\"\nreplace-with = \"vendored-sources\"\nrev = \"393463e6a072c8b6fbc046641acf2e0956da4d6e\"\n\n[source.\"https://github.com/danielmigueltejedor/nodalia-design\"]\ngit = \"https://github.com/danielmigueltejedor/nodalia-design\"\nreplace-with = \"vendored-sources\"\nrev = \"d18f7ea90b0ae47d15ac97eeea371863ce6ac52e\"\n",
         "dest": "cargo",
         "dest-filename": "config"
     }
