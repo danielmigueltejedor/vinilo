@@ -270,6 +270,18 @@ fn set_colors(colors: Option<(&'static str, &'static str)>) {
              background: none;
          }}
 
+         /* The first-run source list. Row titles and prefix icons set no colour
+            of their own, so they took whatever GTK's base theme gives a `list`:
+            white on a dialog that was painted white. Pinned to the token the
+            dialog's own text uses, so the two cannot disagree in either theme. */
+         .provider-list,
+         .provider-list row,
+         .provider-list row .title,
+         .provider-list row image {{
+             color: var(--ndl-color-text-primary);
+         }}
+         .provider-list row .subtitle {{ color: var(--ndl-color-text-secondary); }}
+
          /* Same reason. A GridView draws its own background, so insetting it
             with a margin shows a band of the window around every grid. */
          .tile-grid {{
