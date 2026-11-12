@@ -103,11 +103,13 @@ public final class PlayerStore {
 
     // MARK: Connection
 
-    public func attach(_ link: any DaemonLink) {
+    /// `observer` subscribes without counting as a window, for a process that only mirrors the
+    /// player to the system.
+    public func attach(_ link: any DaemonLink, observer: Bool = false) {
         self.link = link
         connection = .connected
         // Subscribed first, so nothing asked for can be answered before it is listened for.
-        link.send(.subscribe)
+        link.send(observer ? .observe : .subscribe)
         link.send(.stage)
         link.send(.snapshot)
         link.send(.queue)

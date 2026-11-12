@@ -107,7 +107,7 @@ struct WireTests {
     @Test("every request encodes exactly as the daemon's own types write it")
     func requests() throws {
         let sent: [Request] = [
-            .subscribe, .snapshot, .queue, .stage,
+            .subscribe, .observe, .snapshot, .queue, .stage,
             .transport(.play), .transport(.playPause), .transport(.next), .transport(.previous),
             .transport(.seek(positionMs: 4200)), .transport(.setVolume(0.5)),
             .transport(.setShuffle(true)), .transport(.setRepeat(.one)),

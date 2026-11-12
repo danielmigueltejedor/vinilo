@@ -4,6 +4,7 @@
 import SwiftUI
 import ViniloKit
 import ViniloShared
+import ViniloSystem
 
 @main
 struct ViniloApp: App {

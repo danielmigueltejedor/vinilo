@@ -163,6 +163,7 @@ fn events() -> Vec<Event> {
 fn requests() -> Vec<Request> {
     vec![
         Request::Subscribe,
+        Request::Observe,
         Request::Snapshot,
         Request::Queue,
         Request::Stage,

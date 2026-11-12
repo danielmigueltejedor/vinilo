@@ -1,4 +1,5 @@
 {"req":"subscribe"}
+{"req":"observe"}
 {"req":"snapshot"}
 {"req":"queue"}
 {"req":"stage"}
