@@ -386,6 +386,12 @@ pub enum Request {
     #[serde(rename = "subscribe")]
     Subscribe,
 
+    /// Subscribe as an observer: a connection that mirrors the player for the system (macOS's
+    /// Now Playing for Vinilo Nodalia) and is not a window. An observer never stops the last
+    /// window from quitting the player.
+    #[serde(rename = "observe")]
+    Observe,
+
     /// Show Apple's own sign-in.
     ///
     /// **The one thing that needs a window**, and the daemon has none of its

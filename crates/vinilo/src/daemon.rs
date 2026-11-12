@@ -79,11 +79,40 @@ fn daemon_path() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("vinilod"))
 }
 
+/// Starts the Now Playing bridge that ships beside this binary in the macOS app, once per run.
+///
+/// GTK cannot speak to macOS's Now Playing or the media keys, so `vinilo-nowplaying` (Swift, the
+/// same code Vinilo Native uses) mirrors the player there as an observer of the daemon, and ends
+/// when this process does. Missing in a build from the tree: then there is nothing to start.
+#[cfg(target_os = "macos")]
+fn start_now_playing_bridge() {
+    static STARTED: std::sync::Once = std::sync::Once::new();
+    STARTED.call_once(|| {
+        let Some(bridge) = std::env::current_exe()
+            .ok()
+            .and_then(|exe| exe.parent().map(|dir| dir.join("vinilo-nowplaying")))
+            .filter(|path| path.is_file())
+        else {
+            return;
+        };
+        let started = std::process::Command::new(&bridge)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn();
+        if let Err(err) = started {
+            tracing::warn!(?err, "could not start the Now Playing bridge");
+        }
+    });
+}
+
 /// Connect, subscribe, and stream events until the connection ends.
 ///
 /// Blocking `connect_or_spawn` runs on a worker thread: it may start a process
 /// and wait for a socket, and neither belongs on the GTK thread (rule 8).
 pub async fn connect(out: mpsc::UnboundedSender<Incoming>, session: u64) {
+    #[cfg(target_os = "macos")]
+    start_now_playing_bridge();
     let stream =
         match tokio::task::spawn_blocking(|| vinilo_core::ipc::connect_or_spawn(&daemon_path()))
             .await

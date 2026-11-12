@@ -13,13 +13,15 @@ import ViniloShared
 /// None of it asks for a permission by itself. Notifications ask the first time a person turns
 /// them on.
 @MainActor
-final class SystemIntegration {
+public final class SystemIntegration {
+    public init() {}
+
     private var started = false
     private var remote: RemoteCommandBridge?
     private var artworkPath: String?
     private var artwork: MPMediaItemArtwork?
 
-    func start(store: PlayerStore) {
+    public func start(store: PlayerStore) {
         guard !started else { return }
         started = true
         remote = RemoteCommandBridge(store: store)
@@ -98,8 +100,8 @@ private final class RemoteCommandBridge: Sendable {
 
 /// A notification when the song changes, only if asked for and only while Vinilo is behind
 /// another app: in front, the player already says so.
-enum TrackNotifier {
-    static let defaultsKey = "notifyOnTrackChange"
+public enum TrackNotifier {
+    public static let defaultsKey = "notifyOnTrackChange"
 
     /// Notifications need a real app bundle; a build run from the tree has none.
     private static var available: Bool {
@@ -120,7 +122,7 @@ enum TrackNotifier {
     }
 
     /// Asked when a person turns the setting on, never before.
-    static func requestAuthorization() async -> Bool {
+    public static func requestAuthorization() async -> Bool {
         guard available else { return false }
         return (try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert])) ?? false
     }
