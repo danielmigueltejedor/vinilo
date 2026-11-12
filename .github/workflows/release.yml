@@ -27,7 +27,7 @@ jobs:
   packages:
     name: ${{ matrix.name }}
     if: github.event_name != 'workflow_dispatch' || inputs.platforms != 'macos'
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -171,7 +171,7 @@ jobs:
   flatpak:
     name: Flatpak bundle
     if: github.event_name != 'workflow_dispatch' || inputs.platforms != 'macos'
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
 
     steps:
       - uses: actions/checkout@v5
@@ -216,7 +216,7 @@ jobs:
   appimage:
     name: AppImage
     if: github.event_name != 'workflow_dispatch' || inputs.platforms != 'macos'
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
     container:
       image: ubuntu:26.04
       # linuxdeploy needs to see host devices when resolving libraries; the
@@ -308,7 +308,7 @@ jobs:
 
   macos:
     name: macOS DMG (Nodalia edition)
-    runs-on: blacksmith-6vcpu-macos-15
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v5
 
@@ -347,7 +347,7 @@ jobs:
 
   macos-native:
     name: macOS DMG (Native edition)
-    runs-on: blacksmith-6vcpu-macos-26
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v5
 
@@ -387,7 +387,7 @@ jobs:
     # Skipped Linux jobs (platforms: macos) must not stop the publish; a failed one still does.
     if: startsWith(github.ref, 'refs/tags/v') && !cancelled() && !failure()
     needs: [packages, flatpak, appimage, macos, macos-native]
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
 
