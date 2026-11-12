@@ -837,9 +837,11 @@ impl NowPlaying {
                 let sender = sender.clone();
                 self.advance = Some(gtk::glib::timeout_add_local(
                     Duration::from_millis(ADVANCE_MS),
-                    move || {
-                        sender.input(NowPlayingInput::Advance);
-                        gtk::glib::ControlFlow::Continue
+                    // A timer can outlive its window (macOS keeps the app running without
+                    // one), and `input` panics once the component is gone.
+                    move || match sender.input_sender().send(NowPlayingInput::Advance) {
+                        Ok(()) => gtk::glib::ControlFlow::Continue,
+                        Err(_) => gtk::glib::ControlFlow::Break,
                     },
                 ));
             }

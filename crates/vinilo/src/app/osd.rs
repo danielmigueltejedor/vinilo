@@ -175,7 +175,7 @@ impl AppModel {
             let sender = sender.clone();
             move || {
                 fired.set(true);
-                sender.input(AppMsg::HideVolumeOsd);
+                let _ = sender.input_sender().send(AppMsg::HideVolumeOsd);
             }
         });
         self.osd_timer = Some(HideTimer { id, fired });
