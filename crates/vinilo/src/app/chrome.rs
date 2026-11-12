@@ -1026,7 +1026,7 @@ impl AppModel {
 
         let list = gtk::ListBox::builder()
             .selection_mode(gtk::SelectionMode::None)
-            .css_classes(["boxed-list"])
+            .css_classes(["boxed-list", "provider-list"])
             .halign(gtk::Align::Center)
             .width_request(380)
             .build();
