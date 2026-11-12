@@ -239,6 +239,9 @@ pub enum Key {
     Preferences,
     KeyboardShortcuts,
     About,
+    CheckForUpdates,
+    AutoUpdateCheck,
+    AutoUpdateCheckSub,
     SignOut,
     Quit,
     MenuView,
@@ -521,6 +524,11 @@ fn en(key: Key) -> &'static str {
         Key::Preferences => "_Preferences",
         Key::KeyboardShortcuts => "_Keyboard Shortcuts",
         Key::About => "_About Vinilo",
+        Key::CheckForUpdates => "Check for _Updates…",
+        Key::AutoUpdateCheck => "Check for updates",
+        Key::AutoUpdateCheckSub => {
+            "Once a day when Vinilo starts. Nothing is installed without asking"
+        }
         Key::SignOut => "_Sign Out",
         Key::Quit => "_Quit",
         Key::MenuView => "View",
@@ -830,6 +838,11 @@ fn es(key: Key) -> &'static str {
         Key::Preferences => "_Preferencias",
         Key::KeyboardShortcuts => "Atajos de _teclado",
         Key::About => "_Acerca de Vinilo",
+        Key::CheckForUpdates => "Buscar _actualizaciones…",
+        Key::AutoUpdateCheck => "Buscar actualizaciones",
+        Key::AutoUpdateCheckSub => {
+            "Una vez al día al abrir Vinilo. No se instala nada sin preguntar"
+        }
         Key::SignOut => "_Cerrar sesión",
         Key::Quit => "_Salir",
         Key::MenuView => "Ver",
@@ -1214,6 +1227,139 @@ pub fn empty_playlist() -> &'static str {
 
 pub fn empty_artist() -> &'static str {
     t(Key::EmptyArtist)
+}
+
+/// Strings for the in-app updater. Sentences that carry a version or a reason are functions, like
+/// the other composed texts here.
+pub mod update {
+    use super::{Language, current};
+
+    fn pick(en: String, es: String) -> String {
+        match current() {
+            Language::English => en,
+            Language::Spanish => es,
+        }
+    }
+
+    pub fn available_title(version: &str) -> String {
+        pick(
+            format!("Vinilo {version} is available"),
+            format!("Vinilo {version} está disponible"),
+        )
+    }
+
+    pub fn available_body_fallback() -> String {
+        pick(
+            "A new version of Vinilo is ready to install.".into(),
+            "Hay una versión nueva de Vinilo lista para instalar.".into(),
+        )
+    }
+
+    pub fn managed_hint() -> String {
+        pick(
+            "This installation is updated by its package manager or Flatpak. The release page has the details."
+                .into(),
+            "Esta instalación se actualiza con su gestor de paquetes o con Flatpak. La página de la versión tiene los detalles."
+                .into(),
+        )
+    }
+
+    pub fn install() -> String {
+        pick("Install and restart".into(), "Instalar y reiniciar".into())
+    }
+
+    pub fn later() -> String {
+        pick("Later".into(), "Más tarde".into())
+    }
+
+    pub fn open_page() -> String {
+        pick("View release".into(), "Ver la versión".into())
+    }
+
+    pub fn downloading(version: &str) -> String {
+        pick(
+            format!("Downloading Vinilo {version}…"),
+            format!("Descargando Vinilo {version}…"),
+        )
+    }
+
+    pub fn restarting(version: &str) -> String {
+        pick(
+            format!("Installing Vinilo {version} and restarting…"),
+            format!("Instalando Vinilo {version} y reiniciando…"),
+        )
+    }
+
+    pub fn up_to_date(version: &str) -> String {
+        pick(
+            format!("Vinilo is up to date ({version})."),
+            format!("Vinilo está al día ({version})."),
+        )
+    }
+
+    pub fn check_failed(why: &str) -> String {
+        pick(
+            format!("Could not check for updates: {why}"),
+            format!("No se pudo buscar actualizaciones: {why}"),
+        )
+    }
+
+    pub fn install_failed(why: &str) -> String {
+        pick(
+            format!("The update was not installed: {why}"),
+            format!("No se instaló la actualización: {why}"),
+        )
+    }
+
+    /// Why the last macOS update was not installed, read at the next start.
+    pub fn last_failed(reason: &str) -> String {
+        pick(
+            format!("The last update was not installed. {reason}"),
+            format!("La última actualización no se instaló. {reason}"),
+        )
+    }
+
+    pub fn reason_still_running() -> String {
+        pick(
+            "Vinilo did not close in time, so nothing was changed.".into(),
+            "Vinilo no se cerró a tiempo, así que no se cambió nada.".into(),
+        )
+    }
+
+    pub fn reason_mount() -> String {
+        pick(
+            "The downloaded disk image could not be opened.".into(),
+            "No se pudo abrir la imagen de disco descargada.".into(),
+        )
+    }
+
+    pub fn reason_contents() -> String {
+        pick(
+            "The downloaded disk image does not contain Vinilo.".into(),
+            "La imagen de disco descargada no contiene Vinilo.".into(),
+        )
+    }
+
+    pub fn reason_copy() -> String {
+        pick(
+            "The new version could not be copied next to the installed one.".into(),
+            "No se pudo copiar la versión nueva junto a la instalada.".into(),
+        )
+    }
+
+    pub fn reason_replace() -> String {
+        pick(
+            "macOS did not allow replacing the app. Allow Vinilo under System Settings → Privacy & Security → App Management, or install the disk image by hand.".into(),
+            "macOS no permitió sustituir la app. Permite a Vinilo en Ajustes del Sistema → Privacidad y seguridad → Gestión de apps, o instala la imagen de disco a mano.".into(),
+        )
+    }
+
+    pub fn reason_other() -> String {
+        pick(
+            "The update helper stopped unexpectedly.".into(),
+            "El ayudante de actualización se detuvo de forma inesperada.".into(),
+        )
+    }
 }
 
 pub fn sign_out_button() -> &'static str {
