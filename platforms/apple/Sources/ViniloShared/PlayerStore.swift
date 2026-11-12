@@ -71,6 +71,15 @@ public final class PlayerStore {
     public private(set) var tint: RGB?
     /// Set to ask the window for its file chooser, from a menu or a button.
     public var choosingFiles = false
+    /// The words of the track playing now: nil until asked for, then what the engine found.
+    public private(set) var lyrics: LyricsState = .none
+
+    public enum LyricsState: Equatable, Sendable {
+        case none
+        case loading(trackId: String)
+        case loaded(trackId: String, Lyrics)
+        case missing(trackId: String)
+    }
 
     @ObservationIgnored private var link: (any DaemonLink)?
     @ObservationIgnored private var wantedSearch = ""
@@ -167,8 +176,10 @@ public final class PlayerStore {
             for view in library.keys { requestLibrary(view) }
         case .libraryRefreshing(let on):
             libraryRefreshing = on
-        case .lyrics:
-            break
+        case .lyrics(let id, let found, _):
+            // An answer for the previous track must not land on this one.
+            guard id == snapshot.trackId else { return }
+            lyrics = found.map { .loaded(trackId: id, $0) } ?? .missing(trackId: id)
         case .error(let detail):
             error = detail
             // A failed request must not leave a screen spinning forever.
@@ -333,6 +344,22 @@ public final class PlayerStore {
         Task {
             let colour = await Task.detached(priority: .utility) { CoverTint.of(file: path) }.value
             if snapshot.artPath == path { tint = colour }
+        }
+    }
+
+    /// Asks once per track; the panel calls it whenever it shows.
+    public func loadLyrics() {
+        guard let id = snapshot.trackId else {
+            lyrics = .none
+            return
+        }
+        switch lyrics {
+        case .loading(let current) where current == id, .loaded(let current, _) where current == id,
+            .missing(let current) where current == id:
+            return
+        default:
+            lyrics = .loading(trackId: id)
+            send(.lyrics(id: id))
         }
     }
 

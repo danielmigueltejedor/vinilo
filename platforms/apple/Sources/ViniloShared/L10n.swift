@@ -9,7 +9,7 @@ public enum L10n {
     public enum Key: String, CaseIterable, Sendable {
         case appName
         case home, search, library, artists, albums, songs, playlists, services
-        case appleMusic
+        case appleMusic, lyrics, noLyrics
         case source, sourceBody, localFiles, openFiles, localBody, changeSource, signInAgain
         case loginTitle, loginBody, cancel, beta, alpha, needsYtDlp, searchIn, emptyLibraryAny
         case playPause, play, pause, next, previous, shuffle, repeatMode, volume, queue
@@ -30,7 +30,7 @@ public enum L10n {
         .appName: "Vinilo",
         .home: "Home", .search: "Search", .library: "Library", .artists: "Artists",
         .albums: "Albums", .songs: "Songs", .playlists: "Playlists", .services: "Services",
-        .appleMusic: "Apple Music",
+        .appleMusic: "Apple Music", .lyrics: "Lyrics", .noLyrics: "No lyrics for this song",
         .source: "Music source",
         .sourceBody: "Vinilo plays from one source at a time. Changing it restarts the engine.",
         .localFiles: "Files on this Mac", .openFiles: "Open Files…",
@@ -81,7 +81,7 @@ public enum L10n {
         .home: "Inicio", .search: "Buscar", .library: "Biblioteca", .artists: "Artistas",
         .albums: "Álbumes", .songs: "Canciones", .playlists: "Listas de reproducción",
         .services: "Servicios",
-        .appleMusic: "Apple Music",
+        .appleMusic: "Apple Music", .lyrics: "Letra", .noLyrics: "Esta canción no tiene letra",
         .source: "Fuente de música",
         .sourceBody: "Vinilo reproduce de una fuente a la vez. Al cambiarla se reinicia el motor.",
         .localFiles: "Archivos de este Mac", .openFiles: "Abrir archivos…",
