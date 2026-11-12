@@ -1,7 +1,17 @@
 name: Release bundles
 
+# A tag push builds and publishes every package. To publish a fix for one platform only (a z
+# version for macOS, say), run this workflow by hand on the tag with platforms: macos; the
+# release then carries only the disk images and is not marked latest, so installed Linux
+# copies and the website keep the newest release that has their package.
 on:
   workflow_dispatch:
+    inputs:
+      platforms:
+        description: "Which packages to build and publish"
+        type: choice
+        options: [all, macos]
+        default: all
   push:
     tags:
       - 'v*'
@@ -16,6 +26,7 @@ concurrency:
 jobs:
   packages:
     name: ${{ matrix.name }}
+    if: github.event_name != 'workflow_dispatch' || inputs.platforms != 'macos'
     runs-on: blacksmith-4vcpu-ubuntu-2404
     strategy:
       fail-fast: false
@@ -159,6 +170,7 @@ jobs:
 
   flatpak:
     name: Flatpak bundle
+    if: github.event_name != 'workflow_dispatch' || inputs.platforms != 'macos'
     runs-on: blacksmith-4vcpu-ubuntu-2404
 
     steps:
@@ -203,6 +215,7 @@ jobs:
   # Vinilo, the same audience Flatpak already serves.
   appimage:
     name: AppImage
+    if: github.event_name != 'workflow_dispatch' || inputs.platforms != 'macos'
     runs-on: blacksmith-4vcpu-ubuntu-2404
     container:
       image: ubuntu:26.04
@@ -371,7 +384,8 @@ jobs:
 
   release:
     name: Publish GitHub Release
-    if: startsWith(github.ref, 'refs/tags/v')
+    # Skipped Linux jobs (platforms: macos) must not stop the publish; a failed one still does.
+    if: startsWith(github.ref, 'refs/tags/v') && !cancelled() && !failure()
     needs: [packages, flatpak, appimage, macos, macos-native]
     runs-on: blacksmith-4vcpu-ubuntu-2404
     permissions:
@@ -389,6 +403,8 @@ jobs:
         run: |
           set -euxo pipefail
           cd release
+          # A macOS-only release has no Linux packages: absent patterns are dropped, not errors.
+          shopt -s nullglob
           sha256sum -- \
             *.deb \
             *.rpm \
@@ -404,6 +420,7 @@ jobs:
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
+          PLATFORMS: ${{ inputs.platforms || 'all' }}
         run: |
           set -euxo pipefail
           VERSION="${GITHUB_REF_NAME#v}"
@@ -414,9 +431,12 @@ jobs:
               --repo "$GITHUB_REPOSITORY" \
               --clobber
           else
+            latest=true
+            [[ "${PLATFORMS:-all}" == macos ]] && latest=false
             gh release create "$GITHUB_REF_NAME" release/* \
               --repo "$GITHUB_REPOSITORY" \
               --verify-tag \
               --title "Vinilo $VERSION" \
-              --generate-notes
+              --latest="$latest" \
+              --notes "Vinilo $VERSION"
           fi
