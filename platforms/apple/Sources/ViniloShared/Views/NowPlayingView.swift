@@ -11,23 +11,55 @@ import ViniloKit
 /// while it is open.
 struct NowPlayingView: View {
     @Environment(PlayerStore.self) private var store
+    @AppStorage("vinilo.lyricsOpen") private var lyricsOpen = false
     var close: () -> Void
 
     var body: some View {
         VStack(spacing: 22) {
-            HStack {
-                Button(action: close) {
-                    Image(systemName: "chevron.down").font(.title3.weight(.semibold))
+            header
+            HStack(spacing: 40) {
+                player
+                if lyricsOpen {
+                    LyricsPanel()
+                        .frame(maxWidth: 460)
+                        .transition(.move(edge: .trailing).combined(with: .opacity))
                 }
-                .transportButtonStyle()
-                .keyboardShortcut(.cancelAction)
-                .accessibilityLabel(L10n.t(.close))
-                Spacer()
-                Text(L10n.t(.nowPlaying)).font(.headline).foregroundStyle(.secondary)
-                Spacer()
-                Color.clear.frame(width: 36, height: 1)
             }
+            .animation(.smooth(duration: 0.3), value: lyricsOpen)
+        }
+        .padding(28)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .foregroundStyle(.white)
+        .environment(\.colorScheme, .dark)
+        .background { Backdrop(tint: store.tint, artPath: store.snapshot.artPath) }
+        .animation(.easeInOut(duration: 0.6), value: store.tint)
+    }
 
+    private var header: some View {
+        HStack {
+            Button(action: close) {
+                Image(systemName: "chevron.down").font(.title3.weight(.semibold))
+            }
+            .transportButtonStyle()
+            .keyboardShortcut(.cancelAction)
+            .accessibilityLabel(L10n.t(.close))
+            Spacer()
+            Text(L10n.t(.nowPlaying)).font(.headline).foregroundStyle(.secondary)
+            Spacer()
+            Button {
+                lyricsOpen.toggle()
+            } label: {
+                Image(systemName: lyricsOpen ? "quote.bubble.fill" : "quote.bubble")
+                    .font(.title3.weight(.semibold))
+            }
+            .transportButtonStyle()
+            .help(L10n.t(.lyrics))
+            .accessibilityLabel(L10n.t(.lyrics))
+        }
+    }
+
+    private var player: some View {
+        VStack(spacing: 22) {
             Spacer(minLength: 0)
 
             ArtworkView(file: store.snapshot.artPath, size: 360, shape: .rounded(18))
@@ -53,12 +85,69 @@ struct NowPlayingView: View {
 
             Spacer(minLength: 0)
         }
-        .padding(28)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .foregroundStyle(.white)
-        .environment(\.colorScheme, .dark)
-        .background { Backdrop(tint: store.tint, artPath: store.snapshot.artPath) }
-        .animation(.easeInOut(duration: 0.6), value: store.tint)
+        .frame(maxWidth: .infinity)
+    }
+}
+
+/// The words, following the song when they are timed: the current line bright, the rest
+/// dimmed, and the list kept on the current line as it moves.
+private struct LyricsPanel: View {
+    @Environment(PlayerStore.self) private var store
+
+    var body: some View {
+        Group {
+            switch store.lyrics {
+            case .loaded(_, let lyrics) where !lyrics.lines.isEmpty:
+                if lyrics.synced {
+                    TimelineView(.periodic(from: .now, by: 0.25)) { context in
+                        lines(lyrics, current: current(in: lyrics, at: context.date))
+                    }
+                } else {
+                    lines(lyrics, current: nil)
+                }
+            case .loading:
+                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+            default:
+                Text(L10n.t(.noLyrics))
+                    .font(.title3)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .onAppear { store.loadLyrics() }
+        .onChange(of: store.snapshot.trackId) { store.loadLyrics() }
+    }
+
+    private func current(in lyrics: Lyrics, at date: Date) -> Int? {
+        let position = store.position(at: date)
+        return lyrics.lines.lastIndex { $0.startMs <= position }
+    }
+
+    private func lines(_ lyrics: Lyrics, current: Int?) -> some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 14) {
+                    ForEach(Array(lyrics.lines.enumerated()), id: \.offset) { index, line in
+                        Text(line.text.isEmpty ? "♪" : line.text)
+                            .font(.title2.weight(.bold))
+                            .foregroundStyle(.white.opacity(current == nil || index == current ? 1 : 0.38))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .id(index)
+                    }
+                }
+                .padding(.vertical, 120)
+            }
+            .scrollIndicators(.hidden)
+            .mask(
+                LinearGradient(
+                    stops: [.init(color: .clear, location: 0), .init(color: .black, location: 0.12),
+                        .init(color: .black, location: 0.88), .init(color: .clear, location: 1)],
+                    startPoint: .top, endPoint: .bottom))
+            .onChange(of: current) { _, line in
+                guard let line else { return }
+                withAnimation(.smooth(duration: 0.4)) { proxy.scrollTo(line, anchor: .center) }
+            }
+        }
     }
 }
 
