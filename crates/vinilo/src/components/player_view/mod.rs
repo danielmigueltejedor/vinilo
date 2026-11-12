@@ -822,7 +822,11 @@ impl SimpleComponent for PlayerView {
                 let sender = sender.clone();
                 gtk::glib::timeout_add_local_once(
                     std::time::Duration::from_millis(SCRUB_COMMIT_MS),
-                    move || sender.input(PlayerViewInput::ScrubDone(generation, v)),
+                    move || {
+                        let _ = sender
+                            .input_sender()
+                            .send(PlayerViewInput::ScrubDone(generation, v));
+                    },
                 );
             }
             PlayerViewInput::ScrubDone(generation, v) => {
@@ -1192,7 +1196,9 @@ impl PlayerView {
             self.refresh_lyric_highlight();
             let sender = sender.clone();
             gtk::glib::timeout_add_local_once(std::time::Duration::from_millis(50), move || {
-                sender.input(PlayerViewInput::ScrollCurrentLyric)
+                let _ = sender
+                    .input_sender()
+                    .send(PlayerViewInput::ScrollCurrentLyric);
             });
         }
     }

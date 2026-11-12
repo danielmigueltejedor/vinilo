@@ -2,8 +2,9 @@
 # SPDX-FileCopyrightText: 2026 Daniel Miguel Tejedor
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
-# Wrap a Vinilo .app (either edition) in a compressed installer DMG: the Nodalia background, the
-# app on the left and a shortcut to /Applications on the right.
+# Wrap a Vinilo .app (either edition) in a compressed installer DMG: the Nodalia background
+# (dmg-background.svg, the record on the left), the app and a shortcut to /Applications on the
+# white island on the right.
 # Usage: create_dmg.sh <Vinilo*.app> <out.dmg>
 set -euo pipefail
 
@@ -61,15 +62,16 @@ tell application "Finder"
     try
       set pathbar visible of container window to false
     end try
-    set the bounds of container window to {200, 120, 860, 580}
+    -- 660 x 400 of content under the title bar: the whole background, nothing more.
+    set the bounds of container window to {200, 120, 860, 552}
     set theViewOptions to the icon view options of container window
     set arrangement of theViewOptions to not arranged
     set icon size of theViewOptions to 128
     set text size of theViewOptions to 13
     set label position of theViewOptions to bottom
     set background picture of theViewOptions to file ".background:background.tiff"
-    set position of item "$app_file" of container window to {160, 190}
-    set position of item "Applications" of container window to {500, 190}
+    set position of item "$app_file" of container window to {326, 205}
+    set position of item "Applications" of container window to {574, 205}
     update without registering applications
     delay 2
     close
