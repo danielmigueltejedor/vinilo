@@ -51,6 +51,15 @@ public struct RootView: View {
                 QueueView()
                     .inspectorColumnWidth(min: 260, ideal: 320, max: 420)
             }
+            // The search field of the whole window, in the sidebar where the system draws it in
+            // its glass. Typing in it from any section goes to Search.
+            .searchable(text: $searchText, placement: .sidebar, prompt: Text(searchPrompt))
+            .onChange(of: searchText) { _, text in
+                if !text.trimmingCharacters(in: .whitespaces).isEmpty, item != .search {
+                    selectionName = SidebarItem.search.rawValue
+                }
+            }
+            .softScrollEdges()
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     Button {
@@ -76,6 +85,10 @@ public struct RootView: View {
         ) { result in
             if case .success(let urls) = result { store.playFiles(urls) }
         }
+    }
+
+    private var searchPrompt: String {
+        String(format: L10n.t(.searchIn), store.source.displayName)
     }
 
     private func toggleNowPlaying() {

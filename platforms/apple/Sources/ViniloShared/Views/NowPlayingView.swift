@@ -77,7 +77,7 @@ struct NowPlayingView: View {
 
             ProgressScrubber().frame(maxWidth: 520)
 
-            TransportControls(size: 26)
+            TransportControls(size: 24)
             HStack(spacing: 28) {
                 ModeControls()
                 VolumeControl()

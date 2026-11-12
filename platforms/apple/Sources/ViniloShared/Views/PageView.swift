@@ -69,8 +69,12 @@ struct PageView: View {
                 }
             }
             .padding(24)
+            // Inside the scroll, so the colour leaves with the header rather than staying
+            // behind the list as a band under the toolbar.
+            .background(alignment: .top) { HeaderWash(colour: wash, artwork: page.header.artwork) }
         }
-        .background(alignment: .top) { HeaderWash(colour: wash, artwork: page.header.artwork) }
+        .softScrollEdges()
+        .clearToolbar()
     }
 
     private func header(_ entry: Entry, songs: [Entry]) -> some View {
@@ -141,12 +145,33 @@ struct PageView: View {
     }
 }
 
-/// The top of a page in its cover's colour: the colour itself, the cover enlarged and out of
-/// focus inside it, and a fade into the window so the list below reads on the ordinary
-/// background. Without a colour yet, nothing is drawn.
+/// The top of a page in its cover's colour: the cover itself enlarged and out of focus, the
+/// colour over it, and a long fade into the window so the list below reads on the ordinary
+/// background. The fade is eased, many stops rather than two, so it has no visible edge where
+/// it ends. Without a colour yet, nothing is drawn.
 private struct HeaderWash: View {
     var colour: RGB?
     var artwork: Artwork?
+
+    /// An ease-out from opaque to clear: most of the colour stays near the header, and the
+    /// last of it thins slowly enough that the eye cannot find where it stops.
+    private var fade: [Gradient.Stop] {
+        (0...12).map { step in
+            let t = Double(step) / 12
+            let remaining = 1 - t
+            return Gradient.Stop(
+                color: .black.opacity(remaining * remaining * (3 - 2 * remaining)), location: t)
+        }
+    }
+
+    /// Solid for the header itself, then the fade over the rest of the height.
+    private var maskStops: [Gradient.Stop] {
+        let solid = [Gradient.Stop(color: .black, location: 0), Gradient.Stop(color: .black, location: 0.38)]
+        let fading: [Gradient.Stop] = fade.map { stop in
+            Gradient.Stop(color: stop.color, location: 0.38 + stop.location * 0.62)
+        }
+        return solid + fading
+    }
 
     var body: some View {
         if let colour {
@@ -155,15 +180,22 @@ private struct HeaderWash: View {
                 base
                 // A small cover scaled up: it is blurred anyway, so the large one would be wasted.
                 ArtworkView(artwork: artwork, size: 160, shape: .rounded(0))
-                    .scaleEffect(7)
-                    .blur(radius: 40, opaque: true)
-                    .opacity(0.45)
-                LinearGradient(colors: [base.opacity(0.2), base.opacity(0.65)], startPoint: .top, endPoint: .bottom)
+                    .scaleEffect(6)
+                    .blur(radius: 60, opaque: true)
+                    .saturation(1.25)
+                    .opacity(0.5)
+                // Darker towards the title, so white text holds on a pale cover.
+                LinearGradient(
+                    colors: [base.opacity(0.1), base.opacity(0.45), .black.opacity(0.18)],
+                    startPoint: .top, endPoint: .bottom)
             }
-            .frame(height: 380)
+            .frame(height: 520)
             .clipped()
-            .mask(LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: 0.62),
-                                         .init(color: .clear, location: 1)], startPoint: .top, endPoint: .bottom))
+            .mask(
+                LinearGradient(
+                    stops: maskStops,
+                    startPoint: .top, endPoint: .bottom)
+            )
             .ignoresSafeArea(edges: .top)
             .transition(.opacity)
             .accessibilityHidden(true)

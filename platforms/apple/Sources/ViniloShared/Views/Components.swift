@@ -53,6 +53,39 @@ extension View {
     }
 }
 
+extension View {
+    /// Content that scrolls under the toolbar and the player fades into them, as on iOS 26,
+    /// instead of meeting a solid bar. Before macOS 26 the system's own edge stays.
+    @ViewBuilder
+    func softScrollEdges() -> some View {
+        #if compiler(>=6.2)
+            if #available(macOS 26.0, iOS 26.0, *) {
+                self.scrollEdgeEffectStyle(.soft, for: .all)
+            } else {
+                self
+            }
+        #else
+            self
+        #endif
+    }
+
+    /// A toolbar with nothing behind it while the page is at its top, so a page's own colour
+    /// reaches the window's edge without a band of the bar's material across it. Scrolled,
+    /// the soft edge from `softScrollEdges` is what separates the two.
+    @ViewBuilder
+    func clearToolbar() -> some View {
+        #if os(macOS)
+            if #available(macOS 15.0, *) {
+                self.toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
+            } else {
+                self.toolbarBackground(.hidden, for: .windowToolbar)
+            }
+        #else
+            self.toolbarBackground(.hidden, for: .navigationBar)
+        #endif
+    }
+}
+
 /// The round button before Liquid Glass: a disc of the bar material, the accent colour when it
 /// is the main action, and a press that sinks a little.
 struct RoundTransportStyle: ButtonStyle {

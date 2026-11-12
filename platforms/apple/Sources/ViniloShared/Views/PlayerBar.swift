@@ -5,18 +5,24 @@ import SwiftUI
 import ViniloKit
 
 /// The player at the bottom of every screen: what is playing, the transport, the position, the
-/// volume. It is a floating surface of the system's glass over the content, so the music stays
-/// the subject and the controls stay within reach.
+/// volume. It is an island of the system's glass floating over the content, a capsule held
+/// clear of the window's edges, so the music stays the subject and the controls stay in reach.
+///
+/// It is not tinted: the cover's colour belongs to the expanded player, and a bar that changed
+/// colour with every song would pull the eye away from the page above it.
 struct PlayerBar: View {
     @Environment(PlayerStore.self) private var store
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var openNowPlaying: () -> Void
+    @State private var volumeOpen = false
 
     var body: some View {
-        HStack(spacing: 18) {
+        HStack(spacing: 16) {
             Button(action: openNowPlaying) {
-                HStack(spacing: 10) {
-                    ArtworkView(file: store.snapshot.artPath, size: 48, shape: .rounded(9))
-                        .shadow(color: .black.opacity(0.25), radius: 6, y: 3)
+                HStack(spacing: 12) {
+                    // Concentric with the capsule: a round cover in a round end.
+                    ArtworkView(file: store.snapshot.artPath, size: 46, shape: .circle)
+                        .shadow(color: .black.opacity(0.25), radius: 5, y: 2)
                     VStack(alignment: .leading, spacing: 1) {
                         Text(store.snapshot.hasTrack ? store.snapshot.title : L10n.t(.nothingPlaying))
                             .font(.callout.weight(.semibold)).lineLimit(1)
@@ -25,7 +31,7 @@ struct PlayerBar: View {
                                 .lineLimit(1)
                         }
                     }
-                    .frame(minWidth: 120, idealWidth: 200, maxWidth: 240, alignment: .leading)
+                    .frame(minWidth: 110, idealWidth: 190, maxWidth: 220, alignment: .leading)
                 }
                 .contentShape(Rectangle())
             }
@@ -34,18 +40,23 @@ struct PlayerBar: View {
             .accessibilityLabel(L10n.t(.expand))
             .accessibilityValue(store.snapshot.title)
 
-            TransportControls(size: 16)
-            ProgressScrubber().frame(minWidth: 160)
-            ModeControls()
-            VolumeControl()
+            TransportControls(size: 17, prominent: false)
+            ProgressScrubber().frame(minWidth: 140)
+            if !volumeOpen {
+                ModeControls()
+                    .transition(.opacity.combined(with: .scale(scale: 0.8, anchor: .trailing)))
+            }
+            ExpandingVolumeControl(open: $volumeOpen)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .glassSurface(
-            in: RoundedRectangle(cornerRadius: 22, style: .continuous),
-            tint: store.tint.map(Color.init(rgb:)))
-        .animation(.easeInOut(duration: 0.6), value: store.tint)
-        .padding(.horizontal, 12)
-        .padding(.bottom, 10)
+        .padding(.leading, 8)
+        .padding(.trailing, 12)
+        .padding(.vertical, 8)
+        .glassSurface(in: Capsule())
+        .shadow(color: .black.opacity(0.12), radius: 16, y: 6)
+        .tint(Color?.none)
+        .animation(reduceMotion ? nil : .smooth(duration: 0.32), value: volumeOpen)
+        .frame(maxWidth: 1040)
+        .padding(.horizontal, 22)
+        .padding(.bottom, 14)
     }
 }
