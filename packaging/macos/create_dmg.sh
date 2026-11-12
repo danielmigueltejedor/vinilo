@@ -81,10 +81,11 @@ sync
 # step; a failed eject must not fail the release.
 detached=0
 for _ in 1 2 3 4 5 6 7 8; do
-  if hdiutil detach "$mount" >/dev/null 2>&1; then detached=1; break; fi
+  # The volume can already be gone (ejected by Finder, or never settled): nothing to detach.
+  if [[ ! -d "$mount" ]] || hdiutil detach "$mount" >/dev/null 2>&1; then detached=1; break; fi
   sleep 3
 done
-((detached)) || hdiutil detach -force "$mount" >/dev/null
+((detached)) || [[ ! -d "$mount" ]] || hdiutil detach -force "$mount" >/dev/null
 
 rm -f "$out"
 hdiutil convert "$rw" -format UDZO -imagekey zlib-level=9 -o "$out" >/dev/null
