@@ -217,7 +217,10 @@ fn requests() -> Vec<Request> {
             start: PlayMode::Shuffled,
         },
         Request::PlayFiles {
-            paths: vec!["/Users/fixture/Music/a.flac".into(), "/Users/fixture/Music".into()],
+            paths: vec![
+                "/Users/fixture/Music/a.flac".into(),
+                "/Users/fixture/Music".into(),
+            ],
             index: 0,
         },
         Request::Lyrics {

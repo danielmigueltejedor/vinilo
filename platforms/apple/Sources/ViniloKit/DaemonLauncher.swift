@@ -53,8 +53,8 @@ public struct DaemonLauncher: Sendable {
         }
         // Finder starts apps with a bare PATH; YouTube Music and Tidal play through Homebrew's
         // yt-dlp and ffmpeg.
-        let path = daemonEnvironment["PATH"].flatMap { $0.isEmpty ? nil : $0 } ?? "/usr/bin:/bin"
-        daemonEnvironment["PATH"] = path + ":/opt/homebrew/bin:/usr/local/bin"
+        let searchPath = daemonEnvironment["PATH"].flatMap { $0.isEmpty ? nil : $0 } ?? "/usr/bin:/bin"
+        daemonEnvironment["PATH"] = searchPath + ":/opt/homebrew/bin:/usr/local/bin"
         process.environment = daemonEnvironment
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = FileHandle.nullDevice
