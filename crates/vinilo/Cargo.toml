@@ -17,7 +17,7 @@ serde_json.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 
-# No libadwaita since 2.0.0: the widgets and the look come from Nodalia Design
+# No libadwaita since the Nodalia redesign: the widgets and the look come from Nodalia Design
 # Language's `nodalia-gtk`. relm4's `gnome_*` features would switch libadwaita
 # back on, so GTK's version floor is set on the direct `gtk4` dependency instead.
 relm4 = { version = "0.11", default-features = false, features = ["macros"] }
