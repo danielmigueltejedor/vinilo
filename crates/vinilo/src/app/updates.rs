@@ -24,6 +24,8 @@ pub(super) const APP: nu::App = nu::App {
     repo: "danielmigueltejedor/vinilo",
     bundle: "Vinilo.app",
     version: env!("CARGO_PKG_VERSION"),
+    // One build per platform until the release carries two macOS editions.
+    edition: None,
 };
 
 /// An automatic check is skipped if one ran less than this long ago.
