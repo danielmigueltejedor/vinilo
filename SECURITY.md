@@ -7,4 +7,3 @@ Nodalia for macOS or Vinilo Native for macOS), and how to reproduce the problem.
 
 Nodalia maintains Vinilo and handles every report. Only the latest release receives security
 fixes.
-
