@@ -713,7 +713,7 @@ fn en(key: Key) -> &'static str {
         Key::EmptyArtist => "This artist has no albums.",
         Key::EmptyPlaylist => "This playlist has no songs.",
         Key::AboutComments => {
-            "A native music player for Linux.\n\n\
+            "A native music player for Linux and macOS.\n\n\
              Apple Music plays through Apple's MusicKit player using \
              Google's Widevine CDM, in a hidden helper process. Files on this \
              computer play natively. Spotify plays through librespot \
@@ -1041,7 +1041,7 @@ fn es(key: Key) -> &'static str {
         Key::EmptyArtist => "Este artista no tiene álbumes.",
         Key::EmptyPlaylist => "Esta lista no tiene canciones.",
         Key::AboutComments => {
-            "Un reproductor de música nativo para Linux.\n\n\
+            "Un reproductor de música nativo para Linux y macOS.\n\n\
              Apple Music pasa por el reproductor MusicKit de Apple con el CDM \
              Widevine de Google, en un proceso auxiliar oculto. Los archivos \
              de este equipo se reproducen de forma nativa. Spotify suena \
