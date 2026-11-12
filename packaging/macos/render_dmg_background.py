@@ -25,11 +25,14 @@ AREA = (660, 400)
 CANVAS = (2000, 1300)
 
 
-def render(svg: Path, scale: int, out: Path) -> None:
+def render(scale: int, out: Path) -> None:
     with tempfile.TemporaryDirectory() as tmp:
         area = Path(tmp) / "area.png"
-        subprocess.run(["resvg", "--skip-system-fonts", "-w", str(AREA[0] * scale), str(svg), str(area)],
-                       check=True)
+        subprocess.run(
+            ["resvg", "--skip-system-fonts", "-w", str(AREA[0] * scale), "dmg-background.svg", str(area)],
+            cwd=out.parent,
+            check=True,
+        )
         canvas = Image.new("RGB", (CANVAS[0] * scale, CANVAS[1] * scale), WINDOW)
         with Image.open(area) as im:
             canvas.paste(im.convert("RGB"), (0, 0))
@@ -41,9 +44,8 @@ def main() -> None:
     if len(sys.argv) != 2:
         sys.exit(__doc__)
     out = Path(sys.argv[1])
-    svg = out / "dmg-background.svg"
-    render(svg, 1, out / "dmg-background.png")
-    render(svg, 2, out / "dmg-background@2x.png")
+    render(1, out / "dmg-background.png")
+    render(2, out / "dmg-background@2x.png")
 
 
 main()
