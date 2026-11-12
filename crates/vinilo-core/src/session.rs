@@ -39,7 +39,7 @@ fn path() -> Option<PathBuf> {
         Ok(x) if !x.is_empty() => PathBuf::from(x),
         _ => PathBuf::from(std::env::var("HOME").ok()?).join(".local/state"),
     };
-    Some(base.join("vinilo/session.json"))
+    Some(base.join(crate::edition::dir_name()).join("session.json"))
 }
 
 /// What was playing last time, if anything.

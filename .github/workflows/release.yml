@@ -294,7 +294,7 @@ jobs:
           retention-days: 14
 
   macos:
-    name: macOS DMG
+    name: macOS DMG (Nodalia edition)
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v5
@@ -304,7 +304,7 @@ jobs:
           brew install gtk4 librsvg adwaita-icon-theme pkgconf node
           rustup default stable
 
-      - name: Build Vinilo.app and the DMG
+      - name: Build Vinilo Nodalia.app and the DMG
         env:
           # castLabs EVS, for the Widevine VMP signature Apple Music needs on macOS.
           EVS_ACCOUNT_NAME: ${{ secrets.EVS_ACCOUNT_NAME }}
@@ -319,14 +319,13 @@ jobs:
           cargo build --release --locked
           make sidecar
           ./packaging/macos/bundle.sh dist/macos
-          ./packaging/macos/vmp_sign.sh dist/macos/Vinilo.app
-          ./packaging/macos/create_dmg.sh dist/macos/Vinilo.app "dist/Vinilo-${VERSION}-macos-arm64.dmg"
+          ./packaging/macos/create_dmg.sh "dist/macos/Vinilo Nodalia.app" "dist/Vinilo-${VERSION}-nodalia-macos-arm64.dmg"
 
       - name: Keep DMG
         uses: actions/upload-artifact@v6
         with:
           name: release-macos
-          path: dist/Vinilo-*-macos-arm64.dmg
+          path: dist/Vinilo-*-nodalia-macos-arm64.dmg
           retention-days: 14
 
   release:
