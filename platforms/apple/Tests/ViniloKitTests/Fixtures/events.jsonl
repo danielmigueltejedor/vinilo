@@ -1,0 +1,14 @@
+{"event":"snapshot","track_id":"1440857781","title":"Fixture Song","artist":"Fixture Artist","album":"Fixture Album","art_path":"/tmp/cover.jpg","position_ms":61000,"duration_ms":215000,"playing":true,"busy":false,"volume":0.75,"shuffle":true,"repeat":"all","can_next":true,"can_previous":false}
+{"event":"queue","items":[{"id":"1440857781","title":"Fixture Song","artist":"Fixture Artist","album":"Fixture Album","duration_ms":215000}],"position":0}
+{"event":"stage","stage":"connecting"}
+{"event":"stage","stage":"ready"}
+{"event":"stage","stage":"signedOut"}
+{"event":"stage","stage":"broken","detail":"the sidecar did not start"}
+{"event":"rows","view":"songs","entries":[{"kind":"song","date_added":"","year":"2010","favorite":true,"in_library":true,"library_id":"i.1440857781","id":"1440857781","catalog_id":"1440857781","title":"Fixture Song","artist":"Fixture Artist","album":"Fixture Album","duration_ms":215000,"track_number":3,"artwork":"https://example.invalid/art/{w}x{h}bb.jpg"},{"kind":"album","id":"l.album1","date_added":"2026-01-02T03:04:05Z","name":"Fixture Album","artist":"Fixture Artist","artwork":"https://example.invalid/album/{w}x{h}bb.jpg","year":"2010","track_count":12,"library":true},{"kind":"artist","id":"r.artist1","name":"Fixture Artist","artwork":null,"genres":"Pop, Latin","library":true},{"kind":"playlist","id":"p.list1","date_added":"","last_modified":"2026-02-03T00:00:00Z","name":"Fixture Playlist","curator":"","description":"","artwork":null,"library":true}],"total":535}
+{"event":"results","query":"fixture","entries":[{"kind":"song","date_added":"","year":"2010","favorite":true,"in_library":true,"library_id":"i.1440857781","id":"1440857781","catalog_id":"1440857781","title":"Fixture Song","artist":"Fixture Artist","album":"Fixture Album","duration_ms":215000,"track_number":3,"artwork":"https://example.invalid/art/{w}x{h}bb.jpg"}],"offset":0,"more":true}
+{"event":"page","kind":"libraryAlbum","id":"l.album1","header":{"kind":"album","id":"l.album1","date_added":"2026-01-02T03:04:05Z","name":"Fixture Album","artist":"Fixture Artist","artwork":"https://example.invalid/album/{w}x{h}bb.jpg","year":"2010","track_count":12,"library":true},"entries":[{"kind":"song","date_added":"","year":"2010","favorite":true,"in_library":true,"library_id":"i.1440857781","id":"1440857781","catalog_id":"1440857781","title":"Fixture Song","artist":"Fixture Artist","album":"Fixture Album","duration_ms":215000,"track_number":3,"artwork":"https://example.invalid/art/{w}x{h}bb.jpg"}]}
+{"event":"libraryChanged"}
+{"event":"libraryRefreshing","refreshing":true}
+{"event":"lyrics","id":"1440857781","lyrics":{"synced":true,"lines":[{"start_ms":1500,"text":"A line"}]},"error":null}
+{"event":"error","detail":"Apple said no"}
+{"event":"discover","version":0,"provider":"","recently_played":[],"recommended_playlists":[],"recommended_songs":[],"recently_added":[],"charts":[]}
