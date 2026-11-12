@@ -28,13 +28,20 @@ struct SearchView: View {
             }
         }
         .navigationTitle(L10n.t(.search))
-        .searchable(text: $text, prompt: prompt)
-        .searchScopes(Bindable(store).searchFilter) {
-            Text(L10n.t(.all)).tag(CatalogFilter.all)
-            Text(L10n.t(.songs)).tag(CatalogFilter.songs)
-            Text(L10n.t(.albums)).tag(CatalogFilter.albums)
-            Text(L10n.t(.artists)).tag(CatalogFilter.artists)
-            Text(L10n.t(.playlists)).tag(CatalogFilter.playlists)
+        // The field itself is the window's, in the sidebar, so it is there from every section.
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Picker(L10n.t(.search), selection: Bindable(store).searchFilter) {
+                    Text(L10n.t(.all)).tag(CatalogFilter.all)
+                    Text(L10n.t(.songs)).tag(CatalogFilter.songs)
+                    Text(L10n.t(.albums)).tag(CatalogFilter.albums)
+                    Text(L10n.t(.artists)).tag(CatalogFilter.artists)
+                    Text(L10n.t(.playlists)).tag(CatalogFilter.playlists)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .fixedSize()
+            }
         }
         // Typing faster than Apple answers must not send a request per keystroke.
         .task(id: text) {
