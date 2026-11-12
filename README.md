@@ -238,7 +238,7 @@ Vinilo does not strip DRM, cache decrypted audio, or offer downloads.
 | x86_64 only for Apple Music | Linux ARM Widevine is not a stable target |
 | Spotify and Apple Music are ready; YouTube Music is **Beta**; Tidal is **Alpha** | Catalogue clients are still settling |
 | Karaoke voice attenuation is catalogue / local only | MusicKit never hands Vinilo samples |
-| Apple Music on macOS needs Widevine VMP signing | Without it Apple's licence server can refuse playback; local files and Spotify are unaffected |
+| Apple Music on macOS needs the player VMP-signed | Release builds sign it with castLabs EVS (`packaging/macos/vmp_sign.sh`); a build without that signature does not offer Apple Music on macOS, since Apple would play only 90-second previews. Local files and Spotify are unaffected |
 | macOS: no media keys or Now Playing yet | The shell controls are MPRIS, which is Linux's |
 
 ## Contributing

@@ -305,6 +305,10 @@ jobs:
           rustup default stable
 
       - name: Build Vinilo.app and the DMG
+        env:
+          # castLabs EVS, for the Widevine VMP signature Apple Music needs on macOS.
+          EVS_ACCOUNT_NAME: ${{ secrets.EVS_ACCOUNT_NAME }}
+          EVS_PASSWD: ${{ secrets.EVS_PASSWD }}
         run: |
           set -euxo pipefail
           VERSION=$(awk -F\" '/^version = / {print $2; exit}' Cargo.toml)
@@ -315,6 +319,7 @@ jobs:
           cargo build --release --locked
           make sidecar
           ./packaging/macos/bundle.sh dist/macos
+          ./packaging/macos/vmp_sign.sh dist/macos/Vinilo.app
           ./packaging/macos/create_dmg.sh dist/macos/Vinilo.app "dist/Vinilo-${VERSION}-macos-arm64.dmg"
 
       - name: Keep DMG

@@ -199,6 +199,25 @@ fn warn_if_shadowing_a_build_tree(chosen: &Path) {
 #[cfg(not(debug_assertions))]
 fn warn_if_shadowing_a_build_tree(_chosen: &Path) {}
 
+/// Whether the castLabs Electron in `sidecar` carries a Widevine VMP signature. On macOS,
+/// Apple's licence server answers an unsigned player with 90-second previews only; castLabs'
+/// `castlabs_evs.vmp sign-pkg` writes `Electron Framework.sig` into the framework when it signs.
+/// Elsewhere there is nothing to sign (Linux reports PLATFORM_UNVERIFIED and plays).
+pub fn vmp_signed(sidecar: &Path) -> bool {
+    if !cfg!(target_os = "macos") {
+        return true;
+    }
+    let framework = sidecar.join(
+        "node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Framework.framework",
+    );
+    [
+        "Resources/Electron Framework.sig",
+        "Versions/A/Resources/Electron Framework.sig",
+    ]
+    .iter()
+    .any(|sig| framework.join(sig).is_file())
+}
+
 pub fn locate() -> Result<PathBuf> {
     let mut tried = Vec::new();
 
@@ -462,6 +481,20 @@ pub fn restart_delay(attempt: u32) -> std::time::Duration {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn a_player_counts_as_vmp_signed_by_its_framework_signature() {
+        let dir = std::env::temp_dir().join(format!("vinilo-vmp-{}", std::process::id()));
+        let resources = dir.join(
+            "node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources",
+        );
+        std::fs::create_dir_all(&resources).unwrap();
+        // Only macOS checks; elsewhere there is nothing to sign.
+        assert_eq!(super::vmp_signed(&dir), !cfg!(target_os = "macos"));
+        std::fs::write(resources.join("Electron Framework.sig"), b"sig").unwrap();
+        assert!(super::vmp_signed(&dir));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
     use super::*;
 
     /// A handle with no child on the other end. The channel is what `send`

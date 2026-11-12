@@ -93,11 +93,17 @@ jobs:
       # The DMG is built on every run so a change that breaks the bundle shows
       # here, and so the result can be downloaded and opened on a Mac.
       - name: Vinilo.app and DMG
+        env:
+          # castLabs EVS, for the Widevine VMP signature Apple Music needs on macOS. Absent on
+          # pull requests from forks: the build then warns and stays unsigned.
+          EVS_ACCOUNT_NAME: ${{ secrets.EVS_ACCOUNT_NAME }}
+          EVS_PASSWD: ${{ secrets.EVS_PASSWD }}
         run: |
           set -euxo pipefail
           cargo build --release --locked
           make sidecar
           ./packaging/macos/bundle.sh dist/macos
+          ./packaging/macos/vmp_sign.sh dist/macos/Vinilo.app
           VERSION=$(awk -F\" '/^version = / {print $2; exit}' Cargo.toml)
           ./packaging/macos/create_dmg.sh dist/macos/Vinilo.app "dist/Vinilo-${VERSION}-macos-arm64.dmg"
           # Nothing outside the bundle but the system's own libraries.
