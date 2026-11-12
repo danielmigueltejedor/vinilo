@@ -22,7 +22,7 @@ concurrency:
 jobs:
   check:
     name: fmt · clippy · tests
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
     # **In a container, because the runner cannot build this.** Vinilo needs
     # GTK >= 4.20 (what `nodalia-gtk` targets), and `ubuntu-latest` does not
     # ship it. Arch is what the app is developed against
@@ -64,7 +64,7 @@ jobs:
     name: macOS · clippy · tests · DMG
     # Apple Silicon. Homebrew's GTK is built for the runner's own macOS, so the
     # DMG needs that version or newer; Info.plist says which.
-    runs-on: blacksmith-6vcpu-macos-15
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v5
 
@@ -126,7 +126,7 @@ jobs:
     name: macOS · Vinilo Native · tests · DMG
     # The SwiftUI edition. Xcode 26 is what carries Liquid Glass; the code falls back to plain
     # materials when built with an older SDK, but the DMG people download should have the glass.
-    runs-on: blacksmith-6vcpu-macos-26
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v5
 
@@ -177,7 +177,7 @@ jobs:
 
   packaging-changed:
     name: Did the packaging move?
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
     outputs:
       changed: ${{ steps.filter.outputs.any }}
     steps:
@@ -208,7 +208,7 @@ jobs:
 
   flatpak:
     name: Flatpak bundle
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
     # Creating a release needs this, and the default token does not have it:
     # the first tag build produced a perfectly good bundle and then failed with
     # `403 Resource not accessible by integration`. Scoped to this job because
