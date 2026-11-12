@@ -26,7 +26,7 @@ librespot-core = { git = "https://github.com/danielmigueltejedor/vinilo", rev = 
 librespot-oauth = { git = "https://github.com/danielmigueltejedor/vinilo", rev = "393463e6a072c8b6fbc046641acf2e0956da4d6e", default-features = false, features = [
     "rustls-tls-native-roots",
 ] }
-librespot-playback = { git = "https://github.com/danielmigueltejedor/vinilo", rev = "393463e6a072c8b6fbc046641acf2e0956da4d6e", default-features = false, features = [
+librespot-playback = { git = "https://github.com/danielmigueltejedor/vinilo", rev = "3eec976fa1a29159bb8c23cdcc499a157e50a0bb", default-features = false, features = [
     "rustls-tls-native-roots",
 ] }
 # Keep librespot's build script on the vergen pair Sonora already ships.
