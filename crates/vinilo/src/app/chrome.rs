@@ -208,6 +208,29 @@ pub(super) fn register_actions(
 /// One top-bar menu: its title, then its sections of (label, action).
 type TopMenuLayout = (&'static str, Vec<Vec<(&'static str, &'static str)>>);
 
+/// What the music-source row's notification means.
+#[derive(Debug, PartialEq, Eq)]
+enum SourceRowChange {
+    /// Nothing new: the row shows the source already in use. Putting an unavailable pick back
+    /// notifies again, possibly after the handler returned (GObject restarts a `notify` emitted
+    /// inside its own handler), and that echo must not be sent on as a choice.
+    Ignore,
+    /// A source this system cannot play: the row goes back to the one in use.
+    Restore(u32),
+    /// A real choice.
+    Apply,
+}
+
+fn source_row_change(accepted: u32, picked: u32, available: bool) -> SourceRowChange {
+    if picked == accepted {
+        SourceRowChange::Ignore
+    } else if !available {
+        SourceRowChange::Restore(accepted)
+    } else {
+        SourceRowChange::Apply
+    }
+}
+
 /// The menus the shell shows in its top bar, in the current language: each
 /// title with its sections of (label, action). The in-window primary menu
 /// stays: not every shell shows an app's menus.
@@ -746,25 +769,25 @@ impl AppModel {
             // The source in use, as of the last choice accepted: a rollback goes back to this one,
             // not to what Preferences opened on.
             let accepted = Rc::new(Cell::new(self.settings.provider.index()));
-            let restoring = Rc::new(Cell::new(false));
             let sender = sender.clone();
             let armed = Rc::new(Cell::new(false));
             source_row.connect_selected_notify({
                 let armed = armed.clone();
                 move |row| {
-                    // Putting the row back notifies too, and that is not a choice.
-                    if !armed.get() || restoring.get() {
+                    if !armed.get() {
                         return;
                     }
-                    // A source this system cannot play goes back to the one in use.
-                    if !vinilo_core::provider::Provider::from_index(row.selected()).is_available() {
-                        restoring.set(true);
-                        row.set_selected(accepted.get());
-                        restoring.set(false);
-                        return;
+                    let picked = row.selected();
+                    let available =
+                        vinilo_core::provider::Provider::from_index(picked).is_available();
+                    match source_row_change(accepted.get(), picked, available) {
+                        SourceRowChange::Ignore => {}
+                        SourceRowChange::Restore(back) => row.set_selected(back),
+                        SourceRowChange::Apply => {
+                            accepted.set(picked);
+                            sender.input(AppMsg::SetProvider(picked));
+                        }
                     }
-                    accepted.set(row.selected());
-                    sender.input(AppMsg::SetProvider(row.selected()));
                 }
             });
             gtk::glib::timeout_add_local_once(std::time::Duration::from_millis(0), move || {
@@ -1181,7 +1204,7 @@ fn present_bare_dialog(
 
 #[cfg(test)]
 mod tests {
-    use super::global_menu_layout;
+    use super::{SourceRowChange, global_menu_layout, source_row_change};
     use vinilo_core::i18n::{Locale, set_current};
 
     /// The top-bar menus follow a change of language, as the window's do.
@@ -1199,5 +1222,15 @@ mod tests {
             .collect();
         assert_eq!(english[2..], ["View", "Window", "Help"]);
         assert_eq!(spanish[2..], ["Ver", "Ventana", "Ayuda"]);
+    }
+
+    /// Local, then Spotify, then Apple Music on macOS: the rollback goes to Spotify, and the
+    /// notification that putting the row back emits is not sent on as a choice.
+    #[test]
+    fn an_unavailable_source_rolls_back_to_the_last_accepted_one() {
+        assert_eq!(source_row_change(0, 1, true), SourceRowChange::Apply);
+        assert_eq!(source_row_change(1, 2, false), SourceRowChange::Restore(1));
+        assert_eq!(source_row_change(1, 1, true), SourceRowChange::Ignore);
+        assert_eq!(source_row_change(1, 1, false), SourceRowChange::Ignore);
     }
 }
