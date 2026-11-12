@@ -12,7 +12,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
     </picture>
   </a>
   <br><br>
-  <img src="https://raw.githubusercontent.com/danielmigueltejedor/vinilo/main/data/icons/hicolor/512x512/apps/dev.danielmiguelt.Vinilo.png" width="200" alt="Vinilo">
+  <img src="https://raw.githubusercontent.com/danielmigueltejedor/vinilo/main/data/icons/hicolor/512x512/apps/dev.danielmiguelt.Vinilo.png" width="192" alt="Vinilo">
   <h1>Vinilo</h1>
   <p><strong>A native music player for Linux, drawn in the Nodalia Design Language.</strong></p>
 
