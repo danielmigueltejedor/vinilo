@@ -135,7 +135,7 @@ if [[ ! -s "$OUTPUT" ]]; then
   mv "$built" "$OUTPUT"
 fi
 
-test -s "$OUTPUT"
+[[ -s "$OUTPUT" ]]
 chmod +x "$OUTPUT"
 ls -lh "$OUTPUT"
 echo "AppImage ready at $OUTPUT"
