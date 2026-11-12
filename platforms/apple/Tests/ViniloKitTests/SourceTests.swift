@@ -90,6 +90,20 @@ struct SourceTests {
         #expect(!MusicSource.tidal.looksSignedIn(cookieNames: ["_ga_x", "csrf_token"]))
     }
 
+    @Test("the sign-in window stays on the service and its identity providers")
+    func loginNavigation() throws {
+        let allowed = ["https://accounts.spotify.com/en/login", "https://accounts.google.com/o/oauth2",
+            "https://appleid.apple.com/auth", "about:blank"]
+        for text in allowed {
+            #expect(MusicSource.spotify.allowsLoginNavigation(to: try #require(URL(string: text))), "\(text)")
+        }
+        let refused = ["http://accounts.spotify.com/", "https://evil.example/spotify.com",
+            "https://notspotify.com/", "spotify://open", "file:///etc/passwd"]
+        for text in refused {
+            #expect(!MusicSource.spotify.allowsLoginNavigation(to: try #require(URL(string: text))), "\(text)")
+        }
+    }
+
     @Test("only the service's own cookies are kept")
     func cookieDomains() {
         #expect(MusicSource.spotify.ownsCookie(domain: ".open.spotify.com"))

@@ -91,6 +91,17 @@ private struct LoginWebView: NSViewRepresentable {
             poll?.cancel()
         }
 
+        /// Only the service's own pages and the sign-in providers it offers; no other site, and
+        /// no app link, opens inside a window that holds a session.
+        func webView(
+            _ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction
+        ) async -> WKNavigationActionPolicy {
+            guard let url = navigationAction.request.url, source.allowsLoginNavigation(to: url) else {
+                return .cancel
+            }
+            return .allow
+        }
+
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             Task { await check(webView) }
         }

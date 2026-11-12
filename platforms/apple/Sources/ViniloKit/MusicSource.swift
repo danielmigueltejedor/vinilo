@@ -85,6 +85,25 @@ public enum MusicSource: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
+    /// Where the sign-in window may go: the service and the identity providers its page offers
+    /// (Google, Apple, Facebook). Anything else, and any scheme but https, is refused.
+    public var loginDomains: [String] {
+        let shared = ["google.com", "gstatic.com", "googleusercontent.com", "apple.com", "icloud.com",
+            "facebook.com", "fbcdn.net"]
+        switch self {
+        case .spotify: return ["spotify.com", "spotifycdn.com", "scdn.co"] + shared
+        case .youtubeMusic: return ["youtube.com", "ytimg.com"] + shared
+        case .tidal: return ["tidal.com", "tidalhifi.com"] + shared
+        case .appleMusic, .local: return []
+        }
+    }
+
+    public func allowsLoginNavigation(to url: URL) -> Bool {
+        if url.scheme == "about" { return true }
+        guard url.scheme == "https", let host = url.host?.lowercased() else { return false }
+        return loginDomains.contains { host == $0 || host.hasSuffix("." + $0) }
+    }
+
     public func ownsCookie(domain: String) -> Bool {
         let host = domain.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "."))
         return cookieDomains.contains { host == $0 || host.hasSuffix("." + $0) }
