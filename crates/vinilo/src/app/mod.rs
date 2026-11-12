@@ -84,6 +84,7 @@ mod source_login;
 mod stats;
 mod status;
 mod supervise;
+mod updates;
 mod view;
 mod wiring;
 mod writes;
@@ -144,6 +145,8 @@ pub struct AppModel {
     refresh_nav_headers: bool,
     /// Files GApplication delivered before the daemon was connected.
     pending_files: Vec<PathBuf>,
+    /// The update windows and whether a check or an install is running.
+    updates: updates::UpdateUi,
     /// Bumped when the interface language changes so `#[watch]` labels refresh.
     locale_tick: u32,
     /// The primary menu's popover, owned so a refill can rebuild its rows.
@@ -628,6 +631,15 @@ pub enum AppMsg {
         slot: usize,
     },
     ShowAbout,
+    /// The menu item: look for a release and answer whatever comes back.
+    CheckForUpdates,
+    /// A while after start-up: report a failed macOS update, and check if one is due.
+    StartupUpdateChecks,
+    /// The question's answer: download, verify, install and restart.
+    InstallUpdate,
+    /// The question's other answer, for installs something else updates.
+    OpenReleasePage,
+    SetAutoUpdateCheck(bool),
     /// Open the Ko-fi page in a browser.
     OpenSupport,
     SetTheme(u32),
@@ -695,6 +707,17 @@ pub enum AppMsg {
 
 #[derive(Debug)]
 pub enum CommandMsg {
+    /// GitHub answered the release lookup, or could not be reached.
+    UpdateChecked {
+        user: bool,
+        result: Result<nodalia_update::Check, String>,
+    },
+    UpdateProgress {
+        received: u64,
+        total: Option<u64>,
+    },
+    /// The package is installed and the new copy starting, or the install failed.
+    UpdateInstalled(Result<(), String>),
     /// The quit request reached the daemon socket, so the client can exit.
     QuitWritten,
     /// Everything the daemon pushed down, including losing it.
@@ -1736,6 +1759,7 @@ impl Component for AppModel {
             provider_picker: None,
             refresh_nav_headers: false,
             pending_files: Vec::new(),
+            updates: updates::UpdateUi::default(),
             locale_tick: 0,
             primary_menu: gtk::PopoverMenu::from_model(None::<&gtk::gio::MenuModel>),
             last_item: None,
@@ -1805,6 +1829,13 @@ impl Component for AppModel {
         model.reload_from_cache(&sender);
 
         crate::open::bind(sender.input_sender().clone());
+
+        {
+            let sender = sender.input_sender().clone();
+            gtk::glib::timeout_add_local_once(updates::STARTUP_DELAY, move || {
+                sender.emit(AppMsg::StartupUpdateChecks);
+            });
+        }
 
         if !model.settings.language_chosen {
             model.language_picker = Some(model.present_language_picker(&sender, &root));
@@ -2353,6 +2384,14 @@ impl AppModel {
             AppMsg::ShowPreferences => self.show_preferences(&sender, root),
             AppMsg::ShowShortcuts => show_shortcuts(root),
             AppMsg::ShowAbout => show_about(root),
+            AppMsg::CheckForUpdates => self.check_for_updates(&sender, true),
+            AppMsg::StartupUpdateChecks => self.startup_update_checks(&sender),
+            AppMsg::InstallUpdate => self.install_update(&sender, root),
+            AppMsg::OpenReleasePage => self.open_release_page(root),
+            AppMsg::SetAutoUpdateCheck(on) => {
+                self.settings.auto_update_check = on;
+                self.settings.save();
+            }
             AppMsg::OpenSupport => chrome::open_support(root),
             AppMsg::ChooseLanguage(language) => self.apply_language(language, true),
             AppMsg::ChooseProvider(provider) => self.apply_provider(provider, &sender, root),
@@ -2870,11 +2909,18 @@ impl AppModel {
         &mut self,
         msg: CommandMsg,
         sender: &ComponentSender<Self>,
-        _root: &ndl::ApplicationWindow,
+        root: &ndl::ApplicationWindow,
     ) {
         let sender = sender.clone();
         match msg {
             CommandMsg::QuitWritten => notify::quit_cleanly(),
+            CommandMsg::UpdateChecked { user, result } => {
+                self.update_checked(&sender, root, user, result);
+            }
+            CommandMsg::UpdateProgress { received, total } => {
+                self.update_progress(received, total);
+            }
+            CommandMsg::UpdateInstalled(result) => self.update_installed(&sender, result),
             CommandMsg::Pruned(report) => {
                 // Reported here rather than inside the sweep, so the sweep
                 // stays a function that returns facts and can be tested as one.
