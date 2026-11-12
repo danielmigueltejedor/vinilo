@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import SwiftUI
+import UniformTypeIdentifiers
 import ViniloKit
 
 /// The window: sidebar, content, the player at the bottom, the queue on the side, and Now
@@ -63,6 +64,13 @@ public struct RootView: View {
             }
         }
         .overlay(alignment: .top) { Banner() }
+        .tint(store.tint.map(Color.init(rgb:)))
+        .fileImporter(
+            isPresented: Bindable(store).choosingFiles, allowedContentTypes: [.audio, .folder],
+            allowsMultipleSelection: true
+        ) { result in
+            if case .success(let urls) = result { store.playFiles(urls) }
+        }
     }
 
     private func toggleNowPlaying() {
@@ -116,6 +124,7 @@ private struct Banner: View {
 }
 
 private struct Sidebar: View {
+    @Environment(PlayerStore.self) private var store
     @Binding var selection: SidebarItem?
 
     var body: some View {
@@ -130,11 +139,17 @@ private struct Sidebar: View {
                 row(.songs)
                 row(.playlists)
             }
-            Section(L10n.t(.services)) {
-                Label(L10n.t(.appleMusic), systemImage: "apple.logo")
-                Label(L10n.t(.otherServices), systemImage: "ellipsis.circle")
-                    .foregroundStyle(.secondary)
-                    .help(L10n.t(.notYetHere))
+            Section(L10n.t(.source)) {
+                Label(store.source.displayName, systemImage: store.source.symbol)
+                if store.source == .local {
+                    Button {
+                        store.choosingFiles = true
+                    } label: {
+                        Label(L10n.t(.openFiles), systemImage: "plus.circle")
+                    }
+                    .buttonStyle(.plain)
+                }
+                ChangeSourceButton()
             }
         }
         .navigationTitle(L10n.t(.appName))
@@ -157,6 +172,14 @@ private struct Detail: View {
         switch store.stage {
         case .connecting:
             StatusView(symbol: "hourglass", title: L10n.t(.connecting), busy: true)
+        case .signedOut where store.source != .appleMusic:
+            StatusView(
+                symbol: store.source.symbol,
+                title: String(format: L10n.t(.loginTitle), store.source.displayName),
+                message: L10n.t(.sourceBody), busy: false
+            ) {
+                ChangeSourceButton().buttonStyle(.borderedProminent).controlSize(.large)
+            }
         case .signedOut:
             StatusView(
                 symbol: "person.crop.circle.badge.questionmark", title: L10n.t(.signedOutTitle),
@@ -181,10 +204,52 @@ private struct Detail: View {
 
     @ViewBuilder private var content: some View {
         switch item {
+        case .home where store.source == .local: LocalHome()
         case .home: HomeView()
         case .search: SearchView(text: $searchText)
         case .artists, .albums, .songs, .playlists:
             if let view = item.libraryView { LibrarySection(view: view, title: item.title) }
         }
+    }
+}
+
+/// Files have no shelves to recommend: the home of the local source is the way to pick them.
+private struct LocalHome: View {
+    @Environment(PlayerStore.self) private var store
+
+    var body: some View {
+        StatusView(
+            symbol: "folder", title: L10n.t(.localFiles), message: L10n.t(.localBody), busy: false
+        ) {
+            Button(L10n.t(.openFiles)) { store.choosingFiles = true }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+        }
+        .navigationTitle(L10n.t(.home))
+    }
+}
+
+/// Sources are chosen in Settings, where signing in to one has room.
+struct ChangeSourceButton: View {
+    #if os(macOS)
+        @Environment(\.openSettings) private var openSettings
+    #endif
+
+    var body: some View {
+        #if os(macOS)
+            Button {
+                openSettings()
+            } label: {
+                Label(L10n.t(.changeSource), systemImage: "arrow.triangle.2.circlepath")
+            }
+        #else
+            EmptyView()
+        #endif
+    }
+}
+
+extension Color {
+    init(rgb: RGB) {
+        self.init(red: rgb.red, green: rgb.green, blue: rgb.blue)
     }
 }

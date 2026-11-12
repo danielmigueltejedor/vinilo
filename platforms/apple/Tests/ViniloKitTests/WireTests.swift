@@ -119,6 +119,7 @@ struct WireTests {
             .moveInQueue(from: 1, to: 4), .clearQueue,
             .write(action: .addToLibrary, id: "1440857781"),
             .refresh, .play(ids: ["1", "2", "3"], index: 1, mode: .shuffled),
+            .playFiles(paths: ["/Users/fixture/Music/a.flac", "/Users/fixture/Music"]),
             .lyrics(id: "1440857781"), .quit,
         ]
         let expected = try fixtureLines("requests")

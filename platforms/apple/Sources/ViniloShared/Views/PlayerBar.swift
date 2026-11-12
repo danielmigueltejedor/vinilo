@@ -40,7 +40,10 @@ struct PlayerBar: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
-        .glassSurface(in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .glassSurface(
+            in: RoundedRectangle(cornerRadius: 22, style: .continuous),
+            tint: store.tint.map(Color.init(rgb:)))
+        .animation(.easeInOut(duration: 0.6), value: store.tint)
         .padding(.horizontal, 12)
         .padding(.bottom, 10)
     }

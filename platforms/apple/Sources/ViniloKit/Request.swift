@@ -77,6 +77,8 @@ public enum Request: Equatable, Sendable {
     case moveInQueue(from: Int, to: Int)
     case write(action: WriteAction, id: String, playlistId: String? = nil, name: String? = nil)
     case play(ids: [String], index: Int = 0, mode: PlayMode = .clicked)
+    /// Files or folders on this Mac, which the daemon's own decoder plays.
+    case playFiles(paths: [String], index: Int = 0)
     case lyrics(id: String)
 
     /// The request as the daemon reads it: one JSON object.
@@ -126,6 +128,8 @@ public enum Request: Equatable, Sendable {
                 "req": .string("play"), "ids": .array(ids.map(JSONValue.string)),
                 "index": .int(index), "start": .string(mode.rawValue),
             ]
+        case .playFiles(let paths, let index):
+            ["req": .string("playFiles"), "paths": .array(paths.map(JSONValue.string)), "index": .int(index)]
         case .lyrics(let id):
             ["req": .string("lyrics"), "id": .string(id)]
         }

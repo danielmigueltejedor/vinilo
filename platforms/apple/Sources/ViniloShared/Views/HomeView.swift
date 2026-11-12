@@ -17,7 +17,7 @@ struct HomeView: View {
             case .loaded(let discover) where discover.isEmpty:
                 StatusView(
                     symbol: "music.note.house", title: L10n.t(.emptyLibrary),
-                    message: L10n.t(.emptyLibraryBody))
+                    message: L10n.t(store.source == .appleMusic ? .emptyLibraryBody : .emptyLibraryAny))
             case .loaded(let discover):
                 shelves(discover)
             }
@@ -94,7 +94,7 @@ struct LibrarySection: View {
             case .some(.loaded(let rows)) where rows.entries.isEmpty:
                 StatusView(
                     symbol: "music.note.list", title: L10n.t(.emptyLibrary),
-                    message: L10n.t(.emptyLibraryBody))
+                    message: L10n.t(store.source == .appleMusic ? .emptyLibraryBody : .emptyLibraryAny))
             case .some(.loaded(let rows)):
                 if view == .songs {
                     SongList(entries: rows.entries)

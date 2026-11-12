@@ -9,20 +9,24 @@ import ViniloKit
 // Vinilo adopts the system's glass rather than drawing something like it. Toolbars, sidebars and
 // standard controls pick it up from the SDK on their own; the few surfaces that are ours (the
 // player bar, the transport buttons) ask for it by name where the system has it, and use the
-// system's ordinary materials where it does not. Nothing here blurs or tints by hand.
+// system's ordinary materials where it does not. The cover's colour reaches the glass through the
+// system's own tint.
 
 extension View {
     /// A surface of the system's glass on macOS 26 and iOS 26, the system's bar material before.
+    /// `tint` colours the glass the way the system tints it, never with a paint of our own.
     @ViewBuilder
-    func glassSurface<S: Shape>(in shape: S) -> some View {
+    func glassSurface<S: Shape>(in shape: S, tint: Color? = nil) -> some View {
         #if compiler(>=6.2)
             if #available(macOS 26.0, iOS 26.0, *) {
-                self.glassEffect(.regular, in: shape)
+                self.glassEffect(tint.map { Glass.regular.tint($0.opacity(0.55)) } ?? Glass.regular, in: shape)
             } else {
                 self.background(.bar, in: shape)
+                    .background((tint ?? .clear).opacity(0.35), in: shape)
             }
         #else
             self.background(.bar, in: shape)
+                .background((tint ?? .clear).opacity(0.35), in: shape)
         #endif
     }
 

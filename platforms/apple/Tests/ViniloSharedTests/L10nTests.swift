@@ -7,7 +7,7 @@ import ViniloShared
 @Suite("L10n")
 struct L10nTests {
     /// Words that are the same in both languages because they are names, not sentences.
-    private static let sameInBoth: Set<L10n.Key> = [.appName, .appleMusic, .edition]
+    private static let sameInBoth: Set<L10n.Key> = [.appName, .appleMusic, .edition, .beta]
 
     /// Keys whose English word happens to be the key's own name.
     private static let readsAsItsName: Set<L10n.Key> = [.tracks]

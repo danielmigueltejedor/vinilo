@@ -7,7 +7,7 @@ import ViniloShared
 
 @main
 struct ViniloApp: App {
-    @State private var store = PlayerStore()
+    @State private var store = PlayerStore(sources: SourceConfig(edition: .native))
     @State private var supervisor = DaemonSupervisor()
     @State private var system = SystemIntegration()
 
