@@ -90,15 +90,84 @@ public final class PlayerStore {
     /// How each library section is ordered, as the engine sorts it.
     public private(set) var librarySort: [LibraryView: (by: SortBy, reverse: Bool)] = [:]
     @ObservationIgnored private let sources: SourceConfig?
+    @ObservationIgnored private let defaults: UserDefaults?
+    @ObservationIgnored private var coverTints: [String: RGB] = [:]
+
+    /// Playlists and albums kept in the sidebar, in the order a person left them.
+    public private(set) var pins: [Pin] = []
+
+    public struct Pin: Codable, Hashable, Identifiable, Sendable {
+        public var kind: PageKind
+        public var id: String
+        public var name: String
+        public var artwork: String?
+        public var route: PageRoute { PageRoute(kind: kind, id: id) }
+    }
+
+    private static let pinsKey = "vinilo.pins"
 
     /// Called after a snapshot is applied. The macOS app hangs the system's Now Playing on it.
     @ObservationIgnored public var onSnapshot: (@MainActor (Snapshot, _ trackChanged: Bool) -> Void)?
 
     /// `sources` is the engine's configuration folder; without one the store stays on Apple
     /// Music and cannot switch.
-    public init(sources: SourceConfig? = nil) {
+    /// `defaults` keeps the pins; nil keeps them only for this session (tests).
+    public init(sources: SourceConfig? = nil, defaults: UserDefaults? = nil) {
         self.sources = sources
+        self.defaults = defaults
         source = sources?.current() ?? .appleMusic
+        if let data = defaults?.data(forKey: Self.pinsKey),
+            let saved = try? JSONDecoder().decode([Pin].self, from: data)
+        {
+            pins = saved
+        }
+    }
+
+    // MARK: Pins
+
+    public func isPinned(_ entry: Entry) -> Bool {
+        guard let route = entry.pageTarget else { return false }
+        return pins.contains { $0.route == route }
+    }
+
+    public func togglePin(_ entry: Entry) {
+        guard let route = entry.pageTarget else { return }
+        if let index = pins.firstIndex(where: { $0.route == route }) {
+            pins.remove(at: index)
+        } else {
+            pins.append(Pin(kind: route.kind, id: route.id, name: entry.title, artwork: entry.artwork?.template))
+        }
+        savePins()
+    }
+
+    public func unpin(_ pin: Pin) {
+        pins.removeAll { $0 == pin }
+        savePins()
+    }
+
+    public func movePins(from source: IndexSet, to destination: Int) {
+        let moving = source.map { pins[$0] }
+        var rest = pins.enumerated().filter { !source.contains($0.offset) }.map(\.element)
+        let at = destination - source.filter { $0 < destination }.count
+        rest.insert(contentsOf: moving, at: min(max(at, 0), rest.count))
+        pins = rest
+        savePins()
+    }
+
+    private func savePins() {
+        defaults?.set(try? JSONEncoder().encode(pins), forKey: Self.pinsKey)
+    }
+
+    // MARK: Cover colours
+
+    /// The colour of a cover from the catalogue, read once and remembered for the session.
+    public func tint(for artwork: Artwork?) async -> RGB? {
+        guard let artwork, let url = artwork.url(size: 64) else { return nil }
+        if let known = coverTints[artwork.template] { return known }
+        guard let (data, _) = try? await URLSession.shared.data(from: url) else { return nil }
+        let colour = await Task.detached(priority: .utility) { CoverTint.of(data: data) }.value
+        if let colour { coverTints[artwork.template] = colour }
+        return colour
     }
 
     // MARK: Connection

@@ -30,22 +30,53 @@ extension View {
         #endif
     }
 
-    /// A round transport button.
+    /// A round transport button: the system's glass on macOS 26, a circle of the bar material
+    /// before. `circle: false` keeps a capsule for a button with words in it.
     @ViewBuilder
-    func transportButtonStyle(prominent: Bool = false) -> some View {
+    func transportButtonStyle(prominent: Bool = false, circle: Bool = true) -> some View {
         #if compiler(>=6.2)
             if #available(macOS 26.0, iOS 26.0, *) {
-                if prominent {
-                    self.buttonStyle(.glassProminent)
-                } else {
-                    self.buttonStyle(.glass)
+                Group {
+                    if prominent {
+                        self.buttonStyle(.glassProminent)
+                    } else {
+                        self.buttonStyle(.glass)
+                    }
                 }
+                .buttonBorderShape(circle ? .circle : .capsule)
             } else {
-                self.buttonStyle(.borderless)
+                self.buttonStyle(RoundTransportStyle(prominent: prominent, circle: circle))
             }
         #else
-            self.buttonStyle(.borderless)
+            self.buttonStyle(RoundTransportStyle(prominent: prominent, circle: circle))
         #endif
+    }
+}
+
+/// The round button before Liquid Glass: a disc of the bar material, the accent colour when it
+/// is the main action, and a press that sinks a little.
+struct RoundTransportStyle: ButtonStyle {
+    var prominent: Bool
+    var circle: Bool
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .padding(circle ? 10 : 12)
+            .padding(.horizontal, circle ? 0 : 6)
+            .frame(minWidth: circle ? 36 : nil, minHeight: 36)
+            .foregroundStyle(prominent ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
+            .background {
+                if prominent {
+                    Capsule().fill(.tint)
+                } else {
+                    Capsule().fill(.bar)
+                }
+            }
+            .clipShape(Capsule())
+            .scaleEffect(configuration.isPressed ? 0.94 : 1)
+            .opacity(isEnabled ? 1 : 0.4)
+            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
     }
 }
 
@@ -149,8 +180,10 @@ extension StatusView where Actions == EmptyView {
 
 /// An album, artist or playlist in a grid.
 struct EntryTile: View {
+    @Environment(PlayerStore.self) private var store
     var entry: Entry
     var size: CGFloat = 168
+    @State private var hovering = false
 
     private var shape: ArtworkShape {
         if case .artist = entry { return .circle }
@@ -160,14 +193,33 @@ struct EntryTile: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             ArtworkView(artwork: entry.artwork, size: size, shape: shape)
-            Text(entry.title).font(.callout.weight(.medium)).lineLimit(1)
+                .shadow(color: .black.opacity(hovering ? 0.28 : 0.12), radius: hovering ? 14 : 6, y: hovering ? 8 : 3)
+                .scaleEffect(hovering ? 1.03 : 1)
+            Text(entry.title).font(.callout.weight(.semibold)).lineLimit(1)
             if !entry.subtitle.isEmpty {
                 Text(entry.subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
         }
         .frame(width: size, alignment: .leading)
         .contentShape(Rectangle())
+        .onHover { inside in withAnimation(.smooth(duration: 0.2)) { hovering = inside } }
+        .contextMenu {
+            if canPin {
+                Button(
+                    store.isPinned(entry) ? L10n.t(.unpin) : L10n.t(.pin),
+                    systemImage: store.isPinned(entry) ? "pin.slash" : "pin"
+                ) { store.togglePin(entry) }
+            }
+        }
         .accessibilityElement(children: .combine)
+    }
+
+    /// Playlists and albums can live in the sidebar, as in Vinilo Nodalia.
+    private var canPin: Bool {
+        switch entry {
+        case .playlist, .album: true
+        default: false
+        }
     }
 }
 
