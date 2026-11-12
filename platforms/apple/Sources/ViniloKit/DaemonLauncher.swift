@@ -51,6 +51,10 @@ public struct DaemonLauncher: Sendable {
         if daemonEnvironment["XDG_RUNTIME_DIR"].map(\.isEmpty) ?? true {
             daemonEnvironment["TMPDIR"] = environment["TMPDIR"] ?? NSTemporaryDirectory()
         }
+        // Finder starts apps with a bare PATH; YouTube Music and Tidal play through Homebrew's
+        // yt-dlp and ffmpeg.
+        let path = daemonEnvironment["PATH"].flatMap { $0.isEmpty ? nil : $0 } ?? "/usr/bin:/bin"
+        daemonEnvironment["PATH"] = path + ":/opt/homebrew/bin:/usr/local/bin"
         process.environment = daemonEnvironment
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = FileHandle.nullDevice

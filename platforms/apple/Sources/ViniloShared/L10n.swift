@@ -9,7 +9,9 @@ public enum L10n {
     public enum Key: String, CaseIterable, Sendable {
         case appName
         case home, search, library, artists, albums, songs, playlists, services
-        case appleMusic, otherServices, notYetHere
+        case appleMusic
+        case source, sourceBody, localFiles, openFiles, localBody, changeSource, signInAgain
+        case loginTitle, loginBody, cancel, beta, alpha, needsYtDlp, searchIn, emptyLibraryAny
         case playPause, play, pause, next, previous, shuffle, repeatMode, volume, queue
         case nowPlaying, nothingPlaying, upNext, queueEmpty, clearQueue
         case playAll, shuffleAll, addToQueue, playNext
@@ -28,8 +30,18 @@ public enum L10n {
         .appName: "Vinilo",
         .home: "Home", .search: "Search", .library: "Library", .artists: "Artists",
         .albums: "Albums", .songs: "Songs", .playlists: "Playlists", .services: "Services",
-        .appleMusic: "Apple Music", .otherServices: "Other services",
-        .notYetHere: "Available in the engine; choosing one from this app comes later",
+        .appleMusic: "Apple Music",
+        .source: "Music source",
+        .sourceBody: "Vinilo plays from one source at a time. Changing it restarts the engine.",
+        .localFiles: "Files on this Mac", .openFiles: "Open Files…",
+        .localBody: "Choose songs or folders to play them.",
+        .changeSource: "Change source…", .signInAgain: "Sign in again",
+        .loginTitle: "Sign in to %@",
+        .loginBody: "Once you are in, Vinilo keeps the session and closes this window.",
+        .cancel: "Cancel", .beta: "Beta", .alpha: "Alpha",
+        .needsYtDlp: "Plays through yt-dlp and ffmpeg from Homebrew: brew install yt-dlp ffmpeg",
+        .searchIn: "Search %@",
+        .emptyLibraryAny: "What you save in your library appears here.",
         .playPause: "Play or pause", .play: "Play", .pause: "Pause", .next: "Next",
         .previous: "Previous", .shuffle: "Shuffle", .repeatMode: "Repeat", .volume: "Volume",
         .queue: "Queue",
@@ -69,8 +81,18 @@ public enum L10n {
         .home: "Inicio", .search: "Buscar", .library: "Biblioteca", .artists: "Artistas",
         .albums: "Álbumes", .songs: "Canciones", .playlists: "Listas de reproducción",
         .services: "Servicios",
-        .appleMusic: "Apple Music", .otherServices: "Otros servicios",
-        .notYetHere: "Disponible en el motor; elegirlo desde esta app llegará más adelante",
+        .appleMusic: "Apple Music",
+        .source: "Fuente de música",
+        .sourceBody: "Vinilo reproduce de una fuente a la vez. Al cambiarla se reinicia el motor.",
+        .localFiles: "Archivos de este Mac", .openFiles: "Abrir archivos…",
+        .localBody: "Elige canciones o carpetas para reproducirlas.",
+        .changeSource: "Cambiar de fuente…", .signInAgain: "Volver a iniciar sesión",
+        .loginTitle: "Inicia sesión en %@",
+        .loginBody: "Cuando entres, Vinilo guarda la sesión y cierra esta ventana.",
+        .cancel: "Cancelar", .beta: "Beta", .alpha: "Alfa",
+        .needsYtDlp: "Suena a través de yt-dlp y ffmpeg de Homebrew: brew install yt-dlp ffmpeg",
+        .searchIn: "Buscar en %@",
+        .emptyLibraryAny: "Lo que guardes en tu biblioteca aparece aquí.",
         .playPause: "Reproducir o pausar", .play: "Reproducir", .pause: "Pausar",
         .next: "Siguiente", .previous: "Anterior", .shuffle: "Aleatorio", .repeatMode: "Repetir",
         .volume: "Volumen", .queue: "Cola",

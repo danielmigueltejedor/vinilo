@@ -9,6 +9,10 @@ struct PlaybackCommands: Commands {
     var store: PlayerStore
 
     var body: some Commands {
+        CommandGroup(replacing: .newItem) {
+            Button(L10n.t(.openFiles)) { store.choosingFiles = true }
+                .keyboardShortcut("o")
+        }
         CommandMenu(L10n.t(.playback)) {
             Button(store.snapshot.playing ? L10n.t(.pause) : L10n.t(.play)) { store.playPause() }
                 .keyboardShortcut(.space, modifiers: [])

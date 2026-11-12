@@ -6,8 +6,9 @@ import ViniloKit
 
 /// The expanded player: the cover large, the song, and the controls, over the window.
 ///
-/// It is the window's own background and the system's controls; the cover is the only colour.
-/// Nothing animates continuously, so it costs nothing while it is open.
+/// The sleeve dresses it: its colour from top to bottom, the cover itself enlarged and blurred
+/// behind, and the text in white over both. Nothing animates continuously, so it costs nothing
+/// while it is open.
 struct NowPlayingView: View {
     @Environment(PlayerStore.self) private var store
     var close: () -> Void
@@ -54,6 +55,36 @@ struct NowPlayingView: View {
         }
         .padding(28)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(.background)
+        .foregroundStyle(.white)
+        .environment(\.colorScheme, .dark)
+        .background { Backdrop(tint: store.tint, artPath: store.snapshot.artPath) }
+        .animation(.easeInOut(duration: 0.6), value: store.tint)
+    }
+}
+
+/// The cover's colour, and the cover itself filling the window, out of focus.
+private struct Backdrop: View {
+    var tint: RGB?
+    var artPath: String?
+
+    var body: some View {
+        let colour = tint.map(Color.init(rgb:)) ?? Color(white: 0.16)
+        ZStack {
+            colour
+            if let artPath {
+                GeometryReader { proxy in
+                    let side = max(proxy.size.width, proxy.size.height) * 1.2
+                    ArtworkView(file: artPath, size: side, shape: .rounded(0))
+                        .frame(width: proxy.size.width, height: proxy.size.height)
+                        .blur(radius: 70, opaque: true)
+                        .opacity(0.55)
+                }
+            }
+            LinearGradient(
+                colors: [colour.opacity(0.35), colour.opacity(0.75), .black.opacity(0.55)],
+                startPoint: .top, endPoint: .bottom)
+        }
+        .ignoresSafeArea()
+        .accessibilityHidden(true)
     }
 }

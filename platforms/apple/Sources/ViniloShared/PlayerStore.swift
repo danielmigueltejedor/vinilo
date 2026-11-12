@@ -65,14 +65,26 @@ public final class PlayerStore {
     public private(set) var error: String?
     /// Lines the app could not read: the engine and the app disagree on the wire format.
     public private(set) var unreadableLines = 0
+    /// Where the music comes from. The engine reads it when it starts.
+    public private(set) var source: MusicSource
+    /// The colour of the cover playing now, once it has been read.
+    public private(set) var tint: RGB?
+    /// Set to ask the window for its file chooser, from a menu or a button.
+    public var choosingFiles = false
 
     @ObservationIgnored private var link: (any DaemonLink)?
     @ObservationIgnored private var wantedSearch = ""
+    @ObservationIgnored private let sources: SourceConfig?
 
     /// Called after a snapshot is applied. The macOS app hangs the system's Now Playing on it.
     @ObservationIgnored public var onSnapshot: (@MainActor (Snapshot, _ trackChanged: Bool) -> Void)?
 
-    public init() {}
+    /// `sources` is the engine's configuration folder; without one the store stays on Apple
+    /// Music and cannot switch.
+    public init(sources: SourceConfig? = nil) {
+        self.sources = sources
+        source = sources?.current() ?? .appleMusic
+    }
 
     // MARK: Connection
 
@@ -121,7 +133,9 @@ public final class PlayerStore {
         switch event {
         case .snapshot(let next):
             let trackChanged = next.trackId != snapshot.trackId
+            let coverChanged = next.artPath != snapshot.artPath
             snapshot = next
+            if coverChanged { readTint(next.artPath) }
             snapshotReceivedAt = Date()
             onSnapshot?(next, trackChanged)
         case .queue(let items, let position):
@@ -278,6 +292,48 @@ public final class PlayerStore {
     public func enqueue(_ entry: Entry, next: Bool) {
         guard case .song(let track) = entry, let id = track.catalogId else { return }
         send(.enqueue(ids: [id], next: next))
+    }
+
+    public func playFiles(_ urls: [URL]) {
+        let paths = urls.filter(\.isFileURL).map(\.path)
+        guard !paths.isEmpty else { return }
+        send(.playFiles(paths: paths))
+    }
+
+    // MARK: Source
+
+    /// Writes the choice and restarts the engine on it: it reads the source only when it starts.
+    public func choose(_ next: MusicSource) throws {
+        guard let sources else { return }
+        try sources.choose(next)
+        source = next
+        restartEngine()
+    }
+
+    public func isConfigured(_ candidate: MusicSource) -> Bool {
+        sources?.isConfigured(candidate) ?? (candidate == .appleMusic)
+    }
+
+    /// What was drawn belonged to the engine that is going; the next one answers afresh.
+    private func restartEngine() {
+        library = [:]
+        discover = .idle
+        pages = [:]
+        search = nil
+        searching = false
+        stage = .connecting
+        send(.quit)
+    }
+
+    private func readTint(_ path: String?) {
+        guard let path else {
+            tint = nil
+            return
+        }
+        Task {
+            let colour = await Task.detached(priority: .utility) { CoverTint.of(file: path) }.value
+            if snapshot.artPath == path { tint = colour }
+        }
     }
 
     public func signIn() { send(.signIn) }

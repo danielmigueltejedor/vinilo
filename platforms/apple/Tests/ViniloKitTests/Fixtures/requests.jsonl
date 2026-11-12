@@ -24,5 +24,6 @@
 {"req":"write","action":"addToLibrary","id":"1440857781","playlist_id":null,"name":null}
 {"req":"refresh"}
 {"req":"play","ids":["1","2","3"],"index":1,"start":"shuffled"}
+{"req":"playFiles","paths":["/Users/fixture/Music/a.flac","/Users/fixture/Music"],"index":0}
 {"req":"lyrics","id":"1440857781"}
 {"req":"quit"}
