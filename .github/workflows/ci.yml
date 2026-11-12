@@ -92,16 +92,21 @@ jobs:
 
       # The DMG is built on every run so a change that breaks the bundle shows
       # here, and so the result can be downloaded and opened on a Mac.
-      - name: Vinilo.app and DMG
+      - name: Vinilo Nodalia.app and DMG
+        env:
+          # castLabs EVS, for the Widevine VMP signature Apple Music needs on macOS. Absent on
+          # pull requests from forks: the build then warns and stays unsigned.
+          EVS_ACCOUNT_NAME: ${{ secrets.EVS_ACCOUNT_NAME }}
+          EVS_PASSWD: ${{ secrets.EVS_PASSWD }}
         run: |
           set -euxo pipefail
           cargo build --release --locked
           make sidecar
           ./packaging/macos/bundle.sh dist/macos
           VERSION=$(awk -F\" '/^version = / {print $2; exit}' Cargo.toml)
-          ./packaging/macos/create_dmg.sh dist/macos/Vinilo.app "dist/Vinilo-${VERSION}-macos-arm64.dmg"
+          ./packaging/macos/create_dmg.sh "dist/macos/Vinilo Nodalia.app" "dist/Vinilo-${VERSION}-nodalia-macos-arm64.dmg"
           # Nothing outside the bundle but the system's own libraries.
-          for bin in dist/macos/Vinilo.app/Contents/MacOS/vinilo dist/macos/Vinilo.app/Contents/MacOS/vinilod; do
+          for bin in "dist/macos/Vinilo Nodalia.app/Contents/MacOS/vinilo" "dist/macos/Vinilo Nodalia.app/Contents/MacOS/vinilod"; do
             outside=$(otool -L "$bin" | tail -n +2 | grep -v -E '@rpath|@executable_path|@loader_path|/usr/lib/|/System/' || true)
             if [ -n "$outside" ]; then echo "$bin links outside the bundle:"; echo "$outside"; exit 1; fi
           done
@@ -109,8 +114,8 @@ jobs:
       - name: Keep DMG
         uses: actions/upload-artifact@v6
         with:
-          name: macos-dmg
-          path: dist/Vinilo-*-macos-arm64.dmg
+          name: macos-nodalia-dmg
+          path: dist/Vinilo-*-nodalia-macos-arm64.dmg
           retention-days: 7
 
   packaging-changed:

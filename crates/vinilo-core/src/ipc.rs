@@ -43,15 +43,15 @@ fn runtime_dir() -> Option<std::path::PathBuf> {
 /// logout, which is what a socket wants — a stale one in `~` outlives the
 /// process that made it.
 pub fn socket_path() -> Option<std::path::PathBuf> {
-    Some(runtime_dir()?.join("vinilo.sock"))
+    Some(runtime_dir()?.join(crate::edition::runtime_name("sock")))
 }
 
 fn pid_path() -> Option<std::path::PathBuf> {
-    Some(runtime_dir()?.join("vinilo.pid"))
+    Some(runtime_dir()?.join(crate::edition::runtime_name("pid")))
 }
 
 fn source_stamp_path() -> Option<std::path::PathBuf> {
-    Some(runtime_dir()?.join("vinilo.source"))
+    Some(runtime_dir()?.join(crate::edition::runtime_name("source")))
 }
 
 /// Record which source this process is serving, so a later client can tell a
@@ -165,7 +165,8 @@ impl SpawnLock {
     fn acquire() -> Self {
         use std::os::fd::AsRawFd;
 
-        let Some(path) = runtime_dir().map(|dir| dir.join("vinilo.lock")) else {
+        let Some(path) = runtime_dir().map(|dir| dir.join(crate::edition::runtime_name("lock")))
+        else {
             return Self(None);
         };
         let Ok(file) = std::fs::OpenOptions::new()

@@ -80,8 +80,14 @@ impl Provider {
         Self::ALL.iter().position(|p| *p == self).unwrap_or(0) as u32
     }
 
+    /// Whether this source can play on this system. Apple Music on macOS needs a player with
+    /// Widevine's VMP signature: without it MusicKit only plays 90-second previews that cannot
+    /// be skipped, so an unsigned build does not offer the source there.
     pub fn is_available(self) -> bool {
-        true
+        if self != Self::AppleMusic || !cfg!(target_os = "macos") {
+            return true;
+        }
+        crate::player::sidecar::locate().is_ok_and(|dir| crate::player::sidecar::vmp_signed(&dir))
     }
 
     /// Whether MusicKit (and therefore the Chromium sidecar) is required.
@@ -150,6 +156,19 @@ pub fn save(provider: Provider) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn every_source_but_apple_music_is_offered_everywhere() {
+        // Apple Music on macOS depends on the bundled player's signature (vmp_signed).
+        if !cfg!(target_os = "macos") {
+            assert!(Provider::AppleMusic.is_available());
+        }
+        for provider in Provider::ALL {
+            if provider != Provider::AppleMusic {
+                assert!(provider.is_available(), "{provider:?}");
+            }
+        }
+    }
+
     use super::*;
 
     #[test]

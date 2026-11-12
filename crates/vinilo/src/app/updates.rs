@@ -22,10 +22,10 @@ use super::{AppModel, AppMsg, CommandMsg};
 pub(super) const APP: nu::App = nu::App {
     name: "Vinilo",
     repo: "danielmigueltejedor/vinilo",
-    bundle: "Vinilo.app",
+    bundle: "Vinilo Nodalia.app",
     version: env!("CARGO_PKG_VERSION"),
-    // One build per platform until the release carries two macOS editions.
-    edition: None,
+    // On macOS the release carries two disk images, one per edition; this one takes its own.
+    edition: Some("nodalia"),
 };
 
 /// An automatic check is skipped if one ran less than this long ago.
