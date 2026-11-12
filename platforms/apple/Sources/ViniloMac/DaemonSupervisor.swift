@@ -12,18 +12,15 @@ import ViniloShared
 final class DaemonSupervisor {
     private var connection: DaemonConnection?
     private var terminating = false
-    private var observer: (any NSObjectProtocol)?
 
+    /// The supervisor lives as long as the app does, so the observer is never removed: a `deinit`
+    /// cannot touch it anyway, the token being neither Sendable nor main-actor isolated there.
     init() {
-        observer = NotificationCenter.default.addObserver(
+        NotificationCenter.default.addObserver(
             forName: NSApplication.willTerminateNotification, object: nil, queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.shutdown() }
         }
-    }
-
-    deinit {
-        if let observer { NotificationCenter.default.removeObserver(observer) }
     }
 
     /// The engine inside the app, or one named by `VINILOD_PATH` for a build run from the tree.
