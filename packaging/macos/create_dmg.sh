@@ -37,7 +37,9 @@ stage_mb="$(du -sm "$stage" | cut -f1)"
 hdiutil create -srcfolder "$stage" -volname "$volname" -fs HFS+ \
   -format UDRW -size "$((stage_mb + stage_mb / 5 + 40))m" "$rw" >/dev/null
 
-hdiutil attach -readwrite -noverify -noautoopen "$rw" >/dev/null
+# The first line of the listing is the whole disk: detaching it releases every volume on it.
+dev="$(hdiutil attach -readwrite -noverify -noautoopen "$rw" | awk 'NR==1 {print $1}')"
+[[ -n "$dev" ]] || { echo "could not attach $rw" >&2; exit 1; }
 mount="/Volumes/$volname"
 for _ in $(seq 1 50); do [[ -d "$mount" ]] && break; sleep 0.1; done
 [[ -d "$mount" ]] || { echo "Failed to mount $rw" >&2; exit 1; }
@@ -79,13 +81,15 @@ layout_window || echo "warning: could not arrange the DMG window; continuing wit
 sync
 # Finder or Spotlight can keep the volume busy for a moment after the layout
 # step; a failed eject must not fail the release.
+attached() { hdiutil info | grep -qE "^${dev}[[:space:]]"; }
 detached=0
 for _ in 1 2 3 4 5 6 7 8; do
-  # The volume can already be gone (ejected by Finder, or never settled): nothing to detach.
-  if [[ ! -d "$mount" ]] || hdiutil detach "$mount" >/dev/null 2>&1; then detached=1; break; fi
+  # Detached by device, so a volume that is already gone (ejected by Finder) cannot
+  # leave the image attached behind it.
+  if hdiutil detach "$dev" >/dev/null 2>&1 || ! attached; then detached=1; break; fi
   sleep 3
 done
-((detached)) || [[ ! -d "$mount" ]] || hdiutil detach -force "$mount" >/dev/null
+((detached)) || ! attached || hdiutil detach -force "$dev" >/dev/null
 
 rm -f "$out"
 hdiutil convert "$rw" -format UDZO -imagekey zlib-level=9 -o "$out" >/dev/null
