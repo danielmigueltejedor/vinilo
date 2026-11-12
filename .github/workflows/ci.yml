@@ -42,10 +42,10 @@ jobs:
             git pkgconf rust gtk4 librsvg libpulse webkitgtk-6.0
           rustc --version
 
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
       - name: Cache cargo
-        uses: actions/cache@v5
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
           path: |
             ~/.cargo/registry
@@ -66,7 +66,7 @@ jobs:
     # DMG needs that version or newer; Info.plist says which.
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
       - name: Install the build floor
         run: |
@@ -78,7 +78,7 @@ jobs:
         run: ./packaging/macos/xcode_sdk.sh select
 
       - name: Cache cargo
-        uses: actions/cache@v5
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
           path: |
             ~/.cargo/registry
@@ -116,7 +116,7 @@ jobs:
           done
 
       - name: Keep DMG
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: macos-nodalia-dmg
           path: dist/Vinilo-*-nodalia-macos-arm64.dmg
@@ -128,7 +128,7 @@ jobs:
     # materials when built with an older SDK, but the DMG people download should have the glass.
     runs-on: macos-26
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
       - name: Install the build floor
         run: |
@@ -137,7 +137,7 @@ jobs:
           swift --version
 
       - name: Cache cargo
-        uses: actions/cache@v5
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
           path: |
             ~/.cargo/registry
@@ -169,7 +169,7 @@ jobs:
           done
 
       - name: Keep DMG
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: macos-native-dmg
           path: dist/Vinilo-*-native-macos-arm64.dmg
@@ -181,7 +181,7 @@ jobs:
     outputs:
       changed: ${{ steps.filter.outputs.any }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           fetch-depth: 2
       # Deliberately a plain `git diff` rather than an action: the question is
@@ -229,7 +229,7 @@ jobs:
       (github.event_name == 'push' && needs.packaging-changed.outputs.changed == 'true')
     needs: [packaging-changed]
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
       # **No prebuilt Flatpak image.** The usual one
       # (`bilelmoussaoui/flatpak-github-actions`) stops at `gnome-47`, and this
@@ -257,7 +257,7 @@ jobs:
         run: make flatpak-bundle
 
       - name: Keep the bundle for a while
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: Vinilo.flatpak
           path: Vinilo.flatpak
