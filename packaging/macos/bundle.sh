@@ -73,20 +73,6 @@ sidecar="$app/Contents/Resources/sidecar"
 mkdir -p "$sidecar"
 cp -R sidecar/package.json sidecar/main.js sidecar/preload.js sidecar/queue-identity.js sidecar/node_modules "$sidecar/"
 
-# Apple Music on a Mac needs Widevine to see a VMP-signed browser, or Apple serves 90-second
-# previews instead of songs. castLabs signs the Electron for free (https://github.com/castlabs/
-# electron-releases/wiki/EVS); on macOS that happens BEFORE the code signature below. Without
-# credentials the build still works, and says what it costs.
-vmp_marker="$sidecar/vmp-signed"
-rm -f "$vmp_marker"
-if [[ -n "${EVS_ACCOUNT_NAME:-}" && -n "${EVS_PASSWD:-}" ]]; then
-    python3 -m castlabs_evs.vmp --no-ask sign-pkg "$sidecar/node_modules/electron/dist"
-    python3 -m castlabs_evs.vmp verify-pkg "$sidecar/node_modules/electron/dist"
-    date -u +%Y-%m-%dT%H:%M:%SZ > "$vmp_marker"
-else
-    echo "warning: no EVS credentials, so Widevine is not VMP-signed: Apple Music plays previews only on this build" >&2
-fi
-
 cp COPYING "$app/Contents/Resources/COPYING"
 
 # Every non-system library, copied in and pointed at, then an ad-hoc signature.

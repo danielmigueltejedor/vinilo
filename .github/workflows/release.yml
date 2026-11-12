@@ -303,14 +303,8 @@ jobs:
         run: |
           brew install gtk4 librsvg adwaita-icon-theme pkgconf node
           rustup default stable
-          python3 -m pip install --break-system-packages --upgrade castlabs-evs
 
       - name: Build Vinilo Nodalia.app and the DMG
-        env:
-          # castLabs EVS, which VMP-signs the Electron so Apple Music plays full songs on macOS.
-          # Optional: without these the DMG is built and Apple Music plays previews only.
-          EVS_ACCOUNT_NAME: ${{ secrets.EVS_ACCOUNT_NAME }}
-          EVS_PASSWD: ${{ secrets.EVS_PASSWD }}
         run: |
           set -euxo pipefail
           VERSION=$(awk -F\" '/^version = / {print $2; exit}' Cargo.toml)
