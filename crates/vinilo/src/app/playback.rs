@@ -212,9 +212,11 @@ impl AppModel {
                 let sender = sender.clone();
                 self.tick = Some(gtk::glib::timeout_add_local(
                     std::time::Duration::from_millis(TICK_MS as u64),
-                    move || {
-                        sender.input(AppMsg::Tick);
-                        gtk::glib::ControlFlow::Continue
+                    // Not `input`: it panics once the app's runtime is gone, and a timer
+                    // can still fire after that.
+                    move || match sender.input_sender().send(AppMsg::Tick) {
+                        Ok(()) => gtk::glib::ControlFlow::Continue,
+                        Err(_) => gtk::glib::ControlFlow::Break,
                     },
                 ));
             }
