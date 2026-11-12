@@ -118,6 +118,59 @@ jobs:
           path: dist/Vinilo-*-nodalia-macos-arm64.dmg
           retention-days: 7
 
+  macos-native:
+    name: macOS · Vinilo Native · tests · DMG
+    # The SwiftUI edition. Xcode 26 is what carries Liquid Glass; the code falls back to plain
+    # materials when built with an older SDK, but the DMG people download should have the glass.
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install the build floor
+        run: |
+          brew install node
+          rustup default stable
+          swift --version
+
+      - name: Cache cargo
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-native-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: cargo-native-${{ runner.os }}-
+
+      - name: Swift tests
+        run: swift test --package-path platforms/apple
+
+      - name: Vinilo Native.app and DMG
+        env:
+          # castLabs EVS, for the Widevine VMP signature Apple Music needs on macOS. Absent on
+          # pull requests from forks: the build then warns and stays unsigned.
+          EVS_ACCOUNT_NAME: ${{ secrets.EVS_ACCOUNT_NAME }}
+          EVS_PASSWD: ${{ secrets.EVS_PASSWD }}
+        run: |
+          set -euxo pipefail
+          cargo build --release -p vinilod --locked
+          make sidecar
+          ./platforms/apple/build.sh dist/macos
+          VERSION=$(awk -F\" '/^version = / {print $2; exit}' Cargo.toml)
+          ./packaging/macos/create_dmg.sh "dist/macos/Vinilo Native.app" "dist/Vinilo-${VERSION}-native-macos-arm64.dmg"
+          # Nothing outside the bundle but the system's own libraries.
+          for bin in "dist/macos/Vinilo Native.app/Contents/MacOS/ViniloNative" "dist/macos/Vinilo Native.app/Contents/MacOS/vinilod"; do
+            outside=$(otool -L "$bin" | tail -n +2 | grep -v -E '@rpath|@executable_path|@loader_path|/usr/lib/|/System/' || true)
+            if [ -n "$outside" ]; then echo "$bin links outside the bundle:"; echo "$outside"; exit 1; fi
+          done
+
+      - name: Keep DMG
+        uses: actions/upload-artifact@v6
+        with:
+          name: macos-native-dmg
+          path: dist/Vinilo-*-native-macos-arm64.dmg
+          retention-days: 7
+
   packaging-changed:
     name: Did the packaging move?
     runs-on: ubuntu-latest

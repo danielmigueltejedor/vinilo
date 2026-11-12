@@ -158,18 +158,29 @@ looks stale.
 
 ### macOS (Apple Silicon)
 
-Download `Vinilo-<version>-macos-arm64.dmg` from the
+Every release ships two editions as separate DMGs. They have their own bundle
+identifiers and their own settings, so they install side by side:
+
+| DMG | Edition | What it is |
+| --- | --- | --- |
+| `Vinilo-<version>-native-macos-arm64.dmg` | **Vinilo Native** | SwiftUI, with the system's own controls and, on macOS 26, Liquid Glass |
+| `Vinilo-<version>-nodalia-macos-arm64.dmg` | **Vinilo Nodalia** | the GTK interface in the Nodalia Design Language, the same as on Linux |
+
+Download one from the
 [latest release](https://github.com/danielmigueltejedor/vinilo/releases/latest),
-open it and drag Vinilo to Applications. The app is signed ad-hoc, not
-notarized, so the first time macOS refuses to open it: right-click Vinilo in
-Applications, choose **Open**, and confirm.
+open it and drag it to Applications. The apps are signed ad-hoc, not
+notarized, so the first time macOS refuses to open one: right-click it in
+Applications, choose **Open**, and confirm. See
+[docs/macos-editions.md](docs/macos-editions.md) for how the two differ, how
+to build them, and what is and is not verified.
 
 YouTube Music, Tidal and links play through `yt-dlp` and `ffmpeg`:
 `brew install yt-dlp ffmpeg`. Those sources sign in through your browser, and
 Vinilo reads the session back when you press Done.
 
-To build it yourself: `brew install gtk4 librsvg adwaita-icon-theme pkgconf node`,
+To build Vinilo Nodalia yourself: `brew install gtk4 librsvg adwaita-icon-theme pkgconf node`,
 then `cargo build --release && make sidecar && packaging/macos/bundle.sh dist/macos`.
+For Vinilo Native: `cargo build --release -p vinilod && make sidecar && platforms/apple/build.sh dist/macos`.
 
 ### Default player for files
 
