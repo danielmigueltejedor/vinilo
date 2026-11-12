@@ -28,14 +28,14 @@ struct HomeView: View {
 
     private func shelves(_ discover: Discover) -> some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 28) {
+            LazyVStack(alignment: .leading, spacing: 34) {
                 shelf(L10n.t(.recentlyPlayed), discover.recentlyPlayed)
                 shelf(L10n.t(.madeForYou), discover.recommendedPlaylists)
                 shelf(L10n.t(.recentlyAdded), discover.recentlyAdded)
                 shelf(L10n.t(.charts), discover.charts)
                 if !discover.recommendedSongs.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text(L10n.t(.topSongs)).font(.title3.weight(.semibold))
+                        Text(L10n.t(.topSongs)).font(.title2.weight(.bold))
                         let songs = discover.recommendedSongs.map(Entry.song)
                         ForEach(Array(songs.enumerated()), id: \.offset) { _, entry in
                             if case .song(let track) = entry {
@@ -45,7 +45,8 @@ struct HomeView: View {
                     }
                 }
             }
-            .padding(20)
+            .padding(.horizontal, 28)
+            .padding(.vertical, 24)
         }
     }
 
@@ -53,9 +54,9 @@ struct HomeView: View {
     private func shelf(_ title: String, _ entries: [Entry]) -> some View {
         if !entries.isEmpty {
             VStack(alignment: .leading, spacing: 10) {
-                Text(title).font(.title3.weight(.semibold))
+                Text(title).font(.title2.weight(.bold))
                 ScrollView(.horizontal, showsIndicators: false) {
-                    LazyHStack(alignment: .top, spacing: 18) {
+                    LazyHStack(alignment: .top, spacing: 20) {
                         ForEach(Array(entries.enumerated()), id: \.offset) { _, entry in
                             tile(entry, in: entries)
                         }

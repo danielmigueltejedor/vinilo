@@ -15,10 +15,11 @@ struct PlayerBar: View {
         HStack(spacing: 18) {
             Button(action: openNowPlaying) {
                 HStack(spacing: 10) {
-                    ArtworkView(file: store.snapshot.artPath, size: 44, shape: .rounded(6))
+                    ArtworkView(file: store.snapshot.artPath, size: 48, shape: .rounded(9))
+                        .shadow(color: .black.opacity(0.25), radius: 6, y: 3)
                     VStack(alignment: .leading, spacing: 1) {
                         Text(store.snapshot.hasTrack ? store.snapshot.title : L10n.t(.nothingPlaying))
-                            .font(.callout.weight(.medium)).lineLimit(1)
+                            .font(.callout.weight(.semibold)).lineLimit(1)
                         if !store.snapshot.artist.isEmpty {
                             Text(store.snapshot.artist).font(.caption).foregroundStyle(.secondary)
                                 .lineLimit(1)

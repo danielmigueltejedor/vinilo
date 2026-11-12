@@ -35,6 +35,19 @@ public enum CoverTint {
         return average(of: image).map(toned)
     }
 
+    /// The same, from an image already in memory (a cover fetched over the network).
+    public static func of(data: Data) -> RGB? {
+        let options =
+            [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceThumbnailMaxPixelSize: 32,
+            ] as CFDictionary
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+            let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options)
+        else { return nil }
+        return average(of: image).map(toned)
+    }
+
     /// Weighted by saturation, so a vivid detail is not lost in a grey field.
     static func average(of image: CGImage) -> RGB? {
         let side = 16

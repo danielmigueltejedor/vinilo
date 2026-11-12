@@ -11,7 +11,7 @@ public enum L10n {
         case home, search, library, artists, albums, songs, playlists, services
         case appleMusic, lyrics, noLyrics
         case all, sort, sortTitle, sortArtist, sortAlbum, sortYear, ascending, descending
-        case filterLibrary, addToLibrary, favorite
+        case filterLibrary, addToLibrary, favorite, pin, unpin, pinned
         case source, sourceBody, localFiles, openFiles, localBody, changeSource, signInAgain
         case loginTitle, loginBody, cancel, beta, alpha, needsYtDlp, searchIn, emptyLibraryAny
         case playPause, play, pause, next, previous, shuffle, repeatMode, volume, queue
@@ -36,6 +36,7 @@ public enum L10n {
         .all: "All", .sort: "Sort", .sortTitle: "Title", .sortArtist: "Artist", .sortAlbum: "Album",
         .sortYear: "Year", .ascending: "Ascending", .descending: "Descending",
         .filterLibrary: "Filter", .addToLibrary: "Add to Library", .favorite: "Favourite",
+        .pin: "Pin to the Sidebar", .unpin: "Unpin from the Sidebar", .pinned: "Pinned",
         .source: "Music source",
         .sourceBody: "Vinilo plays from one source at a time. Changing it restarts the engine.",
         .localFiles: "Files on this Mac", .openFiles: "Open Files…",
@@ -90,6 +91,7 @@ public enum L10n {
         .all: "Todo", .sort: "Ordenar", .sortTitle: "Título", .sortArtist: "Artista", .sortAlbum: "Álbum",
         .sortYear: "Año", .ascending: "Ascendente", .descending: "Descendente",
         .filterLibrary: "Filtrar", .addToLibrary: "Añadir a la biblioteca", .favorite: "Favorito",
+        .pin: "Anclar a la barra lateral", .unpin: "Quitar de la barra lateral", .pinned: "Ancladas",
         .source: "Fuente de música",
         .sourceBody: "Vinilo reproduce de una fuente a la vez. Al cambiarla se reinicia el motor.",
         .localFiles: "Archivos de este Mac", .openFiles: "Abrir archivos…",

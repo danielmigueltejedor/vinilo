@@ -25,10 +25,15 @@ public struct RootView: View {
         SidebarItem(rawValue: selectionName) ?? .home
     }
 
-    private var selection: Binding<SidebarItem?> {
+    /// A pinned playlist or album, when that is what the sidebar has selected.
+    private var pinned: PlayerStore.Pin? {
+        store.pins.first { Sidebar.tag(for: $0) == selectionName }
+    }
+
+    private var selection: Binding<String?> {
         Binding(
-            get: { item },
-            set: { if let value = $0 { selectionName = value.rawValue } }
+            get: { selectionName },
+            set: { if let value = $0 { selectionName = value } }
         )
     }
 
@@ -37,7 +42,7 @@ public struct RootView: View {
             NavigationSplitView {
                 Sidebar(selection: selection)
             } detail: {
-                Detail(item: item, searchText: $searchText)
+                Detail(item: item, pinned: pinned, searchText: $searchText)
                     .safeAreaInset(edge: .bottom, spacing: 0) {
                         PlayerBar(openNowPlaying: toggleNowPlaying)
                     }
@@ -125,7 +130,9 @@ private struct Banner: View {
 
 private struct Sidebar: View {
     @Environment(PlayerStore.self) private var store
-    @Binding var selection: SidebarItem?
+    @Binding var selection: String?
+
+    static func tag(for pin: PlayerStore.Pin) -> String { "pin:\(pin.kind.rawValue):\(pin.id)" }
 
     var body: some View {
         List(selection: $selection) {
@@ -138,6 +145,21 @@ private struct Sidebar: View {
                 row(.albums)
                 row(.songs)
                 row(.playlists)
+            }
+            if !store.pins.isEmpty {
+                Section(L10n.t(.pinned)) {
+                    ForEach(store.pins) { pin in
+                        HStack(spacing: 8) {
+                            ArtworkView(artwork: pin.artwork.map(Artwork.init(template:)), size: 22, shape: .rounded(5))
+                            Text(pin.name).lineLimit(1)
+                        }
+                        .tag(Self.tag(for: pin))
+                        .contextMenu {
+                            Button(L10n.t(.unpin), systemImage: "pin.slash") { store.unpin(pin) }
+                        }
+                    }
+                    .onMove { store.movePins(from: $0, to: $1) }
+                }
             }
             Section(L10n.t(.source)) {
                 Label(store.source.displayName, systemImage: store.source.symbol)
@@ -157,7 +179,7 @@ private struct Sidebar: View {
     }
 
     private func row(_ item: SidebarItem) -> some View {
-        Label(item.title, systemImage: item.symbol).tag(item)
+        Label(item.title, systemImage: item.symbol).tag(item.rawValue)
     }
 }
 
@@ -166,6 +188,7 @@ private struct Sidebar: View {
 private struct Detail: View {
     @Environment(PlayerStore.self) private var store
     var item: SidebarItem
+    var pinned: PlayerStore.Pin?
     @Binding var searchText: String
 
     var body: some View {
@@ -194,11 +217,17 @@ private struct Detail: View {
                 symbol: "exclamationmark.triangle", title: L10n.t(.brokenTitle), message: detail)
         case .ready:
             NavigationStack {
-                content
-                    .navigationDestination(for: PageRoute.self) { PageView(route: $0) }
+                Group {
+                    if let pinned {
+                        PageView(route: pinned.route)
+                    } else {
+                        content
+                    }
+                }
+                .navigationDestination(for: PageRoute.self) { PageView(route: $0) }
             }
             // A new section starts a new stack, not a page pushed onto the old one.
-            .id(item)
+            .id(pinned.map(Sidebar.tag(for:)) ?? item.rawValue)
         }
     }
 

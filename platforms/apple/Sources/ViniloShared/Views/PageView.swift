@@ -10,6 +10,8 @@ import ViniloKit
 struct PageView: View {
     @Environment(PlayerStore.self) private var store
     var route: PageRoute
+    /// The cover's colour, washed down from the top of the page as in Vinilo Nodalia.
+    @State private var wash: RGB?
 
     var body: some View {
         Group {
@@ -22,6 +24,14 @@ struct PageView: View {
         }
         .navigationTitle(title)
         .task(id: route) { store.open(route) }
+        .task(id: headerArtwork?.template) {
+            wash = await store.tint(for: headerArtwork)
+        }
+    }
+
+    private var headerArtwork: Artwork? {
+        if case .loaded(let page) = store.pages[route] { return page.header.artwork }
+        return nil
     }
 
     private var title: String {
@@ -60,17 +70,23 @@ struct PageView: View {
             }
             .padding(24)
         }
+        .background(alignment: .top) { HeaderWash(colour: wash, artwork: page.header.artwork) }
     }
 
     private func header(_ entry: Entry, songs: [Entry]) -> some View {
-        HStack(alignment: .bottom, spacing: 24) {
-            ArtworkView(artwork: entry.artwork, size: 220, shape: headerShape(entry))
+        HStack(alignment: .bottom, spacing: 28) {
+            ArtworkView(artwork: entry.artwork, size: 232, shape: headerShape(entry))
+                .shadow(color: .black.opacity(0.35), radius: 24, y: 12)
             VStack(alignment: .leading, spacing: 8) {
-                Text(kindLabel(entry)).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                Text(kindLabel(entry)).font(.caption.weight(.bold))
+                    .foregroundStyle(wash == nil ? AnyShapeStyle(.secondary) : AnyShapeStyle(.white.opacity(0.75)))
                     .textCase(.uppercase)
-                Text(entry.title).font(.largeTitle.weight(.bold)).lineLimit(3)
+                    .tracking(1.2)
+                Text(entry.title).font(.system(size: 40, weight: .heavy)).lineLimit(3)
+                    .foregroundStyle(wash == nil ? AnyShapeStyle(.primary) : AnyShapeStyle(.white))
                 if !entry.subtitle.isEmpty {
-                    Text(entry.subtitle).font(.title3).foregroundStyle(.secondary)
+                    Text(entry.subtitle).font(.title3.weight(.medium))
+                        .foregroundStyle(wash == nil ? AnyShapeStyle(.secondary) : AnyShapeStyle(.white.opacity(0.8)))
                 }
                 if !songs.isEmpty {
                     HStack {
@@ -79,13 +95,23 @@ struct PageView: View {
                         } label: {
                             Label(L10n.t(.playAll), systemImage: "play.fill")
                         }
-                        .transportButtonStyle(prominent: true)
+                        .transportButtonStyle(prominent: true, circle: false)
                         Button {
                             store.playAll(songs, shuffled: true)
                         } label: {
                             Label(L10n.t(.shuffleAll), systemImage: "shuffle")
                         }
-                        .transportButtonStyle()
+                        .transportButtonStyle(circle: false)
+                        if entry.pageTarget != nil, !isArtist(entry) {
+                            Button {
+                                store.togglePin(entry)
+                            } label: {
+                                Image(systemName: store.isPinned(entry) ? "pin.fill" : "pin")
+                            }
+                            .transportButtonStyle()
+                            .help(store.isPinned(entry) ? L10n.t(.unpin) : L10n.t(.pin))
+                            .accessibilityLabel(store.isPinned(entry) ? L10n.t(.unpin) : L10n.t(.pin))
+                        }
                     }
                     .controlSize(.large)
                     .padding(.top, 6)
@@ -93,6 +119,11 @@ struct PageView: View {
             }
             Spacer(minLength: 0)
         }
+    }
+
+    private func isArtist(_ entry: Entry) -> Bool {
+        if case .artist = entry { return true }
+        return false
     }
 
     private func headerShape(_ entry: Entry) -> ArtworkShape {
@@ -106,6 +137,36 @@ struct PageView: View {
         case .album: L10n.t(.album)
         case .artist: L10n.t(.artist)
         case .playlist: L10n.t(.playlist)
+        }
+    }
+}
+
+/// The top of a page in its cover's colour: the colour itself, the cover enlarged and out of
+/// focus inside it, and a fade into the window so the list below reads on the ordinary
+/// background. Without a colour yet, nothing is drawn.
+private struct HeaderWash: View {
+    var colour: RGB?
+    var artwork: Artwork?
+
+    var body: some View {
+        if let colour {
+            let base = Color(rgb: colour)
+            ZStack {
+                base
+                // A small cover scaled up: it is blurred anyway, so the large one would be wasted.
+                ArtworkView(artwork: artwork, size: 160, shape: .rounded(0))
+                    .scaleEffect(7)
+                    .blur(radius: 40, opaque: true)
+                    .opacity(0.45)
+                LinearGradient(colors: [base.opacity(0.2), base.opacity(0.65)], startPoint: .top, endPoint: .bottom)
+            }
+            .frame(height: 380)
+            .clipped()
+            .mask(LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: 0.62),
+                                         .init(color: .clear, location: 1)], startPoint: .top, endPoint: .bottom))
+            .ignoresSafeArea(edges: .top)
+            .transition(.opacity)
+            .accessibilityHidden(true)
         }
     }
 }
