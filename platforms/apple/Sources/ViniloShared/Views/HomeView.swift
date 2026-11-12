@@ -85,6 +85,31 @@ struct LibrarySection: View {
     @Environment(PlayerStore.self) private var store
     var view: LibraryView
     var title: String
+    @State private var filter = ""
+
+    /// What the box above the list narrows the section to: titles, artists and names.
+    private func matching(_ entries: [Entry]) -> [Entry] {
+        let words = filter.trimmingCharacters(in: .whitespaces)
+        guard !words.isEmpty else { return entries }
+        return entries.filter { entry in
+            let text: String =
+                switch entry {
+                case .song(let t): "\(t.title) \(t.artist) \(t.album)"
+                case .album(let a): "\(a.name) \(a.artist)"
+                case .artist(let a): a.name
+                case .playlist(let p): p.name
+                }
+            return text.localizedCaseInsensitiveContains(words)
+        }
+    }
+
+    private var sortChoices: [(SortBy, L10n.Key)] {
+        switch view {
+        case .songs: [(.title, .sortTitle), (.artist, .sortArtist), (.album, .sortAlbum), (.year, .sortYear)]
+        case .albums: [(.title, .sortTitle), (.artist, .sortArtist), (.year, .sortYear)]
+        default: [(.title, .sortTitle)]
+        }
+    }
 
     var body: some View {
         Group {
@@ -97,15 +122,41 @@ struct LibrarySection: View {
                     message: L10n.t(store.source == .appleMusic ? .emptyLibraryBody : .emptyLibraryAny))
             case .some(.loaded(let rows)):
                 if view == .songs {
-                    SongList(entries: rows.entries)
+                    SongList(entries: matching(rows.entries))
                 } else {
-                    EntryCollection(entries: rows.entries)
+                    EntryCollection(entries: matching(rows.entries))
                 }
             }
         }
         .navigationTitle(title)
         .task(id: view) { store.loadLibrary(view) }
+        .searchable(text: $filter, placement: .toolbar, prompt: L10n.t(.filterLibrary))
         .toolbar {
+            if sortChoices.count > 1 {
+                ToolbarItem {
+                    Menu {
+                        let current = store.librarySort[view] ?? (.title, false)
+                        ForEach(sortChoices, id: \.0) { choice in
+                            Button {
+                                store.sortLibrary(view, by: choice.0, reverse: current.reverse)
+                            } label: {
+                                if current.by == choice.0 {
+                                    Label(L10n.t(choice.1), systemImage: "checkmark")
+                                } else {
+                                    Text(L10n.t(choice.1))
+                                }
+                            }
+                        }
+                        Divider()
+                        Button(current.reverse ? L10n.t(.ascending) : L10n.t(.descending)) {
+                            store.sortLibrary(view, by: current.by, reverse: !current.reverse)
+                        }
+                    } label: {
+                        Label(L10n.t(.sort), systemImage: "arrow.up.arrow.down")
+                    }
+                    .help(L10n.t(.sort))
+                }
+            }
             ToolbarItem {
                 Button {
                     store.refreshLibrary()

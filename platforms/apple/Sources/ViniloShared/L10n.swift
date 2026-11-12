@@ -10,6 +10,8 @@ public enum L10n {
         case appName
         case home, search, library, artists, albums, songs, playlists, services
         case appleMusic, lyrics, noLyrics
+        case all, sort, sortTitle, sortArtist, sortAlbum, sortYear, ascending, descending
+        case filterLibrary, addToLibrary, favorite
         case source, sourceBody, localFiles, openFiles, localBody, changeSource, signInAgain
         case loginTitle, loginBody, cancel, beta, alpha, needsYtDlp, searchIn, emptyLibraryAny
         case playPause, play, pause, next, previous, shuffle, repeatMode, volume, queue
@@ -31,6 +33,9 @@ public enum L10n {
         .home: "Home", .search: "Search", .library: "Library", .artists: "Artists",
         .albums: "Albums", .songs: "Songs", .playlists: "Playlists", .services: "Services",
         .appleMusic: "Apple Music", .lyrics: "Lyrics", .noLyrics: "No lyrics for this song",
+        .all: "All", .sort: "Sort", .sortTitle: "Title", .sortArtist: "Artist", .sortAlbum: "Album",
+        .sortYear: "Year", .ascending: "Ascending", .descending: "Descending",
+        .filterLibrary: "Filter", .addToLibrary: "Add to Library", .favorite: "Favourite",
         .source: "Music source",
         .sourceBody: "Vinilo plays from one source at a time. Changing it restarts the engine.",
         .localFiles: "Files on this Mac", .openFiles: "Open Files…",
@@ -82,6 +87,9 @@ public enum L10n {
         .albums: "Álbumes", .songs: "Canciones", .playlists: "Listas de reproducción",
         .services: "Servicios",
         .appleMusic: "Apple Music", .lyrics: "Letra", .noLyrics: "Esta canción no tiene letra",
+        .all: "Todo", .sort: "Ordenar", .sortTitle: "Título", .sortArtist: "Artista", .sortAlbum: "Álbum",
+        .sortYear: "Año", .ascending: "Ascendente", .descending: "Descendente",
+        .filterLibrary: "Filtrar", .addToLibrary: "Añadir a la biblioteca", .favorite: "Favorito",
         .source: "Fuente de música",
         .sourceBody: "Vinilo reproduce de una fuente a la vez. Al cambiarla se reinicia el motor.",
         .localFiles: "Archivos de este Mac", .openFiles: "Abrir archivos…",

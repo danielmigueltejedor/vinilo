@@ -226,6 +226,15 @@ struct SongRow: View {
                 Button(L10n.t(.addToQueue), systemImage: "text.append") {
                     store.enqueue(.song(track), next: false)
                 }
+                if store.source == .appleMusic {
+                    Divider()
+                    Button(L10n.t(.addToLibrary), systemImage: "plus.circle") {
+                        store.write(.addToLibrary, .song(track))
+                    }
+                    Button(L10n.t(.favorite), systemImage: "star") {
+                        store.write(.favorite, .song(track))
+                    }
+                }
             }
         }
         .accessibilityElement(children: .combine)
