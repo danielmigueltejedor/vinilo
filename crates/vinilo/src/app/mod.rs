@@ -2197,7 +2197,11 @@ impl AppModel {
                         let sender = sender.clone();
                         gtk::glib::timeout_add_local_once(
                             std::time::Duration::from_millis(SEARCH_DEBOUNCE_MS),
-                            move || sender.input(AppMsg::RunCatalogSearch(generation)),
+                            move || {
+                                let _ = sender
+                                    .input_sender()
+                                    .send(AppMsg::RunCatalogSearch(generation));
+                            },
                         );
                     }
                 }
