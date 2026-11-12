@@ -16,7 +16,7 @@ concurrency:
 jobs:
   packages:
     name: ${{ matrix.name }}
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     strategy:
       fail-fast: false
       matrix:
@@ -159,7 +159,7 @@ jobs:
 
   flatpak:
     name: Flatpak bundle
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
 
     steps:
       - uses: actions/checkout@v5
@@ -203,7 +203,7 @@ jobs:
   # Vinilo, the same audience Flatpak already serves.
   appimage:
     name: AppImage
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     container:
       image: ubuntu:26.04
       # linuxdeploy needs to see host devices when resolving libraries; the
@@ -295,7 +295,7 @@ jobs:
 
   macos:
     name: macOS DMG (Nodalia edition)
-    runs-on: macos-15
+    runs-on: blacksmith-6vcpu-macos-15
     steps:
       - uses: actions/checkout@v5
 
@@ -334,7 +334,7 @@ jobs:
 
   macos-native:
     name: macOS DMG (Native edition)
-    runs-on: macos-26
+    runs-on: blacksmith-6vcpu-macos-26
     steps:
       - uses: actions/checkout@v5
 
@@ -373,7 +373,7 @@ jobs:
     name: Publish GitHub Release
     if: startsWith(github.ref, 'refs/tags/v')
     needs: [packages, flatpak, appimage, macos, macos-native]
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     permissions:
       contents: write
 
