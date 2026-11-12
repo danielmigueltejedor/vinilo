@@ -139,5 +139,34 @@ fn setup_icon() {
         let theme = gtk::IconTheme::for_display(&display);
         theme.add_search_path(concat!(env!("CARGO_MANIFEST_DIR"), "/../../data/icons"));
     }
+    publish_app_icon();
     gtk::Window::set_default_icon_name(APP_ID);
+}
+
+/// The app's own icon, answered from a copy beside the cache.
+///
+/// The window, About and the first-run pages all ask the icon theme for
+/// `APP_ID`. A package puts it in `hicolor`, but an AppImage run from anywhere,
+/// or a theme that shadows it, left those three drawing the missing-image
+/// placeholder while the launcher showed the right icon. The binary carries its
+/// own copy, so the answer no longer depends on how it was installed.
+fn publish_app_icon() {
+    const ICON: &[u8] =
+        include_bytes!("../../../data/icons/hicolor/256x256/apps/dev.danielmiguelt.Vinilo.png");
+    let (Some(display), Some(dir)) = (
+        relm4::gtk::gdk::Display::default(),
+        vinilo_core::paths::cache_dir(),
+    ) else {
+        return;
+    };
+    let root = dir.join("icons");
+    let target = root.join("hicolor/256x256/apps");
+    let file = target.join(format!("{APP_ID}.png"));
+    let current = std::fs::metadata(&file).map(|m| m.len()).ok();
+    if current != Some(ICON.len() as u64)
+        && (std::fs::create_dir_all(&target).is_err() || std::fs::write(&file, ICON).is_err())
+    {
+        return;
+    }
+    gtk::IconTheme::for_display(&display).add_search_path(&root);
 }
