@@ -734,20 +734,27 @@ impl AppModel {
             .selected(self.settings.provider.index())
             .build();
         {
-            let current = self.settings.provider.index();
+            // The source in use, as of the last choice accepted: a rollback goes back to this one,
+            // not to what Preferences opened on.
+            let accepted = Rc::new(Cell::new(self.settings.provider.index()));
+            let restoring = Rc::new(Cell::new(false));
             let sender = sender.clone();
             let armed = Rc::new(Cell::new(false));
             source_row.connect_selected_notify({
                 let armed = armed.clone();
                 move |row| {
-                    if !armed.get() {
+                    // Putting the row back notifies too, and that is not a choice.
+                    if !armed.get() || restoring.get() {
                         return;
                     }
                     // A source this system cannot play goes back to the one in use.
                     if !vinilo_core::provider::Provider::from_index(row.selected()).is_available() {
-                        row.set_selected(current);
+                        restoring.set(true);
+                        row.set_selected(accepted.get());
+                        restoring.set(false);
                         return;
                     }
+                    accepted.set(row.selected());
                     sender.input(AppMsg::SetProvider(row.selected()));
                 }
             });
