@@ -26,7 +26,7 @@ jobs:
       # Pin the action by commit so a floating tag cannot swap under us.
       # `toolchain` must be set explicitly when the ref is a SHA — `@stable`
       # used to supply it; a bare SHA does not.
-      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # stable
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
           toolchain: stable
           components: rustfmt
