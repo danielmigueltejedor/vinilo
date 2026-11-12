@@ -30,7 +30,7 @@ longer only GTK:
 
 - **The sidecar** owns DRM playback. Hidden Chromium, singleton by construction —
   one Widevine CDM, one profile lock. Everything else is a client of it.
-- **The GTK client** is drawn in the Nodalia Design Language (since 2.0.0)
+- **The GTK client** is drawn in the Nodalia Design Language (since the Nodalia redesign)
   and should be indistinguishable from a first-party Nodalia application. That is a rule *about this client*, not about
   the project: a design decision that would make it look like an Electron app or
   a generic Qt tool is the wrong decision **here**.
@@ -201,7 +201,7 @@ Rust edition 2024, plus `anyhow` 1 (rule 5) and `tracing-subscriber` 0.3 with
 (the `nodalia-gtk` floor). Verified on this machine: rustc 1.98.0, GTK 4.22.4,
 node v26.4.0, PipeWire 1.6.8.
 
-**No libadwaita since 2.0.0.** The interface is the Nodalia Design Language
+**No libadwaita since the Nodalia redesign.** The interface is the Nodalia Design Language
 (`nodalia-gtk`, from the `nodalia-design` repo), consumed as a pinned git
 `rev`, never as copied files. Its widgets keep libadwaita's names under `ndl::`
 (`use nodalia_gtk as ndl;`). Never reintroduce `adw::`, and never enable a

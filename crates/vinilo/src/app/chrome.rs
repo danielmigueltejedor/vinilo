@@ -330,7 +330,7 @@ pub(super) fn show_about(parent: &ndl::ApplicationWindow) {
         .version(env!("CARGO_PKG_VERSION"))
         .release_notes_version(env!("CARGO_PKG_VERSION"))
         .release_notes(
-            "<p>Vinilo 2.0.0</p><ul>\
+            "<p>Vinilo 0.1.0</p><ul>\
              <li>A new look: Vinilo is drawn in the Nodalia Design Language and no longer needs libadwaita.</li>\
              <li>Nodalia Teal is the new default accent; the other accents stay.</li>\
              <li>Light and dark follow the system as before.</li>\

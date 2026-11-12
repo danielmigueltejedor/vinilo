@@ -1,7 +1,7 @@
 # Flatpak
 
 Vinilo needs GTK ≥ 4.20, the floor of `nodalia-gtk`, which draws its interface
-since 2.0.0, and many distros do not ship it yet. Debian stable, Ubuntu 24.04 and Fedora ≤ 42
+since the Nodalia redesign, and many distros do not ship it yet. Debian stable, Ubuntu 24.04 and Fedora ≤ 42
 cannot build it. A Flatpak carries the GNOME 49 runtime with it, so those same
 systems can run it.
 

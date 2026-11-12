@@ -17,7 +17,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
   <p><strong>A native music player for Linux, drawn in the Nodalia Design Language.</strong></p>
 
   <p>
-    <img src="https://img.shields.io/badge/version-2.0.1--dev-4a86cf" alt="Version 2.0.1-dev">
+    <img src="https://img.shields.io/badge/version-0.1.0-4a86cf" alt="Version 0.1.0">
     <img src="https://img.shields.io/badge/platform-Linux%20x86__64-fcc624?logo=linux&logoColor=black" alt="Linux x86_64">
     <img src="https://img.shields.io/badge/platform-macOS%20arm64-000000?logo=apple&logoColor=white" alt="macOS arm64">
     <img src="https://img.shields.io/badge/GTK4%20%2F%20Nodalia%20Design-4a86cf" alt="GTK4 and Nodalia Design">
