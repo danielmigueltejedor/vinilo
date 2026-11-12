@@ -20,7 +20,7 @@ lofty = "0.22"
 # branch of this repo with quick-xml raised to 0.41 (RUSTSEC-2026-0194/0195).
 # crates.io 0.8 still fails its vergen build against newer vergen-lib; do not
 # merge `cursor/vendor-librespot-sca-df08` into main.
-librespot-core = { git = "https://github.com/danielmigueltejedor/vinilo", rev = "393463e6a072c8b6fbc046641acf2e0956da4d6e", default-features = false, features = [
+librespot-core = { git = "https://github.com/danielmigueltejedor/vinilo", rev = "3eec976fa1a29159bb8c23cdcc499a157e50a0bb", default-features = false, features = [
     "rustls-tls-native-roots",
 ] }
 librespot-oauth = { git = "https://github.com/danielmigueltejedor/vinilo", rev = "393463e6a072c8b6fbc046641acf2e0956da4d6e", default-features = false, features = [
