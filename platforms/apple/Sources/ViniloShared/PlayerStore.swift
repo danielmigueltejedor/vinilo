@@ -83,6 +83,12 @@ public final class PlayerStore {
 
     @ObservationIgnored private var link: (any DaemonLink)?
     @ObservationIgnored private var wantedSearch = ""
+    /// What a search asks the catalogue for. Changing it searches again.
+    public var searchFilter: CatalogFilter = .all {
+        didSet { if searchFilter != oldValue { searchCatalog(wantedSearch) } }
+    }
+    /// How each library section is ordered, as the engine sorts it.
+    public private(set) var librarySort: [LibraryView: (by: SortBy, reverse: Bool)] = [:]
     @ObservationIgnored private let sources: SourceConfig?
 
     /// Called after a snapshot is applied. The macOS app hangs the system's Now Playing on it.
@@ -213,7 +219,20 @@ public final class PlayerStore {
     }
 
     private func requestLibrary(_ view: LibraryView) {
-        send(.browse(view: view))
+        let sort = librarySort[view] ?? (.title, false)
+        send(.browse(view: view, sort: sort.by, reverse: sort.reverse))
+    }
+
+    public func sortLibrary(_ view: LibraryView, by: SortBy, reverse: Bool) {
+        librarySort[view] = (by, reverse)
+        requestLibrary(view)
+    }
+
+    /// Library and favourite writes: Apple answers "accepted", so the library is asked again
+    /// rather than edited here.
+    public func write(_ action: WriteAction, _ entry: Entry) {
+        send(.write(action: action, id: entry.id))
+        refreshLibrary()
     }
 
     public func loadDiscover(force: Bool = false) {
@@ -235,7 +254,7 @@ public final class PlayerStore {
             return
         }
         searching = true
-        send(.search(query: trimmed))
+        send(.search(query: trimmed, filter: searchFilter))
     }
 
     public func loadMoreSearch() {
@@ -243,7 +262,7 @@ public final class PlayerStore {
         else { return }
         current.loadingMore = true
         search = current
-        send(.search(query: current.query, offset: current.entries.count))
+        send(.search(query: current.query, filter: searchFilter, offset: current.entries.count))
     }
 
     public func open(_ route: PageRoute) {
