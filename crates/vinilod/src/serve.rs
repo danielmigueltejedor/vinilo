@@ -99,6 +99,8 @@ pub struct Daemon {
     /// Clients currently connected. The sidecar is only worth holding while
     /// somebody is listening, or something is playing for them to come back to.
     pub clients: std::cell::Cell<usize>,
+    /// Of those, the ones that only mirror the player for the system ([`Request::Observe`]).
+    pub observers: std::cell::Cell<usize>,
     /// Set when the sidecar was stopped on purpose, so the supervisor waits to
     /// be asked rather than treating it as a crash.
     pub idle: std::cell::Cell<bool>,
@@ -353,6 +355,7 @@ pub async fn run() -> Result<()> {
         authorization_generation: std::cell::Cell::new(0),
         art_for: RefCell::new(None),
         clients: std::cell::Cell::new(0),
+        observers: std::cell::Cell::new(0),
         idle: std::cell::Cell::new(false),
         wake: tokio::sync::Notify::new(),
         quitting: tokio::sync::Notify::new(),
@@ -979,6 +982,7 @@ async fn client(stream: UnixStream, daemon: Rc<Daemon>) -> Result<()> {
     let (read, mut write) = stream.into_split();
     let mut lines = BufReader::new(read).lines();
     let mut feed: Option<broadcast::Receiver<Event>> = None;
+    let mut observer = Observer::new(daemon.clone());
 
     loop {
         // Either the client says something, or — once subscribed — the daemon
@@ -986,7 +990,12 @@ async fn client(stream: UnixStream, daemon: Rc<Daemon>) -> Result<()> {
         let outgoing: Vec<Event> = tokio::select! {
             biased;
             line = lines.next_line() => match line? {
-                Some(line) => answer(&line, &daemon, &mut feed).into_iter().collect(),
+                Some(line) => {
+                    if is_observe(&line) {
+                        observer.mark();
+                    }
+                    answer(&line, &daemon, &mut feed).into_iter().collect()
+                }
                 None => return Ok(()), // client hung up
             },
             event = recv(&mut feed) => match event? {
@@ -1001,6 +1010,42 @@ async fn client(stream: UnixStream, daemon: Rc<Daemon>) -> Result<()> {
             write.write_all(&line).await?;
         }
     }
+}
+
+/// Counts a connection among the observers from its `observe` until it closes, on every way out.
+struct Observer {
+    daemon: Rc<Daemon>,
+    counted: bool,
+}
+
+impl Observer {
+    fn new(daemon: Rc<Daemon>) -> Self {
+        Self {
+            daemon,
+            counted: false,
+        }
+    }
+
+    fn mark(&mut self) {
+        if !self.counted {
+            self.counted = true;
+            self.daemon.observers.set(self.daemon.observers.get() + 1);
+        }
+    }
+}
+
+impl Drop for Observer {
+    fn drop(&mut self) {
+        if self.counted {
+            self.daemon
+                .observers
+                .set(self.daemon.observers.get().saturating_sub(1));
+        }
+    }
+}
+
+fn is_observe(line: &str) -> bool {
+    matches!(serde_json::from_str::<Request>(line), Ok(Request::Observe))
 }
 
 /// Wait on the event feed, or forever if this client has not subscribed.
@@ -1090,7 +1135,7 @@ fn answer(
     };
 
     match request {
-        Request::Subscribe => {
+        Request::Subscribe | Request::Observe => {
             if feed.is_none() {
                 *feed = Some(daemon.events.subscribe());
             }
@@ -1200,8 +1245,9 @@ fn answer(
         }
         Request::Quit => {
             // Counted around the connection, so this client is in the total.
-            // Anyone else attached is a window that would lose its player.
-            if daemon.clients.get() > 1 {
+            // Anyone else attached is a window that would lose its player; an
+            // observer is not one.
+            if daemon.clients.get().saturating_sub(daemon.observers.get()) > 1 {
                 return Some(Event::Error {
                     detail: "Another Vinilo client is still open".into(),
                 });
@@ -3965,6 +4011,33 @@ mod tests {
         )));
     }
 
+    #[test]
+    fn an_observer_never_keeps_the_last_window_from_quitting() {
+        let d = daemon();
+        let mut feed = None;
+        d.clients.set(2);
+        d.observers.set(1);
+        let quit = answer(r#"{"req":"quit"}"#, &d, &mut feed);
+        assert!(!matches!(quit, Some(Event::Error { .. })), "{quit:?}");
+
+        d.observers.set(0);
+        let refused = answer(r#"{"req":"quit"}"#, &d, &mut feed);
+        assert!(
+            matches!(refused, Some(Event::Error { .. })),
+            "a second window is still open"
+        );
+    }
+
+    #[test]
+    fn observing_subscribes_and_is_recognised() {
+        let d = daemon();
+        let mut feed = None;
+        assert!(is_observe(r#"{"req":"observe"}"#));
+        assert!(!is_observe(r#"{"req":"subscribe"}"#));
+        let _ = answer(r#"{"req":"observe"}"#, &d, &mut feed);
+        assert!(feed.is_some());
+    }
+
     fn daemon() -> Rc<Daemon> {
         let (events, _) = broadcast::channel(8);
         Rc::new(Daemon {
@@ -3984,6 +4057,7 @@ mod tests {
             authorization_generation: std::cell::Cell::new(0),
             art_for: RefCell::new(None),
             clients: std::cell::Cell::new(0),
+            observers: std::cell::Cell::new(0),
             idle: std::cell::Cell::new(false),
             wake: tokio::sync::Notify::new(),
             mixer: None,

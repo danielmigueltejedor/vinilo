@@ -30,6 +30,11 @@ mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources/share" "$app/Contents/Re
 sed -e "s|@NAME@|$name|g" -e "s|@VERSION@|$version|g" -e "s|@MIN_MACOS@|$min_macos|g" "$here/Info.plist.in" > "$app/Contents/Info.plist"
 install -m755 "$here/launcher.sh" "$app/Contents/MacOS/Vinilo"
 install -m755 target/release/vinilo target/release/vinilod "$app/Contents/MacOS/"
+# The Now Playing bridge: Control Center and the media keys, which GTK cannot reach. Swift, the
+# same code as Vinilo Native (platforms/apple), started by vinilo and ended with it.
+swift build -c release --package-path platforms/apple --product ViniloNowPlaying
+install -m755 "$(swift build -c release --package-path platforms/apple --show-bin-path)/ViniloNowPlaying" \
+    "$app/Contents/MacOS/vinilo-nowplaying"
 
 # The icon, from the PNGs every other package already ships.
 iconset="$(mktemp -d)/Vinilo.iconset"

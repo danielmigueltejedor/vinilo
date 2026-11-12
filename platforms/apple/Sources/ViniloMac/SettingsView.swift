@@ -4,6 +4,7 @@
 import SwiftUI
 import ViniloKit
 import ViniloShared
+import ViniloSystem
 
 struct SettingsView: View {
     @Environment(PlayerStore.self) private var store

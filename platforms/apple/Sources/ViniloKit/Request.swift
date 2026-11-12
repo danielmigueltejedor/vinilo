@@ -56,6 +56,8 @@ public enum Transport: Equatable, Sendable {
 /// Client → daemon.
 public enum Request: Equatable, Sendable {
     case subscribe
+    /// Subscribe without counting as a window: the Now Playing bridge of Vinilo Nodalia.
+    case observe
     case snapshot
     case queue
     case stage
@@ -85,6 +87,7 @@ public enum Request: Equatable, Sendable {
     public var fields: [String: JSONValue] {
         switch self {
         case .subscribe: ["req": .string("subscribe")]
+        case .observe: ["req": .string("observe")]
         case .snapshot: ["req": .string("snapshot")]
         case .queue: ["req": .string("queue")]
         case .stage: ["req": .string("stage")]

@@ -9,7 +9,9 @@ import PackageDescription
 //   ViniloKit     what any client needs and nothing that draws: the wire format, the socket,
 //                 starting the daemon. Foundation only.
 //   ViniloShared  the state and the views, written for macOS and iPadOS alike. No AppKit.
-//   ViniloMac     what only macOS has: the app, the menu bar, media keys, notifications.
+//   ViniloSystem  macOS's Now Playing, media keys and notifications, shared by both editions.
+//   ViniloMac     the macOS app: windows and menus.
+//   ViniloNowPlaying  Vinilo Nodalia's bridge to Now Playing: no window, a mirror of its player.
 let package = Package(
     name: "Vinilo",
     platforms: [.macOS(.v14), .iOS(.v17)],
@@ -17,11 +19,15 @@ let package = Package(
         .library(name: "ViniloKit", targets: ["ViniloKit"]),
         .library(name: "ViniloShared", targets: ["ViniloShared"]),
         .executable(name: "ViniloMac", targets: ["ViniloMac"]),
+        .executable(name: "ViniloNowPlaying", targets: ["ViniloNowPlaying"]),
     ],
     targets: [
         .target(name: "ViniloKit"),
         .target(name: "ViniloShared", dependencies: ["ViniloKit"]),
-        .executableTarget(name: "ViniloMac", dependencies: ["ViniloShared", "ViniloKit"]),
+        .target(name: "ViniloSystem", dependencies: ["ViniloShared", "ViniloKit"]),
+        .executableTarget(name: "ViniloMac", dependencies: ["ViniloShared", "ViniloKit", "ViniloSystem"]),
+        .executableTarget(
+            name: "ViniloNowPlaying", dependencies: ["ViniloShared", "ViniloKit", "ViniloSystem"]),
         .testTarget(
             name: "ViniloKitTests",
             dependencies: ["ViniloKit"],
