@@ -110,11 +110,23 @@ final class AppUpdater {
                 try Self.startHelper(image: image, bundle: bundle, pid: pid, expected: expected, folder: folder)
                 phase = .installing
                 // The helper waits for this process to end before it touches the app.
-                NSApp.terminate(nil)
+                await quit()
             } catch {
                 phase = .failed(error.localizedDescription)
             }
         }
+    }
+
+    /// AppKit ignores `terminate` while a sheet is attached, and the "Installing…" sheet is one,
+    /// so it goes first. Should the app still be here after that, it leaves on its own: the
+    /// helper gives up a minute after it started.
+    private func quit() async {
+        presented = false
+        try? await Task.sleep(for: .milliseconds(400))
+        NSApp.terminate(nil)
+        try? await Task.sleep(for: .seconds(5))
+        NotificationCenter.default.post(name: NSApplication.willTerminateNotification, object: NSApp)
+        exit(0)
     }
 
     func dismiss() {
