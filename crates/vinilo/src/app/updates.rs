@@ -15,6 +15,7 @@ use nodalia_gtk as ndl;
 use nodalia_update as nu;
 use relm4::ComponentSender;
 use relm4::gtk;
+use relm4::gtk::prelude::*;
 use vinilo_core::i18n::{self, Language};
 
 use super::{AppModel, AppMsg, CommandMsg};
