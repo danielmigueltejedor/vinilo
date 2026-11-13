@@ -15,9 +15,21 @@ on:
   push:
     tags:
       - 'v*'
+  # release-auto.yml, once a version with its notes lands on main: a tag made by a workflow
+  # starts no other workflow, so the tag arrives as an input instead.
+  workflow_call:
+    inputs:
+      tag:
+        description: "Release tag to build and attach the packages to"
+        type: string
+        required: true
 
 permissions:
   contents: read
+
+env:
+  # The tag being released, whichever way this run started; empty on a run without one.
+  RELEASE_TAG: ${{ inputs.tag || (startsWith(github.ref, 'refs/tags/v') && github.ref_name) || '' }}
 
 concurrency:
   group: release-${{ github.ref }}
@@ -135,8 +147,8 @@ jobs:
           VERSION=$(awk -F\" '/^version = / {print $2; exit}' Cargo.toml)
           export VERSION
 
-          if [[ "$GITHUB_REF" == refs/tags/v* ]] && [[ "${GITHUB_REF_NAME#v}" != "$VERSION" ]]; then
-            echo "tag ${GITHUB_REF_NAME} does not match Cargo.toml version $VERSION" >&2
+          if [[ -n "$RELEASE_TAG" ]] && [[ "${RELEASE_TAG#v}" != "$VERSION" ]]; then
+            echo "tag ${RELEASE_TAG} does not match Cargo.toml version $VERSION" >&2
             exit 1
           fi
 
@@ -195,8 +207,8 @@ jobs:
           make flatpak-bundle
           VERSION=$(awk -F\" '/^version = / {print $2; exit}' Cargo.toml)
 
-          if [[ "$GITHUB_REF" == refs/tags/v* ]] && [[ "${GITHUB_REF_NAME#v}" != "$VERSION" ]]; then
-            echo "tag ${GITHUB_REF_NAME} does not match Cargo.toml version $VERSION" >&2
+          if [[ -n "$RELEASE_TAG" ]] && [[ "${RELEASE_TAG#v}" != "$VERSION" ]]; then
+            echo "tag ${RELEASE_TAG} does not match Cargo.toml version $VERSION" >&2
             exit 1
           fi
 
@@ -293,8 +305,8 @@ jobs:
           ./packaging/release/appimage.sh
 
           VERSION=$(awk -F\" '/^version = / {print $2; exit}' Cargo.toml)
-          if [[ "$GITHUB_REF" == refs/tags/v* ]] && [[ "${GITHUB_REF_NAME#v}" != "$VERSION" ]]; then
-            echo "tag ${GITHUB_REF_NAME} does not match Cargo.toml version $VERSION" >&2
+          if [[ -n "$RELEASE_TAG" ]] && [[ "${RELEASE_TAG#v}" != "$VERSION" ]]; then
+            echo "tag ${RELEASE_TAG} does not match Cargo.toml version $VERSION" >&2
             exit 1
           fi
           test -s "dist/packages/Vinilo-${VERSION}-x86_64.AppImage"
@@ -328,8 +340,8 @@ jobs:
         run: |
           set -euxo pipefail
           VERSION=$(awk -F\" '/^version = / {print $2; exit}' Cargo.toml)
-          if [[ "$GITHUB_REF" == refs/tags/v* ]] && [[ "${GITHUB_REF_NAME#v}" != "$VERSION" ]]; then
-            echo "tag ${GITHUB_REF_NAME} does not match Cargo.toml version $VERSION" >&2
+          if [[ -n "$RELEASE_TAG" ]] && [[ "${RELEASE_TAG#v}" != "$VERSION" ]]; then
+            echo "tag ${RELEASE_TAG} does not match Cargo.toml version $VERSION" >&2
             exit 1
           fi
           cargo build --release --locked
@@ -365,8 +377,8 @@ jobs:
         run: |
           set -euxo pipefail
           VERSION=$(awk -F\" '/^version = / {print $2; exit}' Cargo.toml)
-          if [[ "$GITHUB_REF" == refs/tags/v* ]] && [[ "${GITHUB_REF_NAME#v}" != "$VERSION" ]]; then
-            echo "tag ${GITHUB_REF_NAME} does not match Cargo.toml version $VERSION" >&2
+          if [[ -n "$RELEASE_TAG" ]] && [[ "${RELEASE_TAG#v}" != "$VERSION" ]]; then
+            echo "tag ${RELEASE_TAG} does not match Cargo.toml version $VERSION" >&2
             exit 1
           fi
           swift test --package-path platforms/apple
@@ -385,7 +397,7 @@ jobs:
   release:
     name: Publish GitHub Release
     # Skipped Linux jobs (platforms: macos) must not stop the publish; a failed one still does.
-    if: startsWith(github.ref, 'refs/tags/v') && !cancelled() && !failure()
+    if: (inputs.tag != '' || startsWith(github.ref, 'refs/tags/v')) && !cancelled() && !failure()
     needs: [packages, flatpak, appimage, macos, macos-native]
     runs-on: ubuntu-24.04
     permissions:
@@ -423,17 +435,17 @@ jobs:
           PLATFORMS: ${{ inputs.platforms || 'all' }}
         run: |
           set -euxo pipefail
-          VERSION="${GITHUB_REF_NAME#v}"
-          # Tag push may already have a notes-only release; attach bundles
-          # either way so a pre-created release does not fail the job.
-          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" release/* \
+          VERSION="${RELEASE_TAG#v}"
+          # The release may already exist: the draft release-auto.yml made with the notes, or a
+          # notes-only release. Attach the bundles either way.
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" release/* \
               --repo "$GITHUB_REPOSITORY" \
               --clobber
           else
             latest=true
             [[ "${PLATFORMS:-all}" == macos ]] && latest=false
-            gh release create "$GITHUB_REF_NAME" release/* \
+            gh release create "$RELEASE_TAG" release/* \
               --repo "$GITHUB_REPOSITORY" \
               --verify-tag \
               --title "Vinilo $VERSION" \
