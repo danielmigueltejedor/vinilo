@@ -80,6 +80,16 @@ extension View {
         #endif
     }
 
+    /// A translucent, blurred fade under the toolbar once the content has scrolled beneath it,
+    /// so the title never sits on top of the rows. At the top it is gone and the page's own
+    /// background reaches the window's edge. Ours, because the system's edge effect is off
+    /// while the toolbar's background is hidden.
+    /// `height` is how far down from the window's top edge it reaches: more where a bar of
+    /// the page's own (a filter, search scopes) sits under the toolbar.
+    func scrolledToolbarFade(height: CGFloat = 96) -> some View {
+        modifier(ScrolledToolbarFade(height: height))
+    }
+
     /// A toolbar with nothing behind it while the page is at its top, so a page's own colour
     /// reaches the window's edge without a band of the bar's material across it. Scrolled,
     /// the soft edge from `softScrollEdges` is what separates the two.
@@ -348,11 +358,8 @@ struct SongRow: View {
         }
         .opacity(track.isPlayable ? 1 : 0.55)
         .contentShape(Rectangle())
-        #if os(macOS)
-            .onTapGesture(count: 2) { if track.isPlayable { onPlay() } }
-        #else
-            .onTapGesture { if track.isPlayable { onPlay() } }
-        #endif
+        // One click plays, as in Music; the context menu holds everything else.
+        .onTapGesture { if track.isPlayable { onPlay() } }
         .contextMenu {
             if track.isPlayable {
                 Button(L10n.t(.play), systemImage: "play.fill", action: onPlay)
@@ -426,6 +433,57 @@ struct EntryCollection: View {
                 }
             }
             .padding(20)
+        }
+    }
+}
+
+/// The fade `scrolledToolbarFade()` draws: the system material under the toolbar, solid behind
+/// the title and thinning to nothing below it, shown only while something is under it.
+private struct ScrolledToolbarFade: ViewModifier {
+    var height: CGFloat
+    @State private var scrolled = false
+
+    func body(content: Content) -> some View {
+        content
+            .modifier(ScrolledFlag(scrolled: $scrolled))
+            .overlay(alignment: .top) {
+                Rectangle()
+                    .fill(.regularMaterial)
+                    .mask(
+                        LinearGradient(
+                            stops: [
+                                Gradient.Stop(color: .black, location: 0),
+                                Gradient.Stop(color: .black, location: 0.5),
+                                Gradient.Stop(color: .black.opacity(0.6), location: 0.72),
+                                Gradient.Stop(color: .clear, location: 1),
+                            ],
+                            startPoint: .top, endPoint: .bottom)
+                    )
+                    .frame(height: height)
+                    .ignoresSafeArea(edges: .top)
+                    .opacity(scrolled ? 1 : 0)
+                    .animation(.easeOut(duration: 0.2), value: scrolled)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+    }
+}
+
+/// Whether a scroll view has moved off its top. Needs macOS 15 / iOS 18 to read the offset;
+/// before that the flag stays false and the toolbar keeps the system's own look.
+private struct ScrolledFlag: ViewModifier {
+    @Binding var scrolled: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(macOS 15.0, iOS 18.0, *) {
+            content.onScrollGeometryChange(for: Bool.self) { geometry in
+                geometry.contentOffset.y + geometry.contentInsets.top > 2
+            } action: { _, isScrolled in
+                scrolled = isScrolled
+            }
+        } else {
+            content
         }
     }
 }

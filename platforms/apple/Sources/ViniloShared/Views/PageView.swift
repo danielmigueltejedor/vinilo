@@ -75,6 +75,7 @@ struct PageView: View {
         }
         .softScrollEdges()
         .clearToolbar()
+        .scrolledToolbarFade()
     }
 
     private func header(_ entry: Entry, songs: [Entry]) -> some View {
@@ -155,6 +156,9 @@ private struct HeaderWash: View {
     var colour: RGB?
     var artwork: Artwork?
 
+    /// How far above the content the wash reaches, more than any toolbar is tall.
+    static let underToolbar: CGFloat = 140
+
     /// An ease-out from opaque to clear: most of the colour stays near the header, and the
     /// last of it thins slowly enough that the eye cannot find where it stops.
     private var fade: [Gradient.Stop] {
@@ -191,14 +195,17 @@ private struct HeaderWash: View {
                     colors: [base.opacity(0.1), base.opacity(0.45), .black.opacity(0.18)],
                     startPoint: .top, endPoint: .bottom)
             }
-            .frame(height: 520)
+            .frame(height: 520 + Self.underToolbar)
             .clipped()
             .mask(
                 LinearGradient(
                     stops: maskStops,
                     startPoint: .top, endPoint: .bottom)
             )
-            .ignoresSafeArea(edges: .top)
+            // Scroll content starts below the toolbar and a safe-area exemption does not
+            // reach out of a scroll view, so the wash is drawn taller and moved up under the
+            // toolbar itself: no band of window between the bar and the colour.
+            .offset(y: -Self.underToolbar)
             .transition(.opacity)
             .accessibilityHidden(true)
         }
