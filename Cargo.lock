@@ -2289,7 +2289,7 @@ dependencies = [
 [[package]]
 name = "nodalia-gtk"
 version = "0.1.0-alpha.1"
-source = "git+https://github.com/danielmigueltejedor/nodalia-design?rev=6292c3cdd44df558d063c73c0bf7235cbfca02dc#6292c3cdd44df558d063c73c0bf7235cbfca02dc"
+source = "git+https://github.com/danielmigueltejedor/nodalia-design?rev=d066d5d351f18f704bdfd8aad6f04b9e96a155e4#d066d5d351f18f704bdfd8aad6f04b9e96a155e4"
 dependencies = [
  "gtk4",
  "pango",
@@ -2298,7 +2298,7 @@ dependencies = [
 [[package]]
 name = "nodalia-update"
 version = "0.1.0-alpha.1"
-source = "git+https://github.com/danielmigueltejedor/nodalia-design?rev=6292c3cdd44df558d063c73c0bf7235cbfca02dc#6292c3cdd44df558d063c73c0bf7235cbfca02dc"
+source = "git+https://github.com/danielmigueltejedor/nodalia-design?rev=d066d5d351f18f704bdfd8aad6f04b9e96a155e4#d066d5d351f18f704bdfd8aad6f04b9e96a155e4"
 dependencies = [
  "serde_json",
  "sha2",
@@ -4386,7 +4386,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "vinilo"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "anyhow",
  "ashpd",
@@ -4406,7 +4406,7 @@ dependencies = [
 
 [[package]]
 name = "vinilo-core"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "anyhow",
  "hmac",
@@ -4424,7 +4424,7 @@ dependencies = [
 
 [[package]]
 name = "vinilod"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "anyhow",
  "libpulse-binding",

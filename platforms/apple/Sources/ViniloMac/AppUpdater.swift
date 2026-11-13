@@ -273,7 +273,7 @@ struct UpdateSheet: View {
             Text(Words.youHave(updater.currentVersion)).foregroundStyle(.secondary)
             if !release.notes.isEmpty {
                 ScrollView {
-                    Text(release.notes).font(.callout).textSelection(.enabled)
+                    Text(Words.notes(release.notes)).font(.callout).textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .frame(maxHeight: 220)
@@ -318,6 +318,14 @@ struct UpdateSheet: View {
 enum Words {
     private static var spanish: Bool { Locale.current.language.languageCode?.identifier == "es" }
     private static func pick(_ es: String, _ en: String) -> String { spanish ? es : en }
+
+    /// The notes in the reader's language, with their bold and code drawn rather than shown.
+    static func notes(_ notes: String) -> AttributedString {
+        let text = UpdateNotes.inline(notes, spanish: spanish)
+        let options = AttributedString.MarkdownParsingOptions(
+            interpretedSyntax: .inlineOnlyPreservingWhitespace)
+        return (try? AttributedString(markdown: text, options: options)) ?? AttributedString(text)
+    }
 
     static var checkMenu: String { pick("Buscar actualizaciones…", "Check for Updates…") }
     static var checking: String { pick("Buscando actualizaciones…", "Checking for updates…") }

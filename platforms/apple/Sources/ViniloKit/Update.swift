@@ -107,6 +107,68 @@ public enum UpdateFeed {
     }
 }
 
+/// Release notes as the update window shows them: only the reader's language, with Markdown
+/// reduced to what a `Text` draws inline.
+///
+/// Releases are bilingual: a summary in both languages, `## Español` and `## English` sections, then
+/// a `## Descargas · Downloads` table. Notes without those sections come back whole.
+public enum UpdateNotes {
+    public static func inline(_ notes: String, spanish: Bool) -> String {
+        let lines = notes.components(separatedBy: .newlines)
+        let picked = section(lines, names: spanish ? ["español", "espanol"] : ["english"],
+                             other: spanish ? ["english"] : ["español", "espanol"]) ?? lines
+        var out: [String] = []
+        for raw in picked {
+            let line = raw.trimmingCharacters(in: .whitespaces)
+            if line.isEmpty || line.allSatisfy({ "-*_|: ".contains($0) }) { continue }
+            if case let (level, text)? = heading(line), level > 0 {
+                if !text.isEmpty {
+                    if !out.isEmpty { out.append("") }
+                    out.append("**\(text)**")
+                }
+            } else if let item = ["- ", "* ", "+ "].first(where: { line.hasPrefix($0) }) {
+                out.append("•  " + line.dropFirst(item.count))
+            } else {
+                out.append(line)
+            }
+        }
+        return out.joined(separator: "\n")
+    }
+
+    /// `(level, text)` for a `#` heading, level 0 for a line that is only `**bold**`.
+    static func heading(_ line: String) -> (Int, String)? {
+        let level = line.prefix(while: { $0 == "#" }).count
+        if level > 0 {
+            let rest = line.dropFirst(level)
+            guard rest.isEmpty || rest.hasPrefix(" ") else { return nil }
+            return (level, rest.trimmingCharacters(in: .whitespaces))
+        }
+        guard line.count > 4, line.hasPrefix("**"), line.hasSuffix("**") else { return nil }
+        let inner = String(line.dropFirst(2).dropLast(2))
+        return inner.contains("**") ? nil : (0, inner.trimmingCharacters(in: .whitespaces))
+    }
+
+    static func names(_ text: String, _ names: [String]) -> Bool {
+        names.contains(text.trimmingCharacters(in: CharacterSet(charactersIn: "* ")).lowercased())
+    }
+
+    static func section(_ lines: [String], names wanted: [String], other: [String]) -> [String]? {
+        guard let start = lines.firstIndex(where: { line in
+            heading(line.trimmingCharacters(in: .whitespaces)).map { names($0.1, wanted) } ?? false
+        }),
+            let found = heading(lines[start].trimmingCharacters(in: .whitespaces))
+        else { return nil }
+        let level = found.0
+        let body = lines[(start + 1)...]
+        let end = body.firstIndex(where: { raw in
+            guard let found = heading(raw.trimmingCharacters(in: .whitespaces)) else { return false }
+            if names(found.1, other) { return true }
+            return found.0 > 0 && found.0 <= (level > 0 ? level : 2)
+        }) ?? body.endIndex
+        return Array(body[..<end])
+    }
+}
+
 /// What the install helper wrote when it finished, read at the next start.
 public enum UpdateOutcome: Equatable, Sendable {
     case installed
