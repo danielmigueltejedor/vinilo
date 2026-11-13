@@ -31,15 +31,15 @@ struct NowPlayingView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .foregroundStyle(.white)
         .environment(\.colorScheme, .dark)
+        // Only this view wears the playing song's colour: the bar and the pages keep theirs.
+        .tint(store.tint.map(Color.init(rgb:)))
         .background { Backdrop(tint: store.tint, artPath: store.snapshot.artPath) }
         .animation(.easeInOut(duration: 0.6), value: store.tint)
     }
 
     private var header: some View {
         HStack {
-            Button(action: close) {
-                Image(systemName: "chevron.down").font(.title3.weight(.semibold))
-            }
+            Button(action: close) { headerSymbol("chevron.down") }
             .transportButtonStyle()
             .keyboardShortcut(.cancelAction)
             .accessibilityLabel(L10n.t(.close))
@@ -49,13 +49,21 @@ struct NowPlayingView: View {
             Button {
                 lyricsOpen.toggle()
             } label: {
-                Image(systemName: lyricsOpen ? "quote.bubble.fill" : "quote.bubble")
-                    .font(.title3.weight(.semibold))
+                headerSymbol(lyricsOpen ? "quote.bubble.fill" : "quote.bubble")
             }
             .transportButtonStyle()
             .help(L10n.t(.lyrics))
             .accessibilityLabel(L10n.t(.lyrics))
         }
+    }
+
+    /// A header symbol in a square, so its glass is a comfortable target rather than hugging
+    /// the glyph.
+    private func headerSymbol(_ name: String) -> some View {
+        Image(systemName: name)
+            .font(.system(size: 16, weight: .semibold))
+            .frame(width: 32, height: 32)
+            .contentShape(Circle())
     }
 
     private var player: some View {

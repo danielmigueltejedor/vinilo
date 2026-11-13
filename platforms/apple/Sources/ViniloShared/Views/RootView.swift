@@ -51,10 +51,9 @@ public struct RootView: View {
                             .padding(.bottom, 6)
                     }
             } detail: {
-                Detail(item: item, pinned: pinned, searchText: $searchText)
-                    .safeAreaInset(edge: .bottom, spacing: 0) {
-                        PlayerBar(openNowPlaying: toggleNowPlaying)
-                    }
+                Detail(
+                    item: item, pinned: pinned, searchText: $searchText,
+                    openNowPlaying: toggleNowPlaying)
             }
             .inspector(isPresented: $queueOpen) {
                 QueueView()
@@ -83,8 +82,13 @@ public struct RootView: View {
                     .zIndex(1)
             }
         }
+        // The expanded player owns the window: the toolbar's sidebar toggle, queue and search
+        // would act on views it covers, so the toolbar steps aside while it is open.
+        .hidesToolbar(nowPlayingOpen)
+        // Set at the window's root, where AppKit reads it: nested in a column it left the
+        // toolbar drawing its own dark band over the page instead of letting it show through.
+        .clearToolbar()
         .overlay(alignment: .top) { Banner() }
-        .tint(store.tint.map(Color.init(rgb:)))
         .fileImporter(
             isPresented: Bindable(store).choosingFiles, allowedContentTypes: [.audio, .folder],
             allowsMultipleSelection: true
@@ -100,6 +104,15 @@ public struct RootView: View {
     private func toggleNowPlaying() {
         withAnimation(reduceMotion ? nil : .smooth(duration: 0.35)) {
             nowPlayingOpen.toggle()
+        }
+    }
+}
+
+extension View {
+    /// The player bar under this view, floating over its bottom edge.
+    fileprivate func withPlayer(_ openNowPlaying: @escaping () -> Void) -> some View {
+        safeAreaInset(edge: .bottom, spacing: 0) {
+            PlayerBar(openNowPlaying: openNowPlaying)
         }
     }
 }
@@ -209,8 +222,17 @@ private struct Detail: View {
     var item: SidebarItem
     var pinned: PlayerStore.Pin?
     @Binding var searchText: String
+    var openNowPlaying: () -> Void
 
     var body: some View {
+        if case .ready = store.stage {
+            stage
+        } else {
+            stage.withPlayer(openNowPlaying)
+        }
+    }
+
+    @ViewBuilder private var stage: some View {
         switch store.stage {
         case .connecting:
             StatusView(symbol: "hourglass", title: L10n.t(.connecting), busy: true)
@@ -243,7 +265,12 @@ private struct Detail: View {
                         content
                     }
                 }
-                .navigationDestination(for: PageRoute.self) { PageView(route: $0) }
+                // A pushed page is a view of its own on macOS, out of reach of an inset set
+                // outside the stack, so each one carries the player bar itself.
+                .withPlayer(openNowPlaying)
+                .navigationDestination(for: PageRoute.self) {
+                    PageView(route: $0).withPlayer(openNowPlaying)
+                }
             }
             // A new section starts a new stack, not a page pushed onto the old one.
             .id(pinned.map(Sidebar.tag(for:)) ?? item.rawValue)

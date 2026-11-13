@@ -118,6 +118,8 @@ struct PageView: View {
                         }
                     }
                     .controlSize(.large)
+                    // The page's own colour, not the playing song's: these act on this page.
+                    .tint(wash.map(Color.init(rgb:)))
                     .padding(.top, 6)
                 }
             }

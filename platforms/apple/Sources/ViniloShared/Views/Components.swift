@@ -69,6 +69,17 @@ extension View {
         #endif
     }
 
+    /// The window's toolbar gone while something covers the whole window, so none of its
+    /// buttons act on views nobody can see.
+    @ViewBuilder
+    func hidesToolbar(_ hidden: Bool) -> some View {
+        #if os(macOS)
+            self.toolbar(hidden ? .hidden : .automatic, for: .windowToolbar)
+        #else
+            self.toolbar(hidden ? .hidden : .automatic, for: .navigationBar)
+        #endif
+    }
+
     /// A toolbar with nothing behind it while the page is at its top, so a page's own colour
     /// reaches the window's edge without a band of the bar's material across it. Scrolled,
     /// the soft edge from `softScrollEdges` is what separates the two.
