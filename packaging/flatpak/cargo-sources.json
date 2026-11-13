@@ -8,8 +8,8 @@
     {
         "type": "git",
         "url": "https://github.com/danielmigueltejedor/nodalia-design",
-        "commit": "b9f4fbd8e6d900c663cee43c8eefae996ffd69e8",
-        "dest": "flatpak-cargo/git/nodalia-design-b9f4fbd"
+        "commit": "6292c3cdd44df558d063c73c0bf7235cbfca02dc",
+        "dest": "flatpak-cargo/git/nodalia-design-6292c3c"
     },
     {
         "type": "archive",
@@ -2839,7 +2839,7 @@
     {
         "type": "shell",
         "commands": [
-            "cp -r --reflink=auto \"flatpak-cargo/git/nodalia-design-b9f4fbd/packages/gtk/crate\" \"cargo/vendor/nodalia-gtk\""
+            "cp -r --reflink=auto \"flatpak-cargo/git/nodalia-design-6292c3c/packages/gtk/crate\" \"cargo/vendor/nodalia-gtk\""
         ]
     },
     {
@@ -2857,7 +2857,7 @@
     {
         "type": "shell",
         "commands": [
-            "cp -r --reflink=auto \"flatpak-cargo/git/nodalia-design-b9f4fbd/packages/update/crate\" \"cargo/vendor/nodalia-update\""
+            "cp -r --reflink=auto \"flatpak-cargo/git/nodalia-design-6292c3c/packages/update/crate\" \"cargo/vendor/nodalia-update\""
         ]
     },
     {
@@ -6527,7 +6527,7 @@
     },
     {
         "type": "inline",
-        "contents": "[source.vendored-sources]\ndirectory = \"cargo/vendor\"\n\n[source.crates-io]\nreplace-with = \"vendored-sources\"\n\n[source.\"https://github.com/danielmigueltejedor/vinilo\"]\ngit = \"https://github.com/danielmigueltejedor/vinilo\"\nreplace-with = \"vendored-sources\"\nrev = \"393463e6a072c8b6fbc046641acf2e0956da4d6e\"\n\n[source.\"https://github.com/danielmigueltejedor/nodalia-design\"]\ngit = \"https://github.com/danielmigueltejedor/nodalia-design\"\nreplace-with = \"vendored-sources\"\nrev = \"b9f4fbd8e6d900c663cee43c8eefae996ffd69e8\"\n",
+        "contents": "[source.vendored-sources]\ndirectory = \"cargo/vendor\"\n\n[source.crates-io]\nreplace-with = \"vendored-sources\"\n\n[source.\"https://github.com/danielmigueltejedor/vinilo\"]\ngit = \"https://github.com/danielmigueltejedor/vinilo\"\nreplace-with = \"vendored-sources\"\nrev = \"393463e6a072c8b6fbc046641acf2e0956da4d6e\"\n\n[source.\"https://github.com/danielmigueltejedor/nodalia-design\"]\ngit = \"https://github.com/danielmigueltejedor/nodalia-design\"\nreplace-with = \"vendored-sources\"\nrev = \"6292c3cdd44df558d063c73c0bf7235cbfca02dc\"\n",
         "dest": "cargo",
         "dest-filename": "config"
     }
