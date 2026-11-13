@@ -1,0 +1,46 @@
+name: Release from main
+
+# Releases Vinilo when a new version lands on main: bump [workspace.package] version in Cargo.toml
+# and add docs/release-notes/vX.Y.Z.md in the same pull request, then merge it. Foundation's
+# release-tag tags the merge and drafts the release with those notes, release.yml builds and
+# attaches every package, and release-publish publishes it once they are all there. A failed
+# package leaves the release a draft. Any other push does nothing.
+#
+# A macOS-only z release still goes through release.yml by hand (platforms: macos) on a tag.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-auto
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    permissions:
+      contents: write
+    uses: getnodalia/foundation/.github/workflows/release-tag.yml@8ac8b1d9def48c9d33bf762d920afaf5cbfefd75 # foundation 2026-11-13
+    with:
+      name: Vinilo
+
+  packages:
+    needs: tag
+    if: needs.tag.outputs.created == 'true'
+    permissions:
+      contents: write
+    uses: ./.github/workflows/release.yml
+    # The castLabs EVS account that signs the macOS editions' Widevine.
+    secrets: inherit
+    with:
+      tag: ${{ needs.tag.outputs.tag }}
+
+  publish:
+    needs: [tag, packages]
+    permissions:
+      contents: write
+    uses: getnodalia/foundation/.github/workflows/release-publish.yml@8ac8b1d9def48c9d33bf762d920afaf5cbfefd75 # foundation 2026-11-13
+    with:
+      tag: ${{ needs.tag.outputs.tag }}
