@@ -31,6 +31,8 @@ struct NowPlayingView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .foregroundStyle(.white)
         .environment(\.colorScheme, .dark)
+        // Only this view wears the playing song's colour: the bar and the pages keep theirs.
+        .tint(store.tint.map(Color.init(rgb:)))
         .background { Backdrop(tint: store.tint, artPath: store.snapshot.artPath) }
         .animation(.easeInOut(duration: 0.6), value: store.tint)
     }
