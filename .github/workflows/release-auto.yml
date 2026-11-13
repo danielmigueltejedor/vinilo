@@ -22,7 +22,7 @@ jobs:
   tag:
     permissions:
       contents: write
-    uses: getnodalia/foundation/.github/workflows/release-tag.yml@8ac8b1d9def48c9d33bf762d920afaf5cbfefd75 # foundation 2026-11-13
+    uses: getnodalia/foundation/.github/workflows/release-tag.yml@a25f5cc235b0f712c6c06a70c621ca4e9cc7dc61 # foundation 2026-11-13 (#9)
     with:
       name: Vinilo
 
@@ -41,6 +41,6 @@ jobs:
     needs: [tag, packages]
     permissions:
       contents: write
-    uses: getnodalia/foundation/.github/workflows/release-publish.yml@8ac8b1d9def48c9d33bf762d920afaf5cbfefd75 # foundation 2026-11-13
+    uses: getnodalia/foundation/.github/workflows/release-publish.yml@a25f5cc235b0f712c6c06a70c621ca4e9cc7dc61 # foundation 2026-11-13 (#9)
     with:
       tag: ${{ needs.tag.outputs.tag }}
