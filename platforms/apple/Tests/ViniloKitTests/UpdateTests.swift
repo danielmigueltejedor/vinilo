@@ -135,3 +135,38 @@ struct UpdateTests {
         #expect(UpdateHelper.bundleName == "Vinilo Native.app")
     }
 }
+
+@Suite("Update notes")
+struct UpdateNotesTests {
+    static let notes = """
+        Una línea de resumen.
+        *A summary line.*
+
+        ## Español
+
+        ### Correcciones
+        - Al pulsar **Instalar y reiniciar**, nada.
+
+        ## English
+
+        ### Fixes
+        - After **Install and Restart**, nothing.
+
+        ## Descargas · Downloads
+
+        | Sistema · System | Archivo · File |
+        |---|---|
+        | Linux | `Vinilo-0.2.3-x86_64.AppImage` |
+        """
+
+    @Test("only the reader's language, without the downloads table")
+    func language() {
+        #expect(UpdateNotes.inline(Self.notes, spanish: true) == "**Correcciones**\n•  Al pulsar **Instalar y reiniciar**, nada.")
+        #expect(UpdateNotes.inline(Self.notes, spanish: false) == "**Fixes**\n•  After **Install and Restart**, nothing.")
+    }
+
+    @Test("notes without language sections come back whole")
+    func whole() {
+        #expect(UpdateNotes.inline("Just text", spanish: true) == "Just text")
+    }
+}

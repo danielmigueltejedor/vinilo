@@ -128,17 +128,11 @@ impl AppModel {
         release: nu::Release,
     ) {
         let in_place = nu::install_kind(&APP).can_apply_in_place();
-        let mut body = release_notes(&release.notes, i18n::current());
-        if body.is_empty() {
-            body = i18n::update::available_body_fallback();
-        }
-        if !in_place {
-            body = format!("{body}\n\n{}", i18n::update::managed_hint());
-        }
-        let dialog = ndl::AlertDialog::new(
-            Some(&i18n::update::available_title(&release.version)),
-            Some(&body),
-        );
+        let dialog =
+            ndl::AlertDialog::new(Some(&i18n::update::available_title(&release.version)), None);
+        // Wider than a plain question: the notes read as a list, not a sentence.
+        dialog.dialog().set_content_width(440);
+        dialog.set_extra_child(Some(&offer_body(&release.notes, in_place)));
         dialog.add_response("later", &i18n::update::later());
         if in_place {
             dialog.add_response("install", &i18n::update::install());
@@ -275,45 +269,51 @@ impl AppModel {
     }
 }
 
-/// The part of a release's notes in `language`, as plain text and short enough for a question.
-///
-/// Releases are written bilingually, with `**Español**` and `**English**` headings; a release
-/// that is not falls through whole.
-fn release_notes(notes: &str, language: Language) -> String {
-    const ES: &str = "**Español**";
-    const EN: &str = "**English**";
-    let section = |start: &str, other: &str| -> Option<String> {
-        let from = notes.find(start)? + start.len();
-        let rest = &notes[from..];
-        let end = rest.find(other).unwrap_or(rest.len());
-        Some(rest[..end].to_owned())
-    };
-    let picked = match language {
-        Language::Spanish => section(ES, EN),
-        Language::English => section(EN, ES),
+/// The release notes in the reader's language, left-aligned and scrolling on their own so the
+/// heading and the buttons never leave the window, then the hint for a managed install.
+fn offer_body(notes: &str, in_place: bool) -> gtk::Box {
+    let column = gtk::Box::new(gtk::Orientation::Vertical, 12);
+    let mut markup = nu::notes_markup(notes, notes_language(i18n::current()));
+    if markup.is_empty() {
+        markup = gtk::glib::markup_escape_text(&i18n::update::available_body_fallback()).into();
     }
-    .unwrap_or_else(|| notes.to_owned());
-
-    let plain: Vec<String> = picked
-        .lines()
-        .map(|line| {
-            line.trim()
-                .trim_start_matches('#')
-                .replace("**", "")
-                .replace('`', "")
-                .trim()
-                .to_owned()
-        })
-        .filter(|line| !line.is_empty())
-        .collect();
-    let text = plain.join("\n");
-
-    const LIMIT: usize = 700;
-    if text.chars().count() <= LIMIT {
-        return text;
+    let label = gtk::Label::builder()
+        .use_markup(true)
+        .wrap(true)
+        .wrap_mode(gtk::pango::WrapMode::WordChar)
+        .xalign(0.0)
+        .yalign(0.0)
+        .halign(gtk::Align::Fill)
+        .build();
+    label.set_markup(&markup);
+    label.add_css_class("body");
+    let scroller = gtk::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk::PolicyType::Never)
+        .propagate_natural_height(true)
+        .max_content_height(NOTES_HEIGHT)
+        .child(&label)
+        .build();
+    column.append(&scroller);
+    if !in_place {
+        let hint = gtk::Label::builder()
+            .label(i18n::update::managed_hint())
+            .wrap(true)
+            .xalign(0.0)
+            .build();
+        hint.add_css_class("dim-label");
+        column.append(&hint);
     }
-    let cut: String = text.chars().take(LIMIT).collect();
-    format!("{}…", cut.trim_end())
+    column
+}
+
+/// The notes scroll past this height.
+const NOTES_HEIGHT: i32 = 260;
+
+fn notes_language(language: Language) -> nu::Language {
+    match language {
+        Language::English => nu::Language::English,
+        Language::Spanish => nu::Language::Spanish,
+    }
 }
 
 #[cfg(test)]
@@ -346,34 +346,25 @@ mod tests {
         }
     }
 
-    const NOTES: &str = "## Vinilo 2.0.1\n\n**Español**\n\n- Arreglo uno.\n- Arreglo `dos`.\n\n**English**\n\n- Fix one.\n- Fix **two**.\n";
+    /// The body Vinilo 0.2.3 shipped with: both languages, then a downloads table. The update
+    /// window showed all of it as raw Markdown and lost its buttons under it.
+    const NOTES: &str = include_str!("../../../../docs/release-notes/v0.2.3.md");
 
     #[test]
-    fn the_notes_follow_the_language() {
-        assert_eq!(
-            release_notes(NOTES, Language::English),
-            "- Fix one.\n- Fix two."
+    fn the_offer_shows_only_the_readers_language_without_markdown() {
+        let es = nu::notes_markup(NOTES, notes_language(Language::Spanish));
+        assert!(
+            es.starts_with("<b>Correcciones en Vinilo Native</b>"),
+            "{es}"
         );
-        assert_eq!(
-            release_notes(NOTES, Language::Spanish),
-            "- Arreglo uno.\n- Arreglo dos."
-        );
-    }
-
-    #[test]
-    fn notes_without_language_headings_pass_through_as_plain_text() {
-        assert_eq!(
-            release_notes("## Title\n\n**Bold** text", Language::English),
-            "Title\nBold text"
-        );
-    }
-
-    #[test]
-    fn long_notes_are_cut() {
-        let long = "word ".repeat(400);
-        let cut = release_notes(&long, Language::English);
-        assert!(cut.chars().count() <= 701);
-        assert!(cut.ends_with('…'));
+        assert!(es.contains("<b>Instalar y reiniciar</b>"));
+        let en = nu::notes_markup(NOTES, notes_language(Language::English));
+        assert!(en.starts_with("<b>Fixes in Vinilo Native</b>"), "{en}");
+        for text in [&es, &en] {
+            assert!(!text.contains("**") && !text.contains("##"), "{text}");
+            assert!(!text.contains("AppImage"), "no downloads table: {text}");
+        }
+        assert!(!en.contains("Correcciones") && !es.contains("Fixes in"));
     }
 
     #[test]
