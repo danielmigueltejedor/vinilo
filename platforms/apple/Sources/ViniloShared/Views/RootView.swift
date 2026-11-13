@@ -83,6 +83,12 @@ public struct RootView: View {
                     .zIndex(1)
             }
         }
+        // The expanded player owns the window: the toolbar's sidebar toggle, queue and search
+        // would act on views it covers, so the toolbar steps aside while it is open.
+        .hidesToolbar(nowPlayingOpen)
+        // Set at the window's root, where AppKit reads it: nested in a column it left the
+        // toolbar drawing its own dark band over the page instead of letting it show through.
+        .clearToolbar()
         .overlay(alignment: .top) { Banner() }
         .tint(store.tint.map(Color.init(rgb:)))
         .fileImporter(
