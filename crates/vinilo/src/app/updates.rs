@@ -21,7 +21,7 @@ use super::{AppModel, AppMsg, CommandMsg};
 
 pub(super) const APP: nu::App = nu::App {
     name: "Vinilo",
-    repo: "danielmigueltejedor/vinilo",
+    repo: "getnodalia/vinilo",
     bundle: "Vinilo Nodalia.app",
     version: env!("CARGO_PKG_VERSION"),
     // On macOS the release carries two disk images, one per edition; this one takes its own.
@@ -67,7 +67,8 @@ impl AppModel {
                 nu::Failure::Contents => i18n::update::reason_contents(),
                 nu::Failure::Copy => i18n::update::reason_copy(),
                 nu::Failure::Replace => i18n::update::reason_replace(),
-                nu::Failure::Other => i18n::update::reason_other(),
+                // `Install` and `Cancelled` only come from the Windows installer.
+                _ => i18n::update::reason_other(),
             };
             self.toast(&i18n::update::last_failed(&reason));
         }
@@ -318,6 +319,32 @@ fn release_notes(notes: &str, language: Language) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The release workflow's package names, checked against what the updater looks for. A
+    /// rename there that the updater does not know about would strand people on the old version.
+    #[test]
+    fn the_released_packages_are_the_ones_the_updater_installs() {
+        let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
+        let read = |path: &str| std::fs::read_to_string(format!("{root}/{path}")).unwrap();
+        let release = read(".github/workflows/release.yml");
+        assert!(release.contains(
+            r#""dist/macos/Vinilo Nodalia.app" "dist/Vinilo-${VERSION}-nodalia-macos-arm64.dmg""#
+        ));
+        assert_eq!(APP.bundle, "Vinilo Nodalia.app");
+        assert_eq!(APP.edition, Some("nodalia"));
+        assert_eq!(APP.repo, "getnodalia/vinilo");
+        let appimage = read("packaging/release/appimage.sh");
+        assert!(appimage.contains(r#"OUTPUT="$OUT_DIR/Vinilo-${VERSION}-${ARCH}.AppImage""#));
+        for (package, system) in [
+            ("Vinilo-1.0.0-nodalia-macos-arm64.dmg", ("macos", "aarch64")),
+            ("Vinilo-1.0.0-x86_64.AppImage", ("linux", "x86_64")),
+        ] {
+            assert!(
+                nu::systems_for_package(package).contains(&system),
+                "{package} for {system:?}"
+            );
+        }
+    }
 
     const NOTES: &str = "## Vinilo 2.0.1\n\n**Español**\n\n- Arreglo uno.\n- Arreglo `dos`.\n\n**English**\n\n- Fix one.\n- Fix **two**.\n";
 
