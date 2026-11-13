@@ -22,6 +22,7 @@ struct SearchView: View {
                     EntryCollection(entries: results.entries) {
                         if results.more { store.loadMoreSearch() }
                     }
+                    .scrolledToolbarFade(height: 136)
                 }
             } else {
                 StatusView(symbol: "magnifyingglass", title: L10n.t(.loading), busy: true)

@@ -48,6 +48,7 @@ struct HomeView: View {
             .padding(.horizontal, 28)
             .padding(.vertical, 24)
         }
+        .scrolledToolbarFade()
     }
 
     @ViewBuilder
@@ -124,8 +125,10 @@ struct LibrarySection: View {
             case .some(.loaded(let rows)):
                 if view == .songs {
                     SongList(entries: matching(rows.entries))
+                        .scrolledToolbarFade(height: 136)
                 } else {
                     EntryCollection(entries: matching(rows.entries))
+                        .scrolledToolbarFade(height: 136)
                 }
             }
         }
