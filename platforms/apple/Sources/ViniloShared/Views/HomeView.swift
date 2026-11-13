@@ -131,7 +131,16 @@ struct LibrarySection: View {
         }
         .navigationTitle(title)
         .task(id: view) { store.loadLibrary(view) }
-        .searchable(text: $filter, placement: .toolbar, prompt: L10n.t(.filterLibrary))
+        // In the page, not the toolbar: the window's search field is the only search item.
+        .safeAreaInset(edge: .top, spacing: 0) {
+            HStack {
+                Spacer(minLength: 0)
+                GlassSearchField(text: $filter, prompt: L10n.t(.filterLibrary), symbol: "line.3.horizontal.decrease")
+                    .frame(maxWidth: 260)
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 8)
+        }
         .toolbar {
             if sortChoices.count > 1 {
                 ToolbarItem {

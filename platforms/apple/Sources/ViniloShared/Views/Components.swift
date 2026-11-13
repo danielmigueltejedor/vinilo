@@ -86,6 +86,46 @@ extension View {
     }
 }
 
+/// A search field in the system's glass: a capsule with a magnifier, the words, and a way to
+/// clear them. Ours rather than `.searchable`, so it never becomes a toolbar item.
+struct GlassSearchField: View {
+    @Binding var text: String
+    var prompt: String
+    var symbol = "magnifyingglass"
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: symbol)
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+            TextField(prompt, text: $text)
+                .textFieldStyle(.plain)
+                .focused($focused)
+                #if os(macOS)
+                    .onExitCommand {
+                        text = ""
+                        focused = false
+                    }
+                #endif
+            if !text.isEmpty {
+                Button {
+                    text = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(L10n.t(.dismiss))
+            }
+        }
+        .padding(.horizontal, 11)
+        .padding(.vertical, 7)
+        .glassSurface(in: Capsule())
+        .contentShape(Capsule())
+        .onTapGesture { focused = true }
+    }
+}
+
 /// The round button before Liquid Glass: a disc of the bar material, the accent colour when it
 /// is the main action, and a press that sinks a little.
 struct RoundTransportStyle: ButtonStyle {

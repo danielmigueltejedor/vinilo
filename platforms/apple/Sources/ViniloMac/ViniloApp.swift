@@ -25,6 +25,7 @@ struct ViniloApp: App {
                 .frame(minWidth: 920, minHeight: 600)
                 .task {
                     system.start(store: store)
+                    SpaceToPlay.install(store: store)
                     await supervisor.run(store: store)
                 }
         }
