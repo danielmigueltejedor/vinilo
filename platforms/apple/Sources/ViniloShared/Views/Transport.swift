@@ -149,9 +149,13 @@ struct VolumeControl: View {
     }
 }
 
-/// The volume as Apple Music keeps it in a narrow bar: a speaker that, pressed, opens its glass
-/// into a slider while the controls beside it step aside. It closes itself a few seconds after
+/// Shuffle, repeat and the volume as Apple Music keeps them in a narrow bar: a speaker that,
+/// pressed, opens a slider where shuffle and repeat were. It closes itself a few seconds after
 /// the last change, or on a second press of the speaker.
+///
+/// Both states share one slot of a fixed width with the speaker at the same place, so opening
+/// and closing never resize the bar or push anything out of it, and the slot is drawn as part
+/// of the bar's own glass rather than as a second pane of glass on top of it.
 struct ExpandingVolumeControl: View {
     @Environment(PlayerStore.self) private var store
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -159,28 +163,44 @@ struct ExpandingVolumeControl: View {
     /// Moved by every change, so the timer that closes the slider starts again.
     @State private var touched = 0
 
+    private static let slot: CGFloat = 172
+    private static let speaker: CGFloat = 32
+
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 6) {
+            ZStack(alignment: .trailing) {
+                ModeControls()
+                    .opacity(open ? 0 : 1)
+                    .allowsHitTesting(!open)
+                    .accessibilityHidden(open)
+                if open {
+                    VolumeSlider(width: Self.slot - Self.speaker - 26) { touched &+= 1 }
+                        .padding(.leading, 12)
+                        .transition(.opacity)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .trailing)
+
             Button {
-                withAnimation(reduceMotion ? nil : .smooth(duration: 0.32)) { open.toggle() }
+                withAnimation(reduceMotion ? nil : .smooth(duration: 0.28)) { open.toggle() }
             } label: {
                 Image(systemName: speakerSymbol)
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.system(size: 14, weight: .semibold))
                     .contentTransition(.symbolEffect(.replace))
-                    .frame(width: 34, height: 34)
+                    .frame(width: Self.speaker, height: Self.speaker)
                     .contentShape(Circle())
             }
             .buttonStyle(.plain)
+            .foregroundStyle(open ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
             .accessibilityLabel(L10n.t(.volume))
             .accessibilityValue("\(Int((store.snapshot.volume * 100).rounded())) %")
-
-            if open {
-                VolumeSlider(width: 150) { touched &+= 1 }
-                    .padding(.trailing, 12)
-                    .transition(.opacity.combined(with: .scale(scale: 0.6, anchor: .leading)))
-            }
         }
-        .glassSurface(in: Capsule())
+        .frame(width: Self.slot, height: Self.speaker + 4)
+        .background {
+            Capsule()
+                .fill(.primary.opacity(open ? 0.08 : 0))
+        }
+        .clipShape(Capsule())
         .task(id: TimerKey(open: open, touched: touched)) {
             guard open else { return }
             do {
@@ -188,7 +208,7 @@ struct ExpandingVolumeControl: View {
             } catch {
                 return
             }
-            withAnimation(reduceMotion ? nil : .smooth(duration: 0.32)) { open = false }
+            withAnimation(reduceMotion ? nil : .smooth(duration: 0.28)) { open = false }
         }
     }
 

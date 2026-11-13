@@ -42,10 +42,6 @@ struct PlayerBar: View {
 
             TransportControls(size: 17, prominent: false)
             ProgressScrubber().frame(minWidth: 140)
-            if !volumeOpen {
-                ModeControls()
-                    .transition(.opacity.combined(with: .scale(scale: 0.8, anchor: .trailing)))
-            }
             ExpandingVolumeControl(open: $volumeOpen)
         }
         .padding(.leading, 8)
