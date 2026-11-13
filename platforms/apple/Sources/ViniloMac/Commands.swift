@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Daniel Miguel Tejedor
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import AppKit
 import SwiftUI
 import ViniloShared
 
@@ -14,8 +15,9 @@ struct PlaybackCommands: Commands {
                 .keyboardShortcut("o")
         }
         CommandMenu(L10n.t(.playback)) {
+            // Space is handled by `SpaceToPlay`, not here: a menu's key equivalent is matched
+            // before the text field that has focus, so a search could never contain a space.
             Button(store.snapshot.playing ? L10n.t(.pause) : L10n.t(.play)) { store.playPause() }
-                .keyboardShortcut(.space, modifiers: [])
             Divider()
             Button(L10n.t(.next)) { store.next() }
                 .keyboardShortcut(.rightArrow, modifiers: .command)
@@ -33,6 +35,28 @@ struct PlaybackCommands: Commands {
                 .keyboardShortcut(.upArrow, modifiers: .command)
             Button(L10n.t(.volumeDown)) { store.setVolume(store.snapshot.volume - 0.1) }
                 .keyboardShortcut(.downArrow, modifiers: .command)
+        }
+    }
+}
+
+/// Space plays and pauses, as in any Mac player, unless a text field is being typed in.
+@MainActor
+enum SpaceToPlay {
+    private static var monitor: Any?
+
+    static func install(store: PlayerStore) {
+        guard monitor == nil else { return }
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            let plain = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting(
+                [.capsLock, .numericPad, .function]
+            ).isEmpty
+            guard plain, event.charactersIgnoringModifiers == " " else { return event }
+            let played = MainActor.assumeIsolated { () -> Bool in
+                if NSApp.keyWindow?.firstResponder is NSText { return false }
+                store.playPause()
+                return true
+            }
+            return played ? nil : event
         }
     }
 }

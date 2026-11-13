@@ -41,6 +41,15 @@ public struct RootView: View {
         ZStack {
             NavigationSplitView {
                 Sidebar(selection: selection)
+                    // The window's search field, at the top of the sidebar as in Music. Drawn
+                    // here rather than with `.searchable`, which puts it in the toolbar: a
+                    // second search item there, from a library section's filter, made AppKit's
+                    // toolbar throw while SwiftUI rebuilt it and took the app down (0.1.3).
+                    .safeAreaInset(edge: .top, spacing: 0) {
+                        GlassSearchField(text: $searchText, prompt: searchPrompt)
+                            .padding(.horizontal, 10)
+                            .padding(.bottom, 6)
+                    }
             } detail: {
                 Detail(item: item, pinned: pinned, searchText: $searchText)
                     .safeAreaInset(edge: .bottom, spacing: 0) {
@@ -51,9 +60,6 @@ public struct RootView: View {
                 QueueView()
                     .inspectorColumnWidth(min: 260, ideal: 320, max: 420)
             }
-            // The search field of the whole window, in the sidebar where the system draws it in
-            // its glass. Typing in it from any section goes to Search.
-            .searchable(text: $searchText, placement: .sidebar, prompt: Text(searchPrompt))
             .onChange(of: searchText) { _, text in
                 if !text.trimmingCharacters(in: .whitespaces).isEmpty, item != .search {
                     selectionName = SidebarItem.search.rawValue
