@@ -598,7 +598,7 @@ fn en(key: Key) -> &'static str {
             "After you sign in, search a song and click it. YouTube Music prefers InnerTube audio; Tidal still needs yt-dlp."
         }
         Key::CatalogSetupYtMissing => {
-            "yt-dlp is not on PATH. YouTube Music still plays from InnerTube when it can. Tidal needs yt-dlp (sudo pacman -S yt-dlp ffmpeg)."
+            "yt-dlp is not on PATH. YouTube Music still plays from InnerTube when it can. Tidal needs yt-dlp and ffmpeg: brew install yt-dlp ffmpeg on macOS, your distribution's packages on Linux."
         }
         Key::CatalogSetupContinue => "Sign In",
         Key::CatalogSetupBack => "Choose another source",
@@ -919,7 +919,7 @@ fn es(key: Key) -> &'static str {
             "Cuando inicies sesión, busca una canción y pulsa. YouTube Music prefiere audio InnerTube; Tidal aún necesita yt-dlp."
         }
         Key::CatalogSetupYtMissing => {
-            "yt-dlp no está en el PATH. YouTube Music sigue sonando por InnerTube cuando puede. Tidal necesita yt-dlp (sudo pacman -S yt-dlp ffmpeg)."
+            "yt-dlp no está en el PATH. YouTube Music sigue sonando por InnerTube cuando puede. Tidal necesita yt-dlp y ffmpeg: brew install yt-dlp ffmpeg en macOS, los paquetes de tu distribución en Linux."
         }
         Key::CatalogSetupContinue => "Iniciar sesión",
         Key::CatalogSetupBack => "Elegir otra fuente",

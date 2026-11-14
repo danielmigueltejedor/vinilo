@@ -787,15 +787,27 @@ async fn library_playlists(
     };
     // libraryV3 often returns only Liked Songs / editorial mixes. The
     // rootlist is what the web player actually pins — the user's own lists.
-    match write::playlists_in_rootlist(http, session, max).await {
+    let from_library = lists.len();
+    let rootlist = write::playlists_in_rootlist(http, session, max).await;
+    let rootlist_failed = rootlist.is_err();
+    match rootlist {
         Ok(root) => merge_playlists(&mut lists, root),
-        Err(err) => tracing::debug!(%err, "spotify rootlist playlists"),
+        Err(err) => tracing::warn!(%err, "spotify rootlist playlists"),
     }
-    if lists.iter().all(|list| !is_user_playlist(list))
-        && let Ok(rest) = user_playlists(http, &session.access, max).await
-    {
-        merge_playlists(&mut lists, rest);
+    // A failed rootlist leaves libraryV3's answer, which can be one or two of the user's own
+    // lists beside the editorial ones: not "none", so ask the public API whenever it failed.
+    if needs_public_playlists(rootlist_failed, &lists) {
+        match user_playlists(http, &session.access, max).await {
+            Ok(rest) => merge_playlists(&mut lists, rest),
+            Err(err) => tracing::warn!(%err, "spotify me/playlists"),
+        }
     }
+    tracing::info!(
+        from_library,
+        total = lists.len(),
+        rootlist_failed,
+        "spotify playlists"
+    );
     lists.truncate(max);
     Ok(lists)
 }
@@ -806,6 +818,10 @@ fn merge_playlists(into: &mut Vec<Playlist>, extra: Vec<Playlist>) {
             into.push(list);
         }
     }
+}
+
+fn needs_public_playlists(rootlist_failed: bool, lists: &[Playlist]) -> bool {
+    rootlist_failed || lists.iter().all(|list| !is_user_playlist(list))
 }
 
 fn is_user_playlist(list: &Playlist) -> bool {
@@ -2320,6 +2336,16 @@ fn year_of(date: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_failed_rootlist_asks_the_public_api_even_with_a_user_list_in_hand() {
+        let mut own = liked_playlist(&[]);
+        own.id = "sp:playlist:abc".into();
+        let lists = vec![liked_playlist(&[]), own];
+        assert!(needs_public_playlists(true, &lists));
+        assert!(!needs_public_playlists(false, &lists));
+        assert!(needs_public_playlists(false, &[liked_playlist(&[])]));
+    }
 
     #[test]
     fn track_album_and_liked_ids_round_trip() {

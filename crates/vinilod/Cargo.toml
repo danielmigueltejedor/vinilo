@@ -15,6 +15,8 @@ rodio = { version = "0.19", features = [
     "symphonia-mp3",
 ] }
 lofty = "0.22"
+# Only to pick the process-wide crypto provider (see tls.rs).
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
 
 # Spotify Premium audio — Sonora's librespot fork, re-hosted on an orphan
 # branch of this repo with quick-xml raised to 0.41 (RUSTSEC-2026-0194/0195).
