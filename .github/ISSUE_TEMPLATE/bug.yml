@@ -1,0 +1,97 @@
+name: Bug report
+description: Report a reproducible problem in vinilo.
+labels:
+- bug
+body:
+- type: markdown
+  attributes:
+    value: Search existing issues first. Follow SECURITY.md for vulnerability reports.
+      Remove credentials and private data from attachments and logs.
+- type: dropdown
+  id: component
+  attributes:
+    label: Affected area
+    options:
+    - Library and metadata
+    - Playback and queue
+    - Streaming and sign-in
+    - Audio output
+    - Desktop integration
+    - Other or unsure
+  validations:
+    required: true
+- type: dropdown
+  id: platform
+  attributes:
+    label: Platform or environment
+    options:
+    - Linux desktop
+    - macOS GTK edition
+    - Vinilo Native for macOS
+    - Other or unsure
+    multiple: true
+  validations:
+    required: true
+- type: input
+  id: version
+  attributes:
+    label: Product version or commit
+  validations:
+    required: true
+- type: input
+  id: environment
+  attributes:
+    label: Operating system, architecture or browser
+  validations:
+    required: true
+- type: textarea
+  id: reproduction
+  attributes:
+    label: Steps to reproduce
+    placeholder: |
+      1. Open or create…
+      2. Select or run…
+      3. Observe…
+  validations:
+    required: true
+- type: textarea
+  id: result
+  attributes:
+    label: Expected and observed behavior
+  validations:
+    required: true
+- type: textarea
+  id: evidence
+  attributes:
+    label: Logs, screenshots or a minimal sample
+- type: dropdown
+  id: frequency
+  attributes:
+    label: How often does it happen?
+    options:
+    - Every time
+    - Intermittently
+    - Once so far
+    - Unknown
+  validations:
+    required: true
+- type: dropdown
+  id: impact
+  attributes:
+    label: What is affected?
+    options:
+    - Blocked from completing the task
+    - Task still possible with a workaround
+    - Visual or usability issue
+    - Other or unsure
+  validations:
+    required: true
+- type: checkboxes
+  id: report_checklist
+  attributes:
+    label: Before submitting
+    options:
+    - label: I searched for an existing report.
+      required: true
+    - label: I removed private data and credentials from the report and attachments.
+      required: true

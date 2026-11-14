@@ -1,0 +1,48 @@
+name: Feature request
+description: Propose a new capability or improvement for vinilo.
+labels:
+- enhancement
+body:
+- type: dropdown
+  id: component
+  attributes:
+    label: Affected area
+    options:
+    - Library and metadata
+    - Playback and queue
+    - Streaming and sign-in
+    - Audio output
+    - Desktop integration
+    - Other or unsure
+  validations:
+    required: true
+- type: dropdown
+  id: request_kind
+  attributes:
+    label: Type of improvement
+    options:
+    - New capability
+    - Improve an existing workflow
+    - Compatibility or interoperability
+    - Accessibility
+    - Other or unsure
+  validations:
+    required: true
+- type: textarea
+  id: use_case
+  attributes:
+    label: What are you trying to do?
+    description: Describe the current limitation and who it affects.
+  validations:
+    required: true
+- type: textarea
+  id: behavior
+  attributes:
+    label: Proposed behavior
+    description: Explain what a successful solution would let you do.
+  validations:
+    required: true
+- type: textarea
+  id: alternatives
+  attributes:
+    label: Alternatives, workarounds or examples
