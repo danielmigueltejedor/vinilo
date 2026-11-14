@@ -17,11 +17,10 @@ use vinilo_core::setup;
 use vinilo_core::streams::{self, StreamHit, youtube_hit_from_json};
 
 pub fn missing_hint() -> String {
-    if cfg!(target_os = "macos") {
-        "yt-dlp is not installed. Install it with Homebrew: brew install yt-dlp ffmpeg".into()
-    } else {
-        "yt-dlp is not installed. Install yt-dlp and ffmpeg from your distribution (Arch: sudo pacman -S yt-dlp ffmpeg)".into()
-    }
+    format!(
+        "yt-dlp is not installed. Install it with: {}",
+        vinilo_core::i18n::YTDLP_INSTALL
+    )
 }
 
 fn cookie_args() -> Vec<String> {
