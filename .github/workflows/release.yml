@@ -1,44 +1,49 @@
 name: Release bundles
 
-# A tag push builds and publishes every package. To publish a fix for one platform only (a z
-# version for macOS, say), run this workflow by hand on the tag with platforms: macos; the
-# release then carries only the disk images and is not marked latest, so installed Linux
-# copies and the website keep the newest release that has their package.
+# Builds every package and attaches it to the release draft. "Release from main"
+# (release-auto.yml) runs it with the tag once a version and its notes land on main, then
+# publishes the release. A fix for one platform only (a z version for macOS, say) says
+# `<!-- platforms: macos -->` in its notes: only the disk images are built, and the release is not
+# marked latest, so installed Linux copies and the website keep the newest release that has their
+# package. Run it by hand with a tag to rebuild that draft's files; without one it only builds.
 on:
   workflow_dispatch:
     inputs:
+      tag:
+        description: "Release tag whose draft gets the packages, e.g. v0.2.5 (empty: build only)"
+        type: string
+        default: ""
       platforms:
-        description: "Which packages to build and publish"
+        description: "Which packages to build"
         type: choice
         options: [all, macos]
         default: all
-  push:
-    tags:
-      - 'v*'
-  # release-auto.yml, once a version with its notes lands on main: a tag made by a workflow
-  # starts no other workflow, so the tag arrives as an input instead.
   workflow_call:
     inputs:
       tag:
         description: "Release tag to build and attach the packages to"
         type: string
         required: true
+      platforms:
+        description: "all, or macos for a release that ships the disk images only"
+        type: string
+        default: all
 
 permissions:
   contents: read
 
 env:
   # The tag being released, whichever way this run started; empty on a run without one.
-  RELEASE_TAG: ${{ inputs.tag || (startsWith(github.ref, 'refs/tags/v') && github.ref_name) || '' }}
+  RELEASE_TAG: ${{ inputs.tag }}
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ inputs.tag || github.ref }}
   cancel-in-progress: false
 
 jobs:
   packages:
     name: ${{ matrix.name }}
-    if: github.event_name != 'workflow_dispatch' || inputs.platforms != 'macos'
+    if: inputs.platforms != 'macos'
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
@@ -182,7 +187,7 @@ jobs:
 
   flatpak:
     name: Flatpak bundle
-    if: github.event_name != 'workflow_dispatch' || inputs.platforms != 'macos'
+    if: inputs.platforms != 'macos'
     runs-on: ubuntu-24.04
 
     steps:
@@ -227,7 +232,7 @@ jobs:
   # Vinilo, the same audience Flatpak already serves.
   appimage:
     name: AppImage
-    if: github.event_name != 'workflow_dispatch' || inputs.platforms != 'macos'
+    if: inputs.platforms != 'macos'
     runs-on: ubuntu-24.04
     container:
       image: ubuntu:26.04
@@ -395,9 +400,9 @@ jobs:
           retention-days: 14
 
   release:
-    name: Publish GitHub Release
-    # Skipped Linux jobs (platforms: macos) must not stop the publish; a failed one still does.
-    if: (inputs.tag != '' || startsWith(github.ref, 'refs/tags/v')) && !cancelled() && !failure()
+    name: Attach to the release draft
+    # Skipped Linux jobs (platforms: macos) must not stop it; a failed one still does.
+    if: inputs.tag != '' && !cancelled() && !failure()
     needs: [packages, flatpak, appimage, macos, macos-native]
     runs-on: ubuntu-24.04
     permissions:
@@ -429,26 +434,22 @@ jobs:
           for dmg in *.dmg; do sha256sum -- "$dmg" > "$dmg.sha256"; done
           cat SHA256SUMS
 
-      - name: Publish GitHub Release
+      - name: Attach to the release draft
         env:
           GH_TOKEN: ${{ github.token }}
-          PLATFORMS: ${{ inputs.platforms || 'all' }}
+          SHA: ${{ github.sha }}
         run: |
-          set -euxo pipefail
-          VERSION="${RELEASE_TAG#v}"
-          # The release may already exist: the draft release-auto.yml made with the notes, or a
-          # notes-only release. Attach the bundles either way.
-          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$RELEASE_TAG" release/* \
-              --repo "$GITHUB_REPOSITORY" \
-              --clobber
-          else
-            latest=true
-            [[ "${PLATFORMS:-all}" == macos ]] && latest=false
-            gh release create "$RELEASE_TAG" release/* \
-              --repo "$GITHUB_REPOSITORY" \
-              --verify-tag \
-              --title "Vinilo $VERSION" \
-              --latest="$latest" \
-              --notes "Vinilo $VERSION"
+          set -euo pipefail
+          # release-tag made the tag at this commit and a draft whose text is the curated notes;
+          # release-auto.yml publishes it once this passes.
+          tagged="$(gh api "repos/$GITHUB_REPOSITORY/commits/$RELEASE_TAG" --jq .sha)"
+          if [[ "$tagged" != "$SHA" ]]; then
+            echo "Tag $RELEASE_TAG points at $tagged, not at $SHA (the commit built here)" >&2
+            exit 1
           fi
+          # Only a draft takes files: --clobber on a published release would swap what people downloaded.
+          if [[ "$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)" != "true" ]]; then
+            echo "Release $RELEASE_TAG is not a draft; not touching its files" >&2
+            exit 1
+          fi
+          gh release upload "$RELEASE_TAG" release/* --repo "$GITHUB_REPOSITORY" --clobber
