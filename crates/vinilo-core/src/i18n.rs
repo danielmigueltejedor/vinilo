@@ -26,23 +26,6 @@ use std::path::PathBuf;
 
 use crate::paths;
 
-/// How to install yt-dlp and ffmpeg on this platform. A macro so messages can `concat!` it.
-#[cfg(target_os = "macos")]
-macro_rules! ytdlp_install {
-    () => {
-        "brew install yt-dlp ffmpeg"
-    };
-}
-#[cfg(not(target_os = "macos"))]
-macro_rules! ytdlp_install {
-    () => {
-        "Arch: sudo pacman -S yt-dlp ffmpeg"
-    };
-}
-
-/// The install command shown wherever yt-dlp is missing.
-pub const YTDLP_INSTALL: &str = ytdlp_install!();
-
 /// Preference shown in the language combo and written to disk.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Locale {
@@ -615,11 +598,7 @@ fn en(key: Key) -> &'static str {
             "After you sign in, search a song and click it. YouTube Music prefers InnerTube audio; Tidal still needs yt-dlp."
         }
         Key::CatalogSetupYtMissing => {
-            concat!(
-                "yt-dlp is not on PATH. YouTube Music still plays from InnerTube when it can. Tidal needs yt-dlp (",
-                ytdlp_install!(),
-                ")."
-            )
+            "yt-dlp is not on PATH. YouTube Music still plays from InnerTube when it can. Tidal needs yt-dlp and ffmpeg: brew install yt-dlp ffmpeg on macOS, your distribution's packages on Linux."
         }
         Key::CatalogSetupContinue => "Sign In",
         Key::CatalogSetupBack => "Choose another source",
@@ -940,11 +919,7 @@ fn es(key: Key) -> &'static str {
             "Cuando inicies sesión, busca una canción y pulsa. YouTube Music prefiere audio InnerTube; Tidal aún necesita yt-dlp."
         }
         Key::CatalogSetupYtMissing => {
-            concat!(
-                "yt-dlp no está en el PATH. YouTube Music sigue sonando por InnerTube cuando puede. Tidal necesita yt-dlp (",
-                ytdlp_install!(),
-                ")."
-            )
+            "yt-dlp no está en el PATH. YouTube Music sigue sonando por InnerTube cuando puede. Tidal necesita yt-dlp y ffmpeg: brew install yt-dlp ffmpeg en macOS, los paquetes de tu distribución en Linux."
         }
         Key::CatalogSetupContinue => "Iniciar sesión",
         Key::CatalogSetupBack => "Elegir otra fuente",
