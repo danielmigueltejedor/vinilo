@@ -1,0 +1,75 @@
+name: Label and assign issues and pull requests
+
+on:
+  issues:
+    types: [opened]
+  pull_request:
+    types: [opened, reopened, ready_for_review, synchronize]
+
+permissions:
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: maintainer-triage-${{ github.event.issue.number || github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  triage:
+    name: Label and assign
+    # A fork's pull_request token cannot edit labels or assignees.
+    if: >-
+      github.event_name == 'issues' ||
+      (!github.event.pull_request.draft &&
+      github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const maintainers = ['danielmigueltejedor', 'JonNovoa'];
+            const { issue, pull_request: pull, action } = context.payload;
+            const issueParams = { ...context.repo, issue_number: (pull ?? issue).number };
+            const { data: item } = await github.rest.issues.get(issueParams);
+            if (item.state !== 'open' || item.locked) return;
+
+            const labels = new Set();
+            if (!pull) {
+              labels.add('needs-triage');
+            } else {
+              const prParams = { ...context.repo, pull_number: pull.number };
+              const { data: current } = await github.rest.pulls.get(prParams);
+              if (current.draft || current.state !== 'open') return;
+              const prefix = current.head.ref.split('/')[0].toLowerCase();
+              const branchTypes = new Map([
+                ['fix', 'bug'], ['bugfix', 'bug'], ['hotfix', 'bug'],
+                ['feat', 'enhancement'], ['feature', 'enhancement'],
+                ['docs', 'documentation'], ['renovate', 'dependencies'],
+                ['dependabot', 'dependencies'],
+              ]);
+              if (branchTypes.has(prefix)) labels.add(branchTypes.get(prefix));
+              for await (const page of github.paginate.iterator(github.rest.pulls.listFiles, {
+                ...prParams, per_page: 100,
+              })) {
+                for (const { filename } of page.data) {
+                  if (/^(docs|book)\//i.test(filename) || /\.md$/i.test(filename)) labels.add('documentation');
+                  if (/^\.github\/(workflows|actions)\//i.test(filename)) labels.add('github_actions');
+                  if (/(^|\/)(Cargo\.lock|package-lock\.json|npm-shrinkwrap\.json|pnpm-lock\.yaml|yarn\.lock|uv\.lock|poetry\.lock|go\.sum|Gemfile\.lock|composer\.lock|requirements[^/]*\.txt)$/i.test(filename)) labels.add('dependencies');
+                  if (/(^|\/)(tests?|__tests__)\/|[.-](test|spec)\.[^/]+$/i.test(filename)) labels.add('tests');
+                }
+              }
+            }
+
+            const existing = new Set(item.labels.map(label => label.name));
+            const missing = [...labels].filter(label => !existing.has(label));
+            if (missing.length) await github.rest.issues.addLabels({ ...issueParams, labels: missing });
+            if (action !== 'synchronize' && !item.assignees.length) {
+              const { data: assigned } = await github.rest.issues.addAssignees({
+                ...issueParams, assignees: maintainers,
+              });
+              const logins = new Set(assigned.assignees.map(user => user.login.toLowerCase()));
+              if (maintainers.some(login => !logins.has(login.toLowerCase()))) {
+                throw new Error('GitHub did not assign both maintainers.');
+              }
+            }

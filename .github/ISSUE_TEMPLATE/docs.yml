@@ -1,0 +1,31 @@
+name: Documentation improvement
+description: Report unclear, incorrect or missing documentation.
+labels:
+- documentation
+body:
+- type: dropdown
+  id: doc_kind
+  attributes:
+    label: Documentation area
+    options:
+    - Getting started
+    - Usage guide
+    - API or development
+    - Installation or releases
+    - Translation
+    - Other or unsure
+  validations:
+    required: true
+- type: input
+  id: location
+  attributes:
+    label: Page, file or section
+  validations:
+    required: true
+- type: textarea
+  id: problem
+  attributes:
+    label: What needs to change?
+    description: Explain what was unclear and suggest an improvement if you have one.
+  validations:
+    required: true
