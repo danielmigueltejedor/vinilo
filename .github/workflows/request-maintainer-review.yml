@@ -1,0 +1,52 @@
+name: Request maintainer review
+
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review]
+
+permissions:
+  pull-requests: write
+
+concurrency:
+  group: request-maintainer-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  request-review:
+    name: Request Daniel and Jon
+    # Fork PRs are handled by the base branch's CODEOWNERS.
+    if: >-
+      !github.event.pull_request.draft &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const params = { ...context.repo, pull_number: context.payload.pull_request.number };
+            const { data: pull } = await github.rest.pulls.get(params);
+            if (pull.state !== 'open' || pull.draft) return;
+
+            const reviewers = ['danielmigueltejedor', 'JonNovoa'];
+            const author = pull.user.login.toLowerCase();
+            const alreadyInvolved = new Set(
+              pull.requested_reviewers.map(user => user.login.toLowerCase())
+            );
+            for await (const page of github.paginate.iterator(github.rest.pulls.listReviews, {
+              ...params,
+              per_page: 100,
+            })) {
+              for (const review of page.data) {
+                if (review.user && review.state !== 'PENDING') {
+                  alreadyInvolved.add(review.user.login.toLowerCase());
+                }
+              }
+            }
+            const missing = reviewers.filter(login =>
+              login.toLowerCase() !== author && !alreadyInvolved.has(login.toLowerCase())
+            );
+            if (missing.length) {
+              await github.rest.pulls.requestReviewers({ ...params, reviewers: missing });
+              core.info(`Requested review from ${missing.join(', ')}.`);
+            }
