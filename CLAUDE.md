@@ -1370,8 +1370,10 @@ Debugging, in order — always isolate the layer first:
   MPRIS bus name suffix. The app is called **Vinilo** in the window title and
   `.desktop` `Name=`.
 - Versioning: SemVer in `Cargo.toml`; `main` carries a `-dev` pre-release.
-  Releasing is: bump to the release version, tag `vX.Y.Z` on the merge commit,
-  then set `main` back to the next `-dev`. There is no CHANGELOG — the release
+  Releasing is: a pull request that bumps to the release version and adds
+  `docs/release-notes/vX.Y.Z.md`; merging it tags, builds and publishes
+  (`release-auto.yml`, see `docs/release-notes/README.md`). Nobody pushes a tag.
+  Then set `main` back to the next `-dev`. There is no CHANGELOG — the release
   notes are written from the merged PRs, which is where the reasoning already
   is.
 - `sidecar/node_modules` is **never** committed — it is ~200 MB of Chromium,

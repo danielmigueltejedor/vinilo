@@ -12,7 +12,18 @@ the same pull request. When it is merged, **Release from main** (`release-auto.y
 2. runs **Release bundles** (`release.yml`), which builds every package and attaches it;
 3. publishes the release once every package is attached. If one fails, it stays a draft.
 
-A version with no notes file is not released. Nobody pushes a tag by hand.
+A version with no notes file is not released. Nobody pushes a tag by hand. The **Release notes are
+written** check (`scripts/check-release-notes.sh`) fails a pull request whose notes are missing or
+incomplete.
+
+A fix for one platform only (a z version for the macOS editions, say) adds this line to its notes:
+
+```markdown
+<!-- platforms: macos -->
+```
+
+Then only the disk images are built, and the release is published without becoming the latest
+one, so installed Linux copies and the website keep the newest release that has their package.
 
 ## What goes in
 

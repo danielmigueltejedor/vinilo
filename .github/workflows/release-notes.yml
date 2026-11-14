@@ -1,0 +1,90 @@
+name: Release notes
+
+# Every version needs hand-written release notes in docs/release-notes/vX.Y.Z.md (format: the README
+# in that folder). This workflow
+#   - fails a pull request that bumps the version without complete notes, or that adds or edits a
+#     notes file that is incomplete ("Release notes are written", a required check), and
+#   - after a merge, copies each changed notes file into the GitHub release of the same tag, so the
+#     file in the repository is the source of truth and the release page never shows a stub.
+# It can also be run by hand with a tag to republish its notes.
+#
+# Releasing itself is release-auto.yml: merging the version bump with its notes tags and publishes it.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    paths:
+      - "docs/release-notes/**"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag whose release gets the notes from docs/release-notes, e.g. v0.3.1"
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-notes-${{ github.event.pull_request.number || github.ref }}-${{ inputs.tag }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Release notes are written
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check the notes this change needs
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          case "$EVENT" in
+            pull_request) scripts/check-release-notes.sh --changed "$BASE" ;;
+            workflow_dispatch) scripts/check-release-notes.sh "$INPUT_TAG" ;;
+            *) scripts/check-release-notes.sh --changed HEAD^ ;;
+          esac
+
+  publish:
+    name: Publish the notes to the release
+    needs: check
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Copy the notes into their releases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT" == workflow_dispatch ]]; then
+            tags=("$INPUT_TAG")
+          else
+            # First parent: what this merge brought into the branch.
+            mapfile -t tags < <(git diff --name-only -M --diff-filter=AM HEAD^ HEAD \
+              | sed -n 's#^docs/release-notes/\(v[0-9][^/]*\)\.md$#\1#p')
+          fi
+          for tag in "${tags[@]}"; do
+            if gh release view "$tag" --repo "$REPO" >/dev/null 2>&1; then
+              echo "→ $tag"
+              gh release edit "$tag" --repo "$REPO" --notes-file "docs/release-notes/$tag.md"
+            else
+              echo "No release for $tag yet; release-auto.yml will use the file when it creates it."
+            fi
+          done

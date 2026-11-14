@@ -6,10 +6,20 @@ name: Release from main
 # attaches every package, and release-publish publishes it once they are all there. A failed
 # package leaves the release a draft. Any other push does nothing.
 #
-# A macOS-only z release still goes through release.yml by hand (platforms: macos) on a tag.
+# A fix for one platform only says `<!-- platforms: macos -->` in its notes: only the disk images
+# are built, and the release is published without becoming the latest one.
+#
+# If a package fails and its fix lands after the tag, run this by hand on main with retag-draft:
+# while the release is still a draft, its tag moves to the fixed commit and it builds again.
 on:
   push:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      retag-draft:
+        description: "Move an unpublished draft's tag to this commit and build it again"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -22,13 +32,37 @@ jobs:
   tag:
     permissions:
       contents: write
-    uses: getnodalia/foundation/.github/workflows/release-tag.yml@a25f5cc235b0f712c6c06a70c621ca4e9cc7dc61 # foundation 2026-11-13 (#9)
+    uses: getnodalia/foundation/.github/workflows/release-tag.yml@e756876881280ba136ec527be594f616c9a65a5a
     with:
       name: Vinilo
+      notes-check: scripts/check-release-notes.sh
+      retag-draft: ${{ inputs.retag-draft == true }}
 
-  packages:
+  # Which packages this version ships, from the marker in its notes.
+  plan:
     needs: tag
     if: needs.tag.outputs.created == 'true'
+    runs-on: ubuntu-24.04
+    outputs:
+      platforms: ${{ steps.plan.outputs.platforms }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: docs/release-notes
+      - id: plan
+        env:
+          TAG: ${{ needs.tag.outputs.tag }}
+        run: |
+          platforms=all
+          if grep -qE '<!--[[:space:]]*platforms:[[:space:]]*macos[[:space:]]*-->' "docs/release-notes/$TAG.md"; then
+            platforms=macos
+          fi
+          echo "platforms=$platforms" >> "$GITHUB_OUTPUT"
+          echo "$TAG ships: $platforms"
+
+  packages:
+    needs: [tag, plan]
     permissions:
       contents: write
     uses: ./.github/workflows/release.yml
@@ -36,11 +70,14 @@ jobs:
     secrets: inherit
     with:
       tag: ${{ needs.tag.outputs.tag }}
+      platforms: ${{ needs.plan.outputs.platforms }}
 
   publish:
-    needs: [tag, packages]
+    needs: [tag, plan, packages]
     permissions:
       contents: write
-    uses: getnodalia/foundation/.github/workflows/release-publish.yml@a25f5cc235b0f712c6c06a70c621ca4e9cc7dc61 # foundation 2026-11-13 (#9)
+    uses: getnodalia/foundation/.github/workflows/release-publish.yml@e756876881280ba136ec527be594f616c9a65a5a
     with:
       tag: ${{ needs.tag.outputs.tag }}
+      # A release with only some platforms must not become the one installed copies follow.
+      latest: ${{ needs.plan.outputs.platforms == 'all' }}
