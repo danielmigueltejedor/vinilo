@@ -4,7 +4,7 @@
 //! `yt-dlp` as the fetch half of Spotify / YouTube Music / Tidal.
 //!
 //! Search for YouTube Music is also `yt-dlp` (`ytsearch`). The binary is
-//! expected on PATH — Arch: `pacman -S yt-dlp`. Playback prefers a file
+//! expected on PATH (Homebrew on macOS, the distribution's package on Linux). Playback prefers a file
 //! rodio can open; ffmpeg transcode is the fallback when YouTube's dash
 //! m4a or webm panics the decoder.
 
@@ -17,7 +17,11 @@ use vinilo_core::setup;
 use vinilo_core::streams::{self, StreamHit, youtube_hit_from_json};
 
 pub fn missing_hint() -> String {
-    "yt-dlp is not installed. On Arch: sudo pacman -S yt-dlp ffmpeg".into()
+    if cfg!(target_os = "macos") {
+        "yt-dlp is not installed. Install it with Homebrew: brew install yt-dlp ffmpeg".into()
+    } else {
+        "yt-dlp is not installed. Install yt-dlp and ffmpeg from your distribution (Arch: sudo pacman -S yt-dlp ffmpeg)".into()
+    }
 }
 
 fn cookie_args() -> Vec<String> {
@@ -286,5 +290,16 @@ mod tests {
             assert!(NATIVE.contains(&ext), "{ext} should play without ffmpeg");
         }
         assert!(!NATIVE.contains(&"webm"));
+    }
+
+    #[test]
+    fn the_install_hint_names_this_platforms_package_manager() {
+        let hint = missing_hint();
+        if cfg!(target_os = "macos") {
+            assert!(hint.contains("brew install"), "{hint}");
+            assert!(!hint.contains("pacman"), "{hint}");
+        } else {
+            assert!(!hint.contains("brew"), "{hint}");
+        }
     }
 }

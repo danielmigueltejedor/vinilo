@@ -32,6 +32,9 @@ use vinilo_core::streams::StreamHit;
 /// Spotify's own desktop client id — the same one Sonora and librespot demos use.
 const CLIENT_ID: &str = "65b708073fc0480ea92a077233ca87bd";
 const REDIRECT: &str = "http://127.0.0.1:8989/login";
+/// What the browser tab shows once Spotify hands the sign-in back. librespot's default
+/// ("Go back to your terminal") is written for its command-line player.
+const SIGNED_IN_PAGE: &str = "Vinilo is signed in to Spotify. You can close this tab.";
 const SCOPES: &[&str] = &[
     "playlist-read-collaborative",
     "playlist-read-private",
@@ -58,6 +61,7 @@ async fn login() -> Result<()> {
     let token = tokio::task::spawn_blocking(|| {
         OAuthClientBuilder::new(CLIENT_ID, REDIRECT, SCOPES.to_vec())
             .open_in_browser()
+            .with_custom_message(SIGNED_IN_PAGE)
             .build()?
             .get_access_token()
     })

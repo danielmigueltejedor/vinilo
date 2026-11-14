@@ -3018,6 +3018,12 @@ fn remember_songs(daemon: &Daemon, songs: &[vinilo_core::music::types::Track]) {
     remember_hits(daemon, vinilo_core::spotify::hits_from_songs(songs));
 }
 
+/// Spotify Premium playback failed and so did the yt-dlp fallback: say the first, which is
+/// the one the person can act on, and keep the second for completeness.
+fn spotify_fallback_failed(why: &str, fallback: &str) -> String {
+    format!("Spotify could not play this track ({why}). The fallback failed too: {fallback}")
+}
+
 fn play_streams(daemon: &Rc<Daemon>, ids: Vec<String>, index: usize, start: Start) {
     let shuffled = start.reorders();
     let play_gen = daemon.stream_play_gen.get().wrapping_add(1);
@@ -3047,6 +3053,9 @@ fn play_streams(daemon: &Rc<Daemon>, ids: Vec<String>, index: usize, start: Star
         } else {
             index.min(hits.len().saturating_sub(1))
         };
+        // Why Spotify's own player gave up, so a failed fallback does not hide it behind a
+        // yt-dlp message.
+        let mut spotify_failure: Option<String> = None;
         if crate::spotify_play::all_spotify(&hits) {
             let mut ordered = hits.clone();
             let first = ordered.remove(start_at);
@@ -3081,6 +3090,7 @@ fn play_streams(daemon: &Rc<Daemon>, ids: Vec<String>, index: usize, start: Star
                         ?err,
                         "spotify librespot unavailable; falling back to yt-dlp"
                     );
+                    spotify_failure = Some(format!("{err:#}"));
                 }
             }
         }
@@ -3170,6 +3180,10 @@ fn play_streams(daemon: &Rc<Daemon>, ids: Vec<String>, index: usize, start: Star
                 Ok(path) => path,
                 Err(detail) => {
                     if daemon.stream_play_gen.get() == play_gen {
+                        let detail = match &spotify_failure {
+                            Some(why) => spotify_fallback_failed(why, &detail),
+                            None => detail,
+                        };
                         daemon.publish(Event::Error { detail });
                     }
                     return;
@@ -3962,6 +3976,13 @@ fn command_for(transport: Transport) -> Option<Command> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn a_failed_spotify_fallback_leads_with_spotify() {
+        let detail = super::spotify_fallback_failed("spotify connect", "yt-dlp is not installed");
+        assert!(detail.starts_with("Spotify could not play this track (spotify connect)"));
+        assert!(detail.ends_with("yt-dlp is not installed"));
+    }
 
     /// Without a stream mixer (macOS) MusicKit's gain is the only volume, so
     /// the sidecar is told; with one (Linux) it never is.
